@@ -173,7 +173,7 @@ function RoleApprovalPage() {
                   <div className="flex justify-between">
                     <div>
                       <p><strong>Email:</strong> {user.email}</p>
-                      <p><strong>{currentRoleLabel}</strong> {currentRolesDisplay || 'None'}</p>
+                      <p><strong>{currentRoleLabel}</strong></p>
                       {Array.isArray(currentRoles) && currentRoles.length > 0 && (
                         <div className="flex flex-wrap gap-2 mt-1">
                           {currentRoles.map((role: string) => {
@@ -205,35 +205,38 @@ function RoleApprovalPage() {
                     </div>
                   </div>
                   
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {availableRoles.map(role => {
-                      let btnClass = '';
-                      let label = '';
-                      if (role === 'admin') {
-                        btnClass = 'bg-blue-600';
-                        label = 'Set as Admin';
-                      } else if (role === 'coach') {
-                        btnClass = 'bg-green-600';
-                        label = 'Set as Coach';
-                      } else if (role === 'player') {
-                        btnClass = 'bg-purple-600';
-                        label = 'Set as Player';
-                      } else if (role === 'parent') {
-                        btnClass = 'bg-orange-600';
-                        label = 'Set as Parent';
-                      }
-                      const isPendingRole = user.pending_roles?.includes(role);
-                      return (
-                        <button
-                          key={role}
-                          className={`${btnClass} hover:opacity-90 text-white px-4 py-1 rounded flex items-center gap-2 focus:outline focus:ring-2 focus:ring-offset-2`}
-                          onClick={() => updateRole(user.id, role, true)}
-                        >
-                          {label}
-                          {isPendingRole && <span className="text-xs text-yellow-200 ml-1">(requested)</span>}
-                        </button>
-                      );
-                    })}
+                  <div className="mt-4">
+                    <p className="font-semibold mb-1">Update Roles:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {availableRoles.map(role => {
+                        let btnClass = '';
+                        let label = '';
+                        if (role === 'admin') {
+                          btnClass = 'bg-blue-600';
+                          label = 'Set as Admin';
+                        } else if (role === 'coach') {
+                          btnClass = 'bg-green-600';
+                          label = 'Set as Coach';
+                        } else if (role === 'player') {
+                          btnClass = 'bg-purple-600';
+                          label = 'Set as Player';
+                        } else if (role === 'parent') {
+                          btnClass = 'bg-orange-600';
+                          label = 'Set as Parent';
+                        }
+                        const isPendingRole = user.pending_roles?.includes(role);
+                        return (
+                          <button
+                            key={role}
+                            className={`${btnClass} hover:opacity-90 text-white px-4 py-1 rounded flex items-center gap-2 focus:outline focus:ring-2 focus:ring-offset-2`}
+                            onClick={() => updateRole(user.id, role, true)}
+                          >
+                            {label}
+                            {isPendingRole && <span className="text-xs text-yellow-200 ml-1">(requested)</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </li>
               );
