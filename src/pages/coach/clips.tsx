@@ -1,8 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import UserBanner from '@/components/UserBanner'
 import withAuth from '@/components/withAuth'
+import { useTheme } from '@/contexts/ThemeContext'
 
 function CoachClipManager({ user }: { user: any }) {
   const [clips, setClips] = useState<any[]>([])
@@ -12,6 +12,7 @@ function CoachClipManager({ user }: { user: any }) {
   const [end, setEnd] = useState(0)
   const [editId, setEditId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const { isDarkMode } = useTheme()
 
   useEffect(() => {
     // Load clips as soon as the component mounts
@@ -99,16 +100,49 @@ function CoachClipManager({ user }: { user: any }) {
 
   return (
     <div className="p-8 space-y-4">
-      <UserBanner email={user.email || ''} roles={user.roles || []} />
       <h1 className="text-2xl font-bold">Coach: Manage Clips</h1>
       <div className="grid gap-2 max-w-md">
-        <input className="border px-4 py-2" placeholder="Title" value={title} onChange={e => setTitle(e.target.value)} />
-        <input className="border px-4 py-2" placeholder="Video ID" value={videoId} onChange={e => setVideoId(e.target.value)} />
-        <input type="number" className="border px-4 py-2" placeholder="Start Time (s)" value={start} onChange={e => setStart(Number(e.target.value))} />
-        <input type="number" className="border px-4 py-2" placeholder="End Time (s)" value={end} onChange={e => setEnd(Number(e.target.value))} />
+        <input 
+          className={`border px-4 py-2 rounded ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`} 
+          placeholder="Title" 
+          value={title} 
+          onChange={e => setTitle(e.target.value)} 
+        />
+        <input 
+          className={`border px-4 py-2 rounded ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`} 
+          placeholder="Video ID" 
+          value={videoId} 
+          onChange={e => setVideoId(e.target.value)} 
+        />
+        <input 
+          type="number" 
+          className={`border px-4 py-2 rounded ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`} 
+          placeholder="Start Time (s)" 
+          value={start} 
+          onChange={e => setStart(Number(e.target.value))} 
+        />
+        <input 
+          type="number" 
+          className={`border px-4 py-2 rounded ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`} 
+          placeholder="End Time (s)" 
+          value={end} 
+          onChange={e => setEnd(Number(e.target.value))} 
+        />
         <div className="space-x-2">
-          <button className="bg-green-600 text-white px-4 py-2" onClick={handleAddOrUpdateClip}>{editId ? 'Update' : 'Add'} Clip</button>
-          {editId && <button className="bg-gray-300 px-4 py-2" onClick={() => { setEditId(null); setTitle(''); setVideoId(''); setStart(0); setEnd(0); }}>Cancel</button>}
+          <button 
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded" 
+            onClick={handleAddOrUpdateClip}
+          >
+            {editId ? 'Update' : 'Add'} Clip
+          </button>
+          {editId && (
+            <button 
+              className={`px-4 py-2 rounded ${isDarkMode ? 'bg-gray-600 text-white' : 'bg-gray-300 text-gray-800'}`} 
+              onClick={() => { setEditId(null); setTitle(''); setVideoId(''); setStart(0); setEnd(0); }}
+            >
+              Cancel
+            </button>
+          )}
         </div>
       </div>
       
@@ -116,15 +150,15 @@ function CoachClipManager({ user }: { user: any }) {
       {loading ? (
         <p>Loading clips...</p>
       ) : clips.length === 0 ? (
-        <p className="text-gray-500">No clips found. Add your first clip above.</p>
+        <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>No clips found. Add your first clip above.</p>
       ) : (
         <ul className="space-y-2">
           {clips.map(c => (
-            <li key={c.id} className="flex justify-between items-center border-b pb-1">
+            <li key={c.id} className={`flex justify-between items-center border-b pb-1 ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
               <span>{c.title} – {c.video_id} [{c.start_time}-{c.end_time}s]</span>
               <span className="space-x-2">
-                <button className="text-blue-600" onClick={() => handleEdit(c)}>Edit</button>
-                <button className="text-red-600" onClick={() => handleDelete(c.id)}>Delete</button>
+                <button className={`${isDarkMode ? 'text-blue-400' : 'text-blue-600'} hover:underline`} onClick={() => handleEdit(c)}>Edit</button>
+                <button className={`${isDarkMode ? 'text-red-400' : 'text-red-600'} hover:underline`} onClick={() => handleDelete(c.id)}>Delete</button>
               </span>
             </li>
           ))}

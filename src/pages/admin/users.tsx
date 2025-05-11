@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import UserBanner from '@/components/UserBanner'
 import withAuth from '@/components/withAuth'
 import { supabase } from '@/lib/supabaseClient'
 
@@ -52,7 +51,6 @@ function AdminUsersPage({ user }: { user: any }) {
 
   return (
     <div className="p-8">
-      <UserBanner email={user.email} roles={user.roles} />
       <h1 className="text-2xl font-bold mb-4">User Management</h1>
       
       <div className="mt-4">

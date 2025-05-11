@@ -1,7 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import UserBanner from '@/components/UserBanner'
 import RequestRoleForm from '@/components/RequestRoleForm'
 import withAuth from '@/components/withAuth'
 import { getCurrentUser } from '@/lib/auth'
@@ -29,9 +28,7 @@ function ProfilePage() {
   if (!user) return <div className="p-8">User not found. Please log in again.</div>
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <UserBanner email={user.email || ''} roles={user.roles || []} />
-      
+    <div className="max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mt-8 mb-6">Your Profile</h1>
       
       <div className="bg-white rounded-lg shadow-sm p-6 mb-8">

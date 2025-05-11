@@ -1,10 +1,13 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { X as LucideX } from 'lucide-react'
+import withAuth from '@/components/withAuth'
+import { useTheme } from '@/contexts/ThemeContext'
 
-export default function RoleApprovalPage() {
+function RoleApprovalPage() {
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const { isDarkMode } = useTheme()
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -152,7 +155,7 @@ export default function RoleApprovalPage() {
       <h1 className="text-2xl font-bold mb-4">User Role Management</h1>
       
       {users.length === 0 ? (
-        <div className="bg-gray-100 p-4 rounded">
+        <div className={`${isDarkMode ? 'bg-gray-800' : 'bg-gray-100'} p-4 rounded`}>
           <p>No users found.</p>
         </div>
       ) : (
@@ -168,7 +171,7 @@ export default function RoleApprovalPage() {
               const availableRoles = allRoles.filter(r => !unavailableRoles.has(r));
               
               return (
-                <li key={user.id} className="border p-4 rounded shadow-sm">
+                <li key={user.id} className={`border p-4 rounded shadow-sm ${isDarkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
                   <div className="flex justify-between">
                     <div>
                       <p><strong>Email:</strong> {user.email}</p>
@@ -177,15 +180,15 @@ export default function RoleApprovalPage() {
                         <div className="flex flex-wrap gap-2 mt-1">
                           {currentRoles.map((role: string) => {
                             let btnClass = '';
-                            if (role === 'admin') btnClass = 'bg-blue-100 text-blue-800';
-                            else if (role === 'coach') btnClass = 'bg-green-100 text-green-800';
-                            else if (role === 'player') btnClass = 'bg-purple-100 text-purple-800';
-                            else if (role === 'parent') btnClass = 'bg-orange-100 text-orange-800';
+                            if (role === 'admin') btnClass = isDarkMode ? 'bg-blue-900 text-blue-200' : 'bg-blue-100 text-blue-800';
+                            else if (role === 'coach') btnClass = isDarkMode ? 'bg-green-900 text-green-200' : 'bg-green-100 text-green-800';
+                            else if (role === 'player') btnClass = isDarkMode ? 'bg-purple-900 text-purple-200' : 'bg-purple-100 text-purple-800';
+                            else if (role === 'parent') btnClass = isDarkMode ? 'bg-orange-900 text-orange-200' : 'bg-orange-100 text-orange-800';
                             return (
                               <span key={role} className={`inline-flex items-center px-2 py-1 rounded text-sm font-medium ${btnClass}`}> 
                                 {role.charAt(0).toUpperCase() + role.slice(1)}
                                 <button
-                                  className="ml-2 text-red-600 hover:bg-red-100 rounded-full p-1 focus:outline-none focus:ring-2 focus:ring-red-400"
+                                  className={`ml-2 ${isDarkMode ? 'text-red-400 hover:bg-red-900' : 'text-red-600 hover:bg-red-100'} rounded-full p-1 focus:outline-none focus:ring-2 focus:ring-red-400`}
                                   title={`Remove ${role}`}
                                   aria-label={`Remove ${role}`}
                                   onClick={() => removeRole(user.id, role)}
@@ -199,7 +202,7 @@ export default function RoleApprovalPage() {
                         </div>
                       )}
                     </div>
-                    <div className="text-sm text-gray-500">
+                    <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                       <p style={{ wordBreak: 'break-all', overflowWrap: 'anywhere' }}>User ID: {user.id}</p>
                     </div>
                   </div>
@@ -225,7 +228,7 @@ export default function RoleApprovalPage() {
                       return (
                         <button
                           key={role}
-                          className={`${btnClass} text-white px-4 py-1 rounded flex items-center gap-2 focus:outline focus:ring-2 focus:ring-offset-2`}
+                          className={`${btnClass} hover:opacity-90 text-white px-4 py-1 rounded flex items-center gap-2 focus:outline focus:ring-2 focus:ring-offset-2`}
                           onClick={() => updateRole(user.id, role, true)}
                         >
                           {label}
@@ -243,3 +246,6 @@ export default function RoleApprovalPage() {
     </div>
   )
 }
+
+// Restrict this page to admin users only
+export default withAuth(RoleApprovalPage, ['admin'])

@@ -1,49 +1,9 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/router'
-import UserBanner from '@/components/UserBanner'
-import { getCurrentUser, hasRole, getRedirectPath } from '@/lib/auth'
+import withAuth from '@/components/withAuth'
 
-export default function PlayerDashboard() {
-  const router = useRouter()
-  const [userRoles, setUserRoles] = useState<string[]>([])
-  const [userEmail, setUserEmail] = useState('')
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const user = await getCurrentUser()
-        
-        if (!user) {
-          console.log("No user found, redirecting to login")
-          router.push('/login')
-          return
-        }
-        
-        if (!hasRole(user.roles, ['player', 'admin'])) {
-          console.log("User is not a player, redirecting to appropriate page")
-          router.push(getRedirectPath(user.roles))
-          return
-        }
-
-        setUserRoles(user.roles || [])
-        setUserEmail(user.email || '')
-        setLoading(false)
-      } catch (error) {
-        console.error("Error checking authentication:", error)
-        router.push('/login')
-      }
-    }
-    
-    checkAuth()
-  }, [router])
-
-  if (loading) return <p className="p-8">Loading...</p>
-
+function PlayerDashboard() {
   return (
     <div className="p-8">
-      <UserBanner email={userEmail} roles={userRoles} />
       <h1 className="text-2xl font-bold mb-4">Player Dashboard</h1>
       <p>Welcome to your player dashboard. Here you can view your clips and progress.</p>
       <div className="mt-4">
@@ -52,4 +12,7 @@ export default function PlayerDashboard() {
       </div>
     </div>
   )
-} 
+}
+
+// Restrict access to players and admins
+export default withAuth(PlayerDashboard, ['player', 'admin']) 

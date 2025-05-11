@@ -1,14 +1,15 @@
 import { useRouter } from 'next/router'
 import { useEffect, useState } from 'react'
-import { getCurrentUser, hasRole, getRedirectPath } from '@/lib/auth'
+import { getCurrentUser, hasRole } from '@/lib/auth'
+import AppLayout from './AppLayout'
 
 /**
  * Higher-Order Component for role-based access control
  * @param Component The component to wrap with authentication
  * @param allowedRoles Array of roles that can access this component
  */
-export default function withAuth(Component: React.ComponentType<any>, allowedRoles: string[]) {
-  return function ProtectedRoute(props: any) {
+export default function withAuth(Component: any, allowedRoles?: string[]) {
+  return function AuthenticatedComponent(props: any) {
     const router = useRouter()
     const [user, setUser] = useState<any>(null)
     const [loading, setLoading] = useState(true)
@@ -16,39 +17,42 @@ export default function withAuth(Component: React.ComponentType<any>, allowedRol
     useEffect(() => {
       const checkAuth = async () => {
         try {
-          const currentUser = await getCurrentUser()
+          const userData = await getCurrentUser()
           
-          if (!currentUser) {
-            console.log("No user found, redirecting to login")
+          if (!userData) {
+            console.log('No user session, redirecting to login')
             router.push('/login')
             return
           }
           
-          if (!hasRole(currentUser.roles, allowedRoles)) {
-            console.log(`User roles ${currentUser.roles} not allowed, redirecting`)
-            router.push(getRedirectPath(currentUser.roles))
-            return
+          // If roles are specified, only allow access if user has one of those roles
+          if (allowedRoles && allowedRoles.length > 0) {
+            if (!hasRole(userData.roles, allowedRoles)) {
+              console.log('User does not have required role, redirecting')
+              router.push('/')
+              return
+            }
           }
-
-          setUser(currentUser)
+          
+          // User is authenticated and has required role
+          setUser(userData)
           setLoading(false)
         } catch (error) {
-          console.error("Authentication error:", error)
+          console.error('Auth error:', error)
           router.push('/login')
         }
       }
       
       checkAuth()
     }, [router])
-
-    if (loading) {
-      return (
-        <div className="flex items-center justify-center min-h-screen">
-          <p className="text-xl">Loading...</p>
-        </div>
-      )
-    }
-
-    return <Component {...props} user={user} />
+    
+    if (loading) return <div className="p-8">Loading...</div>
+    
+    // Render the page inside AppLayout
+    return (
+      <AppLayout user={user}>
+        <Component {...props} user={user} />
+      </AppLayout>
+    )
   }
 } 

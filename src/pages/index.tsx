@@ -1,15 +1,16 @@
 'use client'
 import { useEffect, useState } from 'react'
 import ClipPlayer from '@/components/ClipPlayer'
-import UserBanner from '@/components/UserBanner'
 import { supabase } from '@/lib/supabaseClient'
 import withAuth from '@/components/withAuth'
+import { useTheme } from '@/contexts/ThemeContext'
 
 function HomePage({ user }: { user: any }) {
   const [clips, setClips] = useState<any[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [comments, setComments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const { isDarkMode } = useTheme()
 
   useEffect(() => {
     const fetchClips = async () => {
@@ -40,7 +41,6 @@ function HomePage({ user }: { user: any }) {
 
   return (
     <div className="p-8 space-y-4">
-      <UserBanner email={user.email || ''} role={user.role || ''} />
       <h2 className="text-xl font-semibold">{current.title}</h2>
       <ClipPlayer videoId={current.video_id} start={current.start_time} end={current.end_time} />
       <ul className="list-disc list-inside space-y-1">
@@ -49,8 +49,18 @@ function HomePage({ user }: { user: any }) {
         ))}
       </ul>
       <div className="space-x-2">
-        <button className="bg-gray-200 px-4 py-2" onClick={() => setCurrentIndex(i => Math.max(0, i - 1))}>Prev</button>
-        <button className="bg-gray-200 px-4 py-2" onClick={() => setCurrentIndex(i => Math.min(clips.length - 1, i + 1))}>Next</button>
+        <button 
+          className={`${isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} px-4 py-2 rounded transition-colors`} 
+          onClick={() => setCurrentIndex(i => Math.max(0, i - 1))}
+        >
+          Prev
+        </button>
+        <button 
+          className={`${isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} px-4 py-2 rounded transition-colors`} 
+          onClick={() => setCurrentIndex(i => Math.min(clips.length - 1, i + 1))}
+        >
+          Next
+        </button>
       </div>
     </div>
   )
