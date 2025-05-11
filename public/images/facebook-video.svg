@@ -1,0 +1,6 @@
+<svg width="640" height="360" xmlns="http://www.w3.org/2000/svg">
+  <rect width="640" height="360" fill="#1877f2"/>
+  <circle cx="320" cy="160" r="60" fill="#fff"/>
+  <text x="320" y="170" font-family="Arial" font-size="100" font-weight="bold" text-anchor="middle" fill="#1877f2">f</text>
+  <text x="320" y="310" font-family="Arial" font-size="16" font-weight="bold" text-anchor="middle" fill="#fff">Facebook Video</text>
+</svg> 

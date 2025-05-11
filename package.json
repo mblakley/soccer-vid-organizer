@@ -7,10 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "push-db": "dotenv -e .env.push -- supabase db push --include-all --no-confirm",
+    "push-db": "dotenv -e .env.push -- supabase db push --include-all",
     "reset-db": "dotenv -e .env.push -- supabase db reset"
   },
   "dependencies": {
+    "@supabase/auth-helpers-nextjs": "^0.10.0",
+    "@supabase/ssr": "^0.6.1",
     "client-only": "^0.0.1",
     "jose": "^6.0.11",
     "jwt-decode": "^4.0.0",

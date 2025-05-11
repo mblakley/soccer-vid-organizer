@@ -25,6 +25,7 @@ function CoachDashboard({ user }: { user: any }) {
     <div className="p-8">
       <h1 className="text-2xl font-bold mb-4">Coach Dashboard</h1>
       <ul className="list-disc list-inside space-y-2">
+        <li><a href="/coach/videos" className="text-blue-600 underline">Manage Videos</a></li>
         <li><a href="/coach/clips" className="text-blue-600 underline">Edit Clips</a></li>
         <li>Unreplied Comments: {unrepliedCount}</li>
       </ul>
