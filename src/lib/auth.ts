@@ -53,17 +53,22 @@ export async function getCurrentUser(): Promise<User | null> {
  * Redirects the user to the appropriate page based on their role
  */
 export function getRedirectPath(roles: string[] | undefined | null): string {
-  if (!roles) return '/login'
+  if (!roles || roles.length === 0) {
+    return '/login'
+  }
   
   if (roles.includes('admin')) {
     return '/admin'
-  } else if (roles.includes('coach')) {
-    return '/coach'
-  } else if (roles.includes('player')) {
-    return '/player'
-  } else if (roles.includes('parent')) {
-    return '/parent'
   }
+  
+  if (roles.includes('coach')) {
+    return '/coach'
+  }
+  
+  if (roles.includes('player') || roles.includes('parent')) {
+    return '/'
+  }
+
   return '/'
 }
 

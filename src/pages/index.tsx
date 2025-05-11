@@ -14,7 +14,12 @@ function HomePage({ user }: { user: any }) {
 
   useEffect(() => {
     const fetchClips = async () => {
-      const { data } = await supabase.from('clips').select('*')
+      const { data, error } = await supabase.from('clips').select('*')
+      if (error) {
+        console.error('Error fetching clips:', error)
+      } else {
+        console.log('Fetched clips:', data)
+      }
       setClips(data || [])
       setLoading(false)
     }

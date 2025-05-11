@@ -162,7 +162,6 @@ function RoleApprovalPage() {
           <ul className="space-y-4">
             {users.map(user => {
               const currentRoles = user.roles || [];
-              const currentRolesDisplay = Array.isArray(currentRoles) ? currentRoles.join(', ') : currentRoles;
               const currentRoleLabel = Array.isArray(currentRoles) && currentRoles.length === 1 ? 'Current Role:' : 'Current Roles:';
               const allRoles = ['admin', 'coach', 'player', 'parent'];
               const unavailableRoles = new Set([...(currentRoles || [])]);

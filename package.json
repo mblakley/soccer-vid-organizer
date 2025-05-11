@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "push-db": "dotenv -e .env.push -- supabase db push",
+    "push-db": "dotenv -e .env.push -- supabase db push --include-all --no-confirm",
     "reset-db": "dotenv -e .env.push -- supabase db reset"
   },
   "dependencies": {

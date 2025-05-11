@@ -6,6 +6,7 @@ import { jwtDecode, JwtPayload } from 'jwt-decode'
 import { getCurrentUser } from '@/lib/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import ThemeToggle from '@/components/ThemeToggle'
+import { handleRoleBasedRouting } from '@/lib/routing'
 
 // Extend JwtPayload to include user_role
 interface CustomJwtPayload extends JwtPayload {
@@ -28,28 +29,15 @@ export default function LoginPage() {
         return
       }
       
-      // Get user data with roles from JWT claims
       const userData = await getCurrentUser()
-      const userRoles = userData?.roles || []
-      
-      if (!userRoles || userRoles.length === 0) {
-        alert('Your account is awaiting role approval. Please contact an admin.')
-        await supabase.auth.signOut()
-        router.push('/login')
-      } else if (userRoles.includes('admin')) {
-        router.push('/admin/roles')
-      } else if (userRoles.includes('coach')) {
-        router.push('/coach')
-      } else {
-        router.push('/')
-      }
+      await handleRoleBasedRouting(userData?.roles, router, true, true)
     } catch (error: any) {
       setError(error.message || 'An error occurred during login')
     }
   }
 
   const handleGoogleLogin = async () => {
-    console.log("Starting Google login...");
+    console.log("Starting Google login...")
     const { data, error } = await supabase.auth.signInWithOAuth({ 
       provider: 'google',
       options: {
@@ -58,57 +46,36 @@ export default function LoginPage() {
     })
     
     if (error) {
-      console.error("Google login error:", error);
-      setError(error.message);
+      console.error("Google login error:", error)
+      setError(error.message)
     } else {
-      console.log("Google OAuth initiated, waiting for redirect back");
-      // The rest will happen after redirect
+      console.log("Google OAuth initiated, waiting for redirect back")
     }
   }
 
-  // This effect runs once when the component mounts
   useEffect(() => {
-    console.log("Login page loaded, checking session...");
+    console.log("Login page loaded, checking session...")
     const handleAuthRedirect = async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const session = sessionData.session;
+      const { data: sessionData } = await supabase.auth.getSession()
+      const session = sessionData.session
       
       if (session) {
-        console.log("Found session after redirect:", session);
+        console.log("Found session after redirect:", session)
         try {
-          // Get user role from JWT
-          const jwt = jwtDecode<CustomJwtPayload>(session.access_token);
-          console.log("JWT decoded:", jwt);
-          
-          const userRoles = jwt.user_roles;
-          console.log("User roles from JWT:", userRoles);
-          
-          if (!userRoles || userRoles.length === 0) {
-            console.log("No user roles assigned or pending approval");
-            alert('Your account is awaiting role approval. Please contact an admin.');
-            await supabase.auth.signOut();
-            router.push('/login');
-          } else if (userRoles.includes('admin')) {
-            console.log("Admin user detected, redirecting to admin page");
-            router.push('/admin/roles');
-          } else if (userRoles.includes('coach')) {
-            console.log("Coach user detected, redirecting to coach page");
-            router.push('/coach');
-          } else {
-            console.log("Regular user detected, redirecting to home page");
-            router.push('/');
-          }
+          const userData = await getCurrentUser()
+          console.log("User data:", userData)
+          await handleRoleBasedRouting(userData?.roles, router, true, true)
         } catch (error) {
-          console.error("Error processing JWT:", error);
-          alert('An error occurred. Please try again.');
+          console.error("Error processing session:", error)
+          alert('An error occurred. Please try again.')
         }
       } else {
-        console.log("No session found - user needs to log in");
+        console.log("No session found - user needs to log in")
       }
-    };
+    }
 
-    handleAuthRedirect();
-  }, [router]);
+    handleAuthRedirect()
+  }, [router])
 
   // Login page uses full screen layout without AppLayout
   return (
