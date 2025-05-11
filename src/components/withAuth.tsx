@@ -7,8 +7,9 @@ import AppLayout from './AppLayout'
  * Higher-Order Component for role-based access control
  * @param Component The component to wrap with authentication
  * @param allowedRoles Array of roles that can access this component
+ * @param pageTitle Optional title to display in the AppLayout header
  */
-export default function withAuth(Component: any, allowedRoles?: string[]) {
+export default function withAuth(Component: any, allowedRoles?: string[], pageTitle?: string) {
   return function AuthenticatedComponent(props: any) {
     const router = useRouter()
     const [user, setUser] = useState<any>(null)
@@ -50,7 +51,7 @@ export default function withAuth(Component: any, allowedRoles?: string[]) {
     
     // Render the page inside AppLayout
     return (
-      <AppLayout user={user}>
+      <AppLayout user={user} title={pageTitle}>
         <Component {...props} user={user} />
       </AppLayout>
     )

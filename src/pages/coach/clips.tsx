@@ -100,7 +100,6 @@ function CoachClipManager({ user }: { user: any }) {
 
   return (
     <div className="p-8 space-y-4">
-      <h1 className="text-2xl font-bold">Coach: Manage Clips</h1>
       <div className="grid gap-2 max-w-md">
         <input 
           className={`border px-4 py-2 rounded ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`} 
@@ -169,4 +168,4 @@ function CoachClipManager({ user }: { user: any }) {
 }
 
 // Only allow coach and admin roles to access this page
-export default withAuth(CoachClipManager, ['coach', 'admin'])
+export default withAuth(CoachClipManager, ['coach', 'admin'], 'Manage Clips')

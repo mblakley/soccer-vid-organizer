@@ -152,8 +152,6 @@ function RoleApprovalPage() {
 
   return (
     <div className="p-8">
-      <h1 className="text-2xl font-bold mb-4">User Role Management</h1>
-      
       {users.length === 0 ? (
         <div className={`${isDarkMode ? 'bg-gray-800' : 'bg-gray-100'} p-4 rounded`}>
           <p>No users found.</p>
@@ -248,4 +246,4 @@ function RoleApprovalPage() {
 }
 
 // Restrict this page to admin users only
-export default withAuth(RoleApprovalPage, ['admin'])
+export default withAuth(RoleApprovalPage, ['admin'], 'Role Management')

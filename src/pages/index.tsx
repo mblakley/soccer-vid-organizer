@@ -67,4 +67,4 @@ function HomePage({ user }: { user: any }) {
 }
 
 // Allow any authenticated user to access this page
-export default withAuth(HomePage, ['admin', 'coach', 'player', 'parent'])
+export default withAuth(HomePage, ['admin', 'coach', 'player', 'parent'], 'Soccer Videos')
