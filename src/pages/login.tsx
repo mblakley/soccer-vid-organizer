@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/router'
 import { jwtDecode, JwtPayload } from 'jwt-decode'
+import { getCurrentUser } from '@/lib/auth'
 
 // Extend JwtPayload to include user_role
 interface CustomJwtPayload extends JwtPayload {
@@ -16,23 +17,30 @@ export default function LoginPage() {
   const router = useRouter()
 
   const handleLogin = async () => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) setError(error.message)
-    else {
-      const user = (await supabase.auth.getUser()).data.user
-      const roles = user?.user_metadata?.roles || []
-      if (!Array.isArray(roles) || roles.includes('pending') || roles.length === 0) {
-        await supabase.auth.updateUser({ data: { roles: ['pending'] } })
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) {
+        setError(error.message)
+        return
+      }
+      
+      // Get user data with roles from JWT claims
+      const userData = await getCurrentUser()
+      const userRoles = userData?.roles || []
+      
+      if (!userRoles || userRoles.length === 0) {
         alert('Your account is awaiting role approval. Please contact an admin.')
         await supabase.auth.signOut()
         router.push('/login')
-      } else if (roles.includes('admin')) {
+      } else if (userRoles.includes('admin')) {
         router.push('/admin/roles')
-      } else if (roles.includes('coach')) {
+      } else if (userRoles.includes('coach')) {
         router.push('/coach')
       } else {
         router.push('/')
       }
+    } catch (error: any) {
+      setError(error.message || 'An error occurred during login')
     }
   }
 
@@ -72,9 +80,7 @@ export default function LoginPage() {
           console.log("User roles from JWT:", userRoles);
           
           if (!userRoles || userRoles.length === 0) {
-            console.log("No user roles assigned, setting to pending");
-            // User doesn't have a role yet, set pending
-            await supabase.auth.updateUser({ data: { roles: ['pending'] } });
+            console.log("No user roles assigned or pending approval");
             alert('Your account is awaiting role approval. Please contact an admin.');
             await supabase.auth.signOut();
             router.push('/login');

@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    const { id, newRole } = req.body
+    const { id, newRole, approved = false } = req.body
 
     if (!id || !newRole) {
       return res.status(400).json({ error: 'Missing required parameters' })
@@ -41,8 +41,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { error: roleError } = await supabaseAdmin
       .from('user_roles')
       .upsert(
-        { user_id: id, role: newRole },
-        { onConflict: 'user_id' }
+        { 
+          user_id: id, 
+          role: newRole,
+          pending_review: !approved // Set to false if approved, true otherwise
+        },
+        { onConflict: 'user_id,role' } // Use both user_id and role for conflict detection
       )
 
     if (roleError) {

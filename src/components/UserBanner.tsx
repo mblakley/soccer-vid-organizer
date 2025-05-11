@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/router'
+import Link from 'next/link'
 
 export default function UserBanner({ email, roles }: { email: string; roles: string[] }) {
   const router = useRouter()
@@ -46,8 +47,22 @@ export default function UserBanner({ email, roles }: { email: string; roles: str
         {open && (
           <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded shadow-md z-10">
             <div className="px-4 py-2 text-sm text-gray-700">{email}</div>
-            <div className="px-4 py-1 text-xs text-gray-500">Roles: {roles.join(', ')}</div>
+            <div className="px-4 py-1 text-xs text-gray-500">Roles: {roles.join(', ') || 'None'}</div>
             <hr className="my-1" />
+            <Link 
+              href="/profile"
+              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+            >
+              Profile
+            </Link>
+            {roles.includes('admin') && (
+              <Link 
+                href="/admin/roles"
+                className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+              >
+                Manage Roles
+              </Link>
+            )}
             <button
               className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
               onClick={handleLogout}

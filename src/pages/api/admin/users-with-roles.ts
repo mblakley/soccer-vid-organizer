@@ -25,7 +25,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.log('Fetching user roles from database')
     const { data: roleData, error: roleError } = await supabaseAdmin
       .from('user_roles')
-      .select('user_id, role')
+      .select('user_id, role, pending_review')
 
     console.log('Role data fetch result:', { 
       success: !roleError, 
@@ -43,27 +43,47 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json([])
     }
 
+    // Group role data by user_id to handle multiple roles per user
+    const userRoleMap = new Map()
+    
+    roleData.forEach(role => {
+      if (!userRoleMap.has(role.user_id)) {
+        userRoleMap.set(role.user_id, {
+          activeRoles: [],
+          pendingRoles: []
+        })
+      }
+      
+      const userRoles = userRoleMap.get(role.user_id)
+      if (role.pending_review) {
+        userRoles.pendingRoles.push(role.role)
+      } else {
+        userRoles.activeRoles.push(role.role)
+      }
+    })
+
     // Get user details for each user with a role
-    console.log(`Getting user details for ${roleData.length} users`)
-    const userPromises = roleData.map(async (role) => {
+    console.log(`Getting user details for ${userRoleMap.size} users`)
+    const userPromises = Array.from(userRoleMap.entries()).map(async ([userId, roleInfo]) => {
       try {
-        const { data: userData, error: userError } = await supabaseAdmin.auth.admin.getUserById(role.user_id)
+        const { data: userData, error: userError } = await supabaseAdmin.auth.admin.getUserById(userId)
         
         if (userError || !userData) {
-          console.warn(`Could not fetch user ${role.user_id}:`, userError)
+          console.warn(`Could not fetch user ${userId}:`, userError)
           return null
         }
         
         return {
           ...userData.user,
-          role: role.role,
+          roles: roleInfo.activeRoles,
+          pending_roles: roleInfo.pendingRoles,
           user_metadata: {
             ...userData.user.user_metadata,
-            assigned_role: role.role
+            assigned_role: roleInfo.activeRoles.join(', ') || 'None'
           }
         }
       } catch (error) {
-        console.error(`Error fetching user details for ${role.user_id}:`, error)
+        console.error(`Error fetching user details for ${userId}:`, error)
         return null
       }
     })
@@ -71,7 +91,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.log('Waiting for all user detail promises to resolve')
     const users = await Promise.all(userPromises)
     const validUsers = users.filter(user => user !== null)
-    console.log(`Found ${validUsers.length} valid users out of ${roleData.length} roles`)
+    console.log(`Found ${validUsers.length} valid users out of ${userRoleMap.size} users with roles`)
     
     return res.status(200).json(validUsers)
   } catch (error: any) {
