@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { supabase } from '@/lib/supabaseClient'
+import { createClient } from '@supabase/supabase-js'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -7,18 +8,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    // Get the user from their session
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
-    
-    if (sessionError || !sessionData.session) {
-      return res.status(401).json({ error: 'Not authenticated' })
+    // Get the authorization header
+    const authHeader = req.headers.authorization
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Missing or invalid authorization header' })
     }
+
+    // Extract the token
+    const token = authHeader.split(' ')[1]
+
+    // Create a Supabase client with the user's token
+    const supabaseClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        global: {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        }
+      }
+    )
     
-    // Get the user info
-    const { data: userData, error: userError } = await supabase.auth.getUser()
+    // Get the user info using the authenticated client
+    const { data: userData, error: userError } = await supabaseClient.auth.getUser()
     
     if (userError || !userData.user) {
-      return res.status(401).json({ error: 'User not found' })
+      return res.status(401).json({ error: 'Not authenticated' })
     }
     
     const { requestedRole } = req.body
@@ -35,7 +51,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     
     // Insert the role request into the user_roles table
     // The unique constraint will prevent duplicate role requests
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('user_roles')
       .upsert(
         { 

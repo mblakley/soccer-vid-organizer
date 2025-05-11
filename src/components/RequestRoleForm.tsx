@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTheme } from '@/contexts/ThemeContext'
+import { supabase } from '@/lib/supabaseClient'
 
 const ALL_ROLES = [
   { value: 'coach', label: 'Coach' },
@@ -31,10 +32,18 @@ export default function RequestRoleForm({ userRoles = [], pendingRoles = [] }: {
     setMessage('')
     
     try {
+      // Get the session
+      const { data: sessionData } = await supabase.auth.getSession()
+      if (!sessionData.session) {
+        setError('Not authenticated. Please log in again.')
+        return
+      }
+
       const response = await fetch('/api/request-role', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sessionData.session.access_token}`
         },
         body: JSON.stringify({ requestedRole })
       })
