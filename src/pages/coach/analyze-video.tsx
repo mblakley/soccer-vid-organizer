@@ -71,6 +71,7 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   const [videos, setVideos] = useState<Video[]>([])
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadingClips, setLoadingClips] = useState(false)
   const [playerReady, setPlayerReady] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [playerState, setPlayerState] = useState<'playing' | 'paused'>('paused')
@@ -217,6 +218,102 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     initializePlayer()
   }, [selectedVideo])
   
+  // Fetch clips when a video is selected
+  useEffect(() => {
+    if (!selectedVideo) return;
+    
+    const fetchClipsForVideo = async () => {
+      try {
+        setLoadingClips(true);
+        const { data, error } = await supabase
+          .from('clips')
+          .select('*')
+          .eq('video_id', selectedVideo.video_id)
+          .order('created_at', { ascending: false });
+        
+        if (error) {
+          console.error('Error fetching clips for video:', error);
+        } else {
+          console.log(`Found ${data?.length || 0} existing clips for video`);
+          
+          // Map the clips to the format used in the app
+          const mappedClips: ClipMarker[] = (data || []).map(clip => ({
+            id: clip.id,
+            startTime: clip.start_time,
+            endTime: clip.end_time,
+            title: clip.title,
+            comment: '', // We'll fetch comments separately
+            labels: [] // We'll populate this later if needed
+          }));
+          
+          setClipMarkers(mappedClips);
+          
+          // Fetch comments for these clips if there are any
+          if (mappedClips.length > 0) {
+            fetchCommentsForClips(mappedClips.map(c => c.id));
+          }
+        }
+      } catch (err) {
+        console.error('Exception fetching clips for video:', err);
+      } finally {
+        setLoadingClips(false);
+      }
+    };
+    
+    fetchClipsForVideo();
+  }, [selectedVideo]);
+  
+  // Function to fetch comments for clips
+  const fetchCommentsForClips = async (clipIds: string[]) => {
+    try {
+      if (!clipIds.length) return;
+      
+      const { data, error } = await supabase
+        .from('comments')
+        .select('*')
+        .in('clip_id', clipIds);
+      
+      if (error) {
+        console.error('Error fetching comments for clips:', error);
+        return;
+      }
+      
+      // Update clipMarkers with comments
+      setClipMarkers(currentClips => 
+        currentClips.map(clip => {
+          // Find regular comments for this clip
+          const commentsForClip = data?.filter(c => 
+            c.clip_id === clip.id && (!c.comment_type || c.comment_type !== 'labels')
+          ) || [];
+          
+          // Find labels comment for this clip (if any)
+          const labelsComment = data?.find(c => 
+            c.clip_id === clip.id && c.comment_type === 'labels'
+          );
+          
+          // Extract labels from the labels comment if it exists
+          let labels: string[] = [];
+          if (labelsComment && labelsComment.content.startsWith('LABELS:')) {
+            const labelsText = labelsComment.content.substring('LABELS:'.length).trim();
+            labels = labelsText.split(',').map((l: string) => l.trim()).filter((l: string) => l);
+          }
+          
+          // Combine all regular comment content
+          const commentText = commentsForClip.map(c => c.content).join('\n');
+          
+          return {
+            ...clip,
+            comment: commentText,
+            labels: labels
+          };
+        })
+      );
+      
+    } catch (err) {
+      console.error('Exception fetching comments for clips:', err);
+    }
+  };
+  
   const handleVideoSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const videoId = e.target.value
     if (!videoId) {
@@ -227,10 +324,10 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     const video = videos.find(v => v.id === videoId)
     if (video) {
       setSelectedVideo(video)
-      // Reset clip state when selecting a new video
-      setClipMarkers([])
+      // Reset state when selecting a new video
       setIsRecording(false)
       setRecordingStart(null)
+      // Don't clear clip markers here anymore, as we'll fetch them
     }
   }
   
@@ -488,7 +585,7 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   }
   
   return (
-    <div className="w-full mx-0 p-0 space-y-6 mb-20">
+    <div className="w-full mx-0 p-0 space-y-6 mb-36">
       {/* Video selection - keep it in a contained area */}
       <div className="container mx-auto px-2 md:px-4">
         <div className="max-w-md">
@@ -743,26 +840,33 @@ function AnalyzeVideoPage({ user }: { user: any }) {
               </div>
             )}
             
-            {/* Clips list */}
-            {clipMarkers.length > 0 && (
-              <div>
-                <h3 className="text-lg font-medium mb-2">Created Clips</h3>
-                <div className={`border rounded ${
-                  isDarkMode ? 'border-gray-700' : 'border-gray-300'
-                }`}>
-                  {clipMarkers.map((clip, index) => (
+            {/* Loading clips state */}
+            {loadingClips && (
+              <div className={`mt-4 p-2 text-center ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
+                <p>Loading clips for this video...</p>
+              </div>
+            )}
+            
+            {/* All clips section */}
+            {selectedVideo && clipMarkers.length > 0 && (
+              <div className="mt-4">
+                <h3 className="text-lg font-medium mb-2">Clips from this video</h3>
+                <div className="space-y-2">
+                  {[...clipMarkers]
+                    .sort((a, b) => b.startTime - a.startTime) // Sort by startTime in descending order
+                    .map((clip, index) => (
                     <div 
-                      key={clip.id}
-                      className={`p-3 ${
-                        index < clipMarkers.length - 1 
-                          ? isDarkMode ? 'border-b border-gray-700' : 'border-b border-gray-300' 
-                          : ''
+                      key={clip.id || index}
+                      className={`border rounded-lg overflow-hidden ${
+                        isDarkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-300 bg-white'
                       }`}
                     >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-medium">{clip.title}</h4>
-                          <div className="text-sm mt-1">
+                      <div className="p-3 flex justify-between items-start">
+                        <div className="space-y-1 flex-1">
+                          <div className="font-medium">
+                            {clip.title}
+                          </div>
+                          <div className="text-sm text-gray-500">
                             {formatTime(clip.startTime)} - {formatTime(clip.endTime)} (Duration: {formatTime(clip.endTime - clip.startTime)})
                           </div>
                           
@@ -784,7 +888,7 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                           
                           {clip.comment && (
                             <div className={`mt-2 p-2 rounded text-sm ${
-                              isDarkMode ? 'bg-gray-800' : 'bg-gray-100'
+                              isDarkMode ? 'bg-gray-900' : 'bg-gray-100'
                             }`}>
                               {clip.comment}
                             </div>
