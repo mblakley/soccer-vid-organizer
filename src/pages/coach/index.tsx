@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import withAuth from '@/components/withAuth'
+import Link from 'next/link'
 
 function CoachDashboard({ user }: { user: any }) {
   const [unrepliedCount, setUnrepliedCount] = useState(0)
@@ -25,8 +26,9 @@ function CoachDashboard({ user }: { user: any }) {
     <div className="p-8">
       <h1 className="text-2xl font-bold mb-4">Coach Dashboard</h1>
       <ul className="list-disc list-inside space-y-2">
-        <li><a href="/coach/videos" className="text-blue-600 underline">Manage Videos</a></li>
-        <li><a href="/coach/clips" className="text-blue-600 underline">Edit Clips</a></li>
+        <li><Link href="/coach/videos" className="text-blue-600 hover:underline">Manage Videos</Link></li>
+        <li><Link href="/coach/analyze-video" className="text-blue-600 hover:underline">Analyze Videos & Create Clips</Link></li>
+        <li><Link href="/coach/clips" className="text-blue-600 hover:underline">Edit Clips</Link></li>
         <li>Unreplied Comments: {unrepliedCount}</li>
       </ul>
     </div>
