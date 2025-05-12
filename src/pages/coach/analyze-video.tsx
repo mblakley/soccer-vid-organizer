@@ -58,11 +58,13 @@ interface ClipMarker {
   labels: string[];
 }
 
+type CounterType = 'standard' | 'resettable';
 interface CountTracker {
   id: string;
   name: string;
   count: number;
   timestamps: number[];
+  type: CounterType;
 }
 
 function AnalyzeVideoPage({ user }: { user: any }) {
@@ -90,6 +92,7 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   const [counters, setCounters] = useState<CountTracker[]>([])
   const [showCounterForm, setShowCounterForm] = useState(false)
   const [newCounterName, setNewCounterName] = useState('')
+  const [newCounterType, setNewCounterType] = useState<CounterType>('standard')
   
   // YouTube player reference
   const playerRef = useRef<any>(null)
@@ -397,18 +400,17 @@ function AnalyzeVideoPage({ user }: { user: any }) {
       })
       return
     }
-    
     const newCounter: CountTracker = {
       id: `counter-${Date.now()}`,
       name: newCounterName,
       count: 0,
-      timestamps: []
+      timestamps: [],
+      type: newCounterType,
     }
-    
     setCounters([...counters, newCounter])
     setNewCounterName('')
+    setNewCounterType('standard')
     setShowCounterForm(false)
-    
     setNotification({
       message: `Counter "${newCounterName}" added!`,
       type: 'success'
@@ -418,19 +420,25 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   
   const incrementCounter = (counterId: string) => {
     if (!playerRef.current) return
-    
     const currentTime = playerRef.current.getCurrentTime()
-    
-    setCounters(prevCounters => 
-      prevCounters.map(counter => 
-        counter.id === counterId
-          ? {
-              ...counter,
-              count: counter.count + 1,
-              timestamps: [...counter.timestamps, currentTime]
-            }
-          : counter
-      )
+    setCounters(prevCounters =>
+      prevCounters.map(counter => {
+        if (counter.id !== counterId) return counter;
+        // Prevent double-counting if video is paused and last timestamp is the same (within 0.5s)
+        const lastTimestamp = counter.timestamps[counter.timestamps.length - 1];
+        if (
+          playerState === 'paused' &&
+          lastTimestamp !== undefined &&
+          Math.abs(lastTimestamp - currentTime) < 0.5
+        ) {
+          return counter;
+        }
+        return {
+          ...counter,
+          count: counter.count + 1,
+          timestamps: [...counter.timestamps, currentTime]
+        };
+      })
     )
   }
   
@@ -636,6 +644,18 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  const resetCounter = (counterId: string) => {
+    if (!playerRef.current) return;
+    const currentTime = playerRef.current.getCurrentTime();
+    setCounters(prevCounters =>
+      prevCounters.map(counter =>
+        counter.id === counterId
+          ? { ...counter, count: 1, timestamps: [currentTime] }
+          : counter
+      )
+    );
+  };
+
   return (
     <div className="flex flex-col h-screen bg-gray-900">
       {/* Top Bar - removed header and user avatar */}
@@ -717,29 +737,50 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                     <div className="p-4 text-gray-400">No counters yet. Add one below.</div>
                   )}
                   {counters.map(counter => (
-                    <div key={counter.id} className="p-4 border-b border-gray-800 hover:bg-gray-800 cursor-pointer">
-                      <div className="flex justify-between items-center">
-                        <span className="font-semibold">{counter.name}</span>
-                        <span className="text-base font-bold">{counter.count}</span>
+                    <div
+                      key={counter.id}
+                      className="relative p-4 border-b border-gray-800 hover:bg-gray-800 cursor-pointer group flex flex-col justify-between min-h-[120px]"
+                      onClick={() => incrementCounter(counter.id)}
+                    >
+                      {/* Name and Remove X in a row at the top */}
+                      <div className="flex items-center justify-between w-full mb-2">
+                        <span className="font-semibold text-center w-full pr-6">{counter.name}</span>
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            if (window.confirm('Are you sure you want to remove this counter?')) {
+                              removeCounter(counter.id);
+                            }
+                          }}
+                          className="ml-2 w-6 h-6 flex items-center justify-center rounded-full text-xs bg-red-700 hover:bg-red-800 text-white opacity-80 group-hover:opacity-100 transition-opacity"
+                          title="Remove counter"
+                        >
+                          ×
+                        </button>
                       </div>
-                      <button
-                        onClick={() => incrementCounter(counter.id)}
-                        className="mt-2 px-3 py-1 rounded text-xs bg-blue-700 hover:bg-blue-600"
-                      >
-                        Count
-                      </button>
-                      <button
-                        onClick={() => removeCounter(counter.id)}
-                        className="ml-2 px-2 py-1 rounded text-xs bg-red-700 hover:bg-red-600"
-                      >
-                        Remove
-                      </button>
+                      {/* Large centered number */}
+                      <div className="flex-1 flex items-center justify-center">
+                        <span className="text-6xl font-extrabold text-center select-none pointer-events-none">{counter.count}</span>
+                      </div>
+                      {/* Reset button for resettable counters */}
+                      {counter.type === 'resettable' && (
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            resetCounter(counter.id);
+                          }}
+                          className="mt-2 px-3 py-1 rounded bg-yellow-700 hover:bg-yellow-600 text-white text-xs w-full"
+                        >
+                          Reset
+                        </button>
+                      )}
                       {counter.timestamps.length > 0 && (
-                        <div className="mt-2 text-xs text-gray-400">
+                        <div className="mt-2 text-xs text-gray-400 w-full text-center">
                           {counter.timestamps.map((time, i) => (
                             <button
                               key={i}
-                              onClick={() => {
+                              onClick={e => {
+                                e.stopPropagation();
                                 if (playerRef.current) {
                                   playerRef.current.seekTo(time, true)
                                   playerRef.current.playVideo()
@@ -764,6 +805,14 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                         placeholder="Counter name"
                         className="w-full mb-2 px-3 py-2 rounded bg-gray-800 border border-gray-700 text-white"
                       />
+                      <select
+                        value={newCounterType}
+                        onChange={e => setNewCounterType(e.target.value as CounterType)}
+                        className="w-full mb-2 px-3 py-2 rounded bg-gray-800 border border-gray-700 text-white"
+                      >
+                        <option value="standard">Standard (accumulates)</option>
+                        <option value="resettable">Resettable (for streaks)</option>
+                      </select>
                       <div className="flex space-x-2">
                         <button
                           onClick={saveCounter}
