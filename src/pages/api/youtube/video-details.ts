@@ -1,23 +1,29 @@
-import { NextApiRequest, NextApiResponse } from 'next'
-import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs'
+import type { NextApiRequest, NextApiResponse } from 'next'
+import { getSupabaseClient } from '@/lib/supabaseClient'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // Check for authorized user
-  const supabase = createServerSupabaseClient({ req, res })
-  const { data: { session } } = await supabase.auth.getSession()
-  
-  if (!session) {
-    return res.status(401).json({ error: 'Unauthorized' })
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' })
   }
-  
-  // Get the videoId from query parameters
-  const { videoId } = req.query
-  
-  if (!videoId || typeof videoId !== 'string') {
-    return res.status(400).json({ error: 'Video ID is required' })
-  }
-  
+
   try {
+    const supabase = getSupabaseClient(req.headers.authorization)
+
+    // Get the current user
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError) throw userError
+
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+
+    // Get the videoId from query parameters
+    const { videoId } = req.query
+    
+    if (!videoId || typeof videoId !== 'string') {
+      return res.status(400).json({ error: 'Video ID is required' })
+    }
+    
     // YouTube API key from environment variables
     const apiKey = process.env.YOUTUBE_API_KEY
     
@@ -57,9 +63,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       channelTitle: snippet.channelTitle,
       tags: snippet.tags || []
     })
-  } catch (error) {
-    console.error('Error fetching video details:', error)
-    res.status(500).json({ error: 'Failed to fetch video details' })
+  } catch (error: any) {
+    console.error('Error:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 }
 

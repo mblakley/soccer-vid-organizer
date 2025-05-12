@@ -21,16 +21,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.log('Initializing Supabase client')
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
     
-    // Fetch all users with roles from user_roles table
+    // Fetch all users with admin status from user_roles table
     console.log('Fetching user roles from database')
     const { data: roleData, error: roleError } = await supabaseAdmin
       .from('user_roles')
-      .select('user_id, role, pending_review')
+      .select('user_id, is_admin')
 
     console.log('Role data fetch result:', { 
       success: !roleError, 
       count: roleData?.length || 0,
-      error: roleError ? roleError.message : null 
+      error: roleError ? roleError.message : null
     })
 
     if (roleError) {
@@ -43,59 +43,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json([])
     }
 
-    // Group role data by user_id to handle multiple roles per user
-    const userRoleMap = new Map()
+    // Get all users from auth.users
+    const { data: users, error: usersError } = await supabaseAdmin.auth.admin.listUsers()
     
-    roleData.forEach(role => {
-      if (!userRoleMap.has(role.user_id)) {
-        userRoleMap.set(role.user_id, {
-          activeRoles: [],
-          pendingRoles: []
-        })
-      }
-      
-      const userRoles = userRoleMap.get(role.user_id)
-      if (role.pending_review) {
-        userRoles.pendingRoles.push(role.role)
-      } else {
-        userRoles.activeRoles.push(role.role)
+    if (usersError) {
+      throw new Error(`Failed to fetch users: ${usersError.message}`)
+    }
+
+    // Combine user data with their admin status
+    const usersWithRoles = users.users.map(user => {
+      const userRole = roleData?.find(r => r.user_id === user.id)
+      return {
+        id: user.id,
+        email: user.email,
+        is_admin: userRole?.is_admin || false,
+        created_at: user.created_at,
+        last_sign_in_at: user.last_sign_in_at,
+        user_metadata: user.user_metadata
       }
     })
 
-    // Get user details for each user with a role
-    console.log(`Getting user details for ${userRoleMap.size} users`)
-    const userPromises = Array.from(userRoleMap.entries()).map(async ([userId, roleInfo]) => {
-      try {
-        const { data: userData, error: userError } = await supabaseAdmin.auth.admin.getUserById(userId)
-        
-        if (userError || !userData) {
-          console.warn(`Could not fetch user ${userId}:`, userError)
-          return null
-        }
-        
-        return {
-          ...userData.user,
-          roles: roleInfo.activeRoles,
-          pending_roles: roleInfo.pendingRoles,
-          user_metadata: {
-            ...userData.user.user_metadata,
-            assigned_role: roleInfo.activeRoles.join(', ') || 'None'
-          }
-        }
-      } catch (error) {
-        console.error(`Error fetching user details for ${userId}:`, error)
-        return null
-      }
-    })
-    
-    console.log('Waiting for all user detail promises to resolve')
-    const users = await Promise.all(userPromises)
-    const validUsers = users.filter(user => user !== null)
-    console.log(`Found ${validUsers.length} valid users out of ${userRoleMap.size} users with roles`)
-    
-    return res.status(200).json(validUsers)
+    res.status(200).json(usersWithRoles)
   } catch (error: any) {
-    console.error('Error fetching users with roles:', error)
-    return res.status(500).json({ error: error.message || 'Internal server error' })
+    console.error('Error in users-with-roles API:', error)
+    res.status(500).json({ error: 'Internal server error' })
   }
 } 

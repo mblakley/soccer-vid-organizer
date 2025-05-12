@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import withAuth from '@/components/withAuth'
+import { withAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import { VideoSourceType, YouTubeSource } from '@/lib/video-sources/types'
 
@@ -457,4 +457,11 @@ function VideoManager({ user }: { user: any }) {
   )
 }
 
-export default withAuth(VideoManager, ['coach', 'admin'], 'Video Management') 
+export default withAuth(
+  VideoManager, 
+  {
+    teamId: 'any',
+    roles: ['coach']
+  }, 
+  'Video Management'
+) 

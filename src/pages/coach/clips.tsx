@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import withAuth from '@/components/withAuth'
+import { withAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 
 function CoachClipManager({ user }: { user: any }) {
@@ -246,4 +246,11 @@ function CoachClipManager({ user }: { user: any }) {
 }
 
 // Only allow coach and admin roles to access this page
-export default withAuth(CoachClipManager, ['coach', 'admin'], 'Manage Clips')
+export default withAuth(
+  CoachClipManager, 
+  {
+    teamId: 'any',
+    roles: ['coach']
+  }, 
+  'Manage Clips'
+)

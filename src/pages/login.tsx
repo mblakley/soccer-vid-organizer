@@ -2,18 +2,10 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/router'
-import { jwtDecode, JwtPayload } from 'jwt-decode'
-import { getCurrentUser } from '@/lib/auth'
+import { getCurrentUser, getRedirectPath } from '@/lib/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import ThemeToggle from '@/components/ThemeToggle'
-import { handleRoleBasedRouting } from '@/lib/routing'
 
-// Extend JwtPayload to include user_role
-interface CustomJwtPayload extends JwtPayload {
-  user_roles?: string[] | null;
-}
-
-// Use a plain component, not wrapped in withAuth
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -30,7 +22,8 @@ export default function LoginPage() {
       }
       
       const userData = await getCurrentUser()
-      await handleRoleBasedRouting(userData?.roles, router, true, true)
+      const redirectPath = getRedirectPath(userData)
+      router.push(redirectPath)
     } catch (error: any) {
       setError(error.message || 'An error occurred during login')
     }
@@ -64,7 +57,8 @@ export default function LoginPage() {
         try {
           const userData = await getCurrentUser()
           console.log("User data:", userData)
-          await handleRoleBasedRouting(userData?.roles, router, true, true)
+          const redirectPath = getRedirectPath(userData)
+          router.push(redirectPath)
         } catch (error) {
           console.error("Error processing session:", error)
           alert('An error occurred. Please try again.')

@@ -1,5 +1,6 @@
 'use client'
-import withAuth from '@/components/withAuth'
+import { useState, useEffect } from 'react'
+import { withAuth } from '@/components/auth'
 
 function PlayerDashboard() {
   return (
@@ -15,4 +16,10 @@ function PlayerDashboard() {
 }
 
 // Restrict access to players and admins
-export default withAuth(PlayerDashboard, ['player', 'admin']) 
+export default withAuth(
+  PlayerDashboard, 
+  {
+    teamId: 'any',
+    roles: ['player']
+  }
+) 

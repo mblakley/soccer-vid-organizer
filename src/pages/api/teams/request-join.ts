@@ -7,10 +7,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { id, disabled } = req.body
+    const { team_id, user_id, requested_roles } = req.body
 
-    if (!id || typeof disabled !== 'boolean') {
-      return res.status(400).json({ error: 'Invalid request body' })
+    if (!team_id || !user_id || !requested_roles) {
+      return res.status(400).json({ error: 'Missing required fields' })
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -22,22 +22,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
 
-    // Update user metadata in auth.users
-    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
-      id,
-      { 
-        user_metadata: { disabled },
-        email_confirm: !disabled // Re-enable email confirmation if user is disabled
-      }
-    )
+    // Create team member request
+    const { data: request, error: requestError } = await supabaseAdmin
+      .from('team_member_requests')
+      .insert([{
+        team_id,
+        user_id,
+        requested_roles,
+        status: 'pending'
+      }])
+      .select()
+      .single()
 
-    if (updateError) {
-      throw updateError
+    if (requestError) {
+      throw requestError
     }
 
-    res.status(200).json({ success: true })
+    res.status(201).json(request)
   } catch (error: any) {
-    console.error('Error updating user status:', error)
+    console.error('Error creating team join request:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 } 

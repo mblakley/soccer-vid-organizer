@@ -2,17 +2,11 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') {
+  if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
   try {
-    const { id, disabled } = req.body
-
-    if (!id || typeof disabled !== 'boolean') {
-      return res.status(400).json({ error: 'Invalid request body' })
-    }
-
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
@@ -22,22 +16,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
 
-    // Update user metadata in auth.users
-    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
-      id,
-      { 
-        user_metadata: { disabled },
-        email_confirm: !disabled // Re-enable email confirmation if user is disabled
-      }
-    )
+    // Fetch all teams
+    const { data: teams, error: teamsError } = await supabaseAdmin
+      .from('teams')
+      .select('id, name, description')
+      .order('name')
 
-    if (updateError) {
-      throw updateError
+    if (teamsError) {
+      throw teamsError
     }
 
-    res.status(200).json({ success: true })
+    res.status(200).json(teams)
   } catch (error: any) {
-    console.error('Error updating user status:', error)
+    console.error('Error fetching available teams:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 } 

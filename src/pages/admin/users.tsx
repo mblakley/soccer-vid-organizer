@@ -1,40 +1,23 @@
-import { useState, useEffect } from 'react'
-import withAuth from '@/components/withAuth'
+'use client'
+import { useEffect, useState } from 'react'
+import { withAdminAuth } from '@/components/auth'
+import { useTheme } from '@/contexts/ThemeContext'
 
-function AdminUsersPage({ user }: { user: any }) {
-  const [allUsers, setAllUsers] = useState<any[]>([])
+function UsersPage() {
+  const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const { isDarkMode } = useTheme()
 
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        let pendingUsers = []
-        try {
-          const pendingResponse = await fetch('/api/admin/pending-users')
-          if (pendingResponse.ok) {
-            pendingUsers = await pendingResponse.json()
-          }
-        } catch (err) {
-          console.error('Error in pending users fetch:', err)
+        const response = await fetch('/api/admin/users-with-roles')
+        if (response.ok) {
+          const usersData = await response.json()
+          setUsers(usersData)
+        } else {
+          console.error('Error fetching users:', response.statusText)
         }
-        let usersWithRoles = []
-        try {
-          const rolesResponse = await fetch('/api/admin/users-with-roles')
-          if (rolesResponse.ok) {
-            usersWithRoles = await rolesResponse.json()
-          }
-        } catch (err) {
-          console.error('Error in users with roles fetch:', err)
-        }
-        // Deduplicate users by id
-        const userMap = new Map()
-        ;[...pendingUsers, ...usersWithRoles].forEach(u => {
-          if (!userMap.has(u.id)) {
-            userMap.set(u.id, u)
-          }
-        })
-        setAllUsers(Array.from(userMap.values()))
       } catch (error) {
         console.error('Error fetching users:', error)
       } finally {
@@ -44,92 +27,113 @@ function AdminUsersPage({ user }: { user: any }) {
     fetchUsers()
   }, [])
 
-  const handleBanToggle = async (userId: string, isBanned: boolean) => {
-    setActionLoading(userId + '-ban')
+  const toggleUserStatus = async (id: string, disabled: boolean) => {
     try {
-      const res = await fetch('/api/admin/disable-user', {
+      const response = await fetch('/api/admin/disable-user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, ban: !isBanned })
+        body: JSON.stringify({ id, disabled })
       })
-      if (!res.ok) throw new Error(await res.text())
-      window.location.reload()
-    } catch (err) {
-      alert('Failed to update ban status: ' + err)
-    } finally {
-      setActionLoading(null)
+
+      if (!response.ok) {
+        throw new Error('Failed to update user status')
+      }
+
+      // Refresh user list
+      const refreshResponse = await fetch('/api/admin/users-with-roles')
+      if (refreshResponse.ok) {
+        const usersData = await refreshResponse.json()
+        setUsers(usersData)
+      }
+    } catch (error) {
+      console.error('Error updating user status:', error)
+      alert('Failed to update user status')
     }
   }
 
-  const handleRemove = async (userId: string) => {
-    if (!window.confirm('Are you sure you want to permanently remove this user?')) return
-    setActionLoading(userId + '-remove')
+  const removeUser = async (id: string) => {
+    if (!confirm('Are you sure you want to remove this user? This action cannot be undone.')) {
+      return
+    }
+
     try {
-      const res = await fetch('/api/admin/remove-user', {
+      const response = await fetch('/api/admin/remove-user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId })
+        body: JSON.stringify({ id })
       })
-      if (!res.ok) throw new Error(await res.text())
-      window.location.reload()
-    } catch (err) {
-      alert('Failed to remove user: ' + err)
-    } finally {
-      setActionLoading(null)
+
+      if (!response.ok) {
+        throw new Error('Failed to remove user')
+      }
+
+      // Refresh user list
+      const refreshResponse = await fetch('/api/admin/users-with-roles')
+      if (refreshResponse.ok) {
+        const usersData = await refreshResponse.json()
+        setUsers(usersData)
+      }
+    } catch (error) {
+      console.error('Error removing user:', error)
+      alert('Failed to remove user')
     }
   }
 
-  if (loading) return <div className="p-8">Loading users...</div>
+  if (loading) return <div className="p-8">Loading...</div>
 
   return (
     <div className="p-8">
-      <div className="mt-4">
-        <h2 className="text-xl font-semibold mb-2">All Users ({allUsers.length})</h2>
-        <ul className="space-y-2">
-          {allUsers.map((u) => {
-            const isBanned = u.banned === true || u.ban === true || u.is_banned === true
-            // Prefer user_metadata.name, then user_metadata.full_name, then nothing
-            const userName = u.user_metadata?.name || u.user_metadata?.full_name || ''
-            const approvedRoles = user.roles
-            return (
-              <li key={u.id} className="border p-2 rounded">
-                <div className="flex justify-between items-center">
-                  <div className="w-full">
-                    {userName && <p className="text-lg font-bold mb-1">{userName}</p>}
-                    <p className="font-medium">{u.email}</p>
-                    <p className="text-xs text-gray-500 break-all">ID: {u.id}</p>
-                    <p className="text-sm">Roles: {approvedRoles.length > 0 ? approvedRoles.join(', ') : 'None'}</p>
-                    {isBanned && <span className="text-xs text-red-500">(Disabled)</span>}
+      {users.length === 0 ? (
+        <div className={`${isDarkMode ? 'bg-gray-800' : 'bg-gray-100'} p-4 rounded`}>
+          <p>No users found.</p>
+        </div>
+      ) : (
+        <div>
+          <h2 className="text-xl font-semibold mb-2">Users</h2>
+          <ul className="space-y-4">
+            {users.map(user => (
+              <li key={user.id} className={`border p-4 rounded shadow-sm ${isDarkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+                <div className="flex justify-between">
+                  <div>
+                    <p><strong>Email:</strong> {user.email}</p>
+                    <p><strong>Status:</strong> {user.user_metadata?.disabled ? 'Disabled' : 'Active'}</p>
+                    <p><strong>Admin:</strong> {user.is_admin ? 'Yes' : 'No'}</p>
+                    <p><strong>Created:</strong> {new Date(user.created_at).toLocaleDateString()}</p>
+                    <p><strong>Last Sign In:</strong> {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleDateString() : 'Never'}</p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      className={`px-3 py-1 rounded text-xs text-white ${isBanned ? 'bg-green-600 hover:bg-green-700' : 'bg-yellow-500 hover:bg-yellow-600'}`}
-                      disabled={actionLoading === u.id + '-ban'}
-                      onClick={() => handleBanToggle(u.id, isBanned)}
-                    >
-                      {actionLoading === u.id + '-ban'
-                        ? (isBanned ? 'Enabling...' : 'Disabling...')
-                        : (isBanned ? 'Enable' : 'Disable')}
-                    </button>
-                    <button
-                      className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs"
-                      disabled={actionLoading === u.id + '-remove'}
-                      onClick={() => handleRemove(u.id)}
-                    >
-                      {actionLoading === u.id + '-remove' ? 'Removing...' : 'Permanently Remove'}
-                    </button>
+                  <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    <p style={{ wordBreak: 'break-all', overflowWrap: 'anywhere' }}>User ID: {user.id}</p>
                   </div>
                 </div>
+                
+                <div className="mt-4 flex gap-2">
+                  <button
+                    className={`px-4 py-2 rounded ${
+                      user.user_metadata?.disabled
+                        ? 'bg-green-600 hover:bg-green-700'
+                        : 'bg-yellow-600 hover:bg-yellow-700'
+                    } text-white`}
+                    onClick={() => toggleUserStatus(user.id, !user.user_metadata?.disabled)}
+                  >
+                    {user.user_metadata?.disabled ? 'Enable User' : 'Disable User'}
+                  </button>
+                  <button
+                    className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded"
+                    onClick={() => removeUser(user.id)}
+                  >
+                    Remove User
+                  </button>
+                </div>
               </li>
-            )
-          })}
-        </ul>
-        {allUsers.length === 0 && (
-          <p className="text-gray-500">No users found.</p>
-        )}
-      </div>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }
 
-export default withAuth(AdminUsersPage, ['admin'], 'User Management') 
+export default withAdminAuth(
+  UsersPage, 
+  'User Management'
+) 

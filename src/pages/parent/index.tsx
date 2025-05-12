@@ -1,5 +1,5 @@
 'use client'
-import withAuth from '@/components/withAuth'
+import { withAuth } from '@/components/auth'
 
 function ParentDashboard() {
   return (
@@ -15,4 +15,10 @@ function ParentDashboard() {
 }
 
 // Restrict access to parents and admins
-export default withAuth(ParentDashboard, ['parent', 'admin']) 
+export default withAuth(
+  ParentDashboard, 
+  {
+    teamId: 'any',
+    roles: ['parent']
+  }
+) 

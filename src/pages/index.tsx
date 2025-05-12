@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import ClipPlayer from '@/components/ClipPlayer'
 import { supabase } from '@/lib/supabaseClient'
-import withAuth from '@/components/withAuth'
+import { withAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import Link from 'next/link'
 
@@ -275,4 +275,11 @@ function HomePage({ user }: { user: any }) {
 }
 
 // Allow any authenticated user to access this page
-export default withAuth(HomePage, ['admin', 'coach', 'player', 'parent'], 'Soccer Videos')
+export default withAuth(
+  HomePage, 
+  {
+    teamId: 'any',
+    roles: ['coach', 'player', 'parent']
+  }, 
+  'Soccer Videos'
+)

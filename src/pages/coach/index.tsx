@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import withAuth from '@/components/withAuth'
+import { withAuth } from '@/components/auth'
 import Link from 'next/link'
 
 function CoachDashboard({ user }: { user: any }) {
@@ -36,4 +36,10 @@ function CoachDashboard({ user }: { user: any }) {
 }
 
 // Restrict this page to coach or admin users
-export default withAuth(CoachDashboard, ['coach', 'admin'])
+export default withAuth(
+  CoachDashboard, 
+  {
+    teamId: 'any',
+    roles: ['coach']
+  }
+)

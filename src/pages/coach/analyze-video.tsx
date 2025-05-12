@@ -1,9 +1,10 @@
 'use client'
 import { useState, useEffect, useRef, Fragment } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import withAuth from '@/components/withAuth'
+import { withAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useRouter } from 'next/router'
+import { toast } from 'react-toastify'
 
 // Type declaration for YouTube Player API
 declare global {
@@ -159,6 +160,14 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   const [newTimerPlayers, setNewTimerPlayers] = useState<string[]>([])
   const [newTimerPlayerName, setNewTimerPlayerName] = useState('')
   const [selectedPlayerForSessions, setSelectedPlayerForSessions] = useState<{timerId: string, playerName: string} | null>(null)
+
+  // Add new state for confirmation modal
+  const [showConfirmModal, setShowConfirmModal] = useState(false)
+  const [confirmModalConfig, setConfirmModalConfig] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null)
 
   // When sidebarVisible changes, clear or restore the selected tab
   useEffect(() => {
@@ -324,8 +333,109 @@ function AnalyzeVideoPage({ user }: { user: any }) {
         setLoadingClips(false);
       }
     };
+
+    const fetchCountersForVideo = async () => {
+      try {
+        // Fetch all counters
+        const { data: countersData, error: countersError } = await supabase
+          .from('counters')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (countersError) throw countersError;
+
+        // For each counter, fetch its events
+        const countersWithEvents = await Promise.all(
+          (countersData || []).map(async (counter) => {
+            const { data: events, error: eventsError } = await supabase
+              .from('counter_events')
+              .select('timestamp')
+              .eq('counter_id', counter.id)
+              .order('timestamp', { ascending: true });
+
+            if (eventsError) throw eventsError;
+
+            const mappedCounter: CountTracker = {
+              id: counter.id,
+              name: counter.name,
+              count: counter.count,
+              timestamps: events.map(e => e.timestamp),
+              type: counter.type,
+            };
+
+            // If it's a player-based counter, initialize player data
+            if (counter.type === 'player-based') {
+              mappedCounter.players = [];
+              mappedCounter.playerCounts = {};
+            }
+
+            return mappedCounter;
+          })
+        );
+
+        setCounters(countersWithEvents);
+      } catch (error) {
+        console.error('Error fetching counters:', error);
+        toast.error('Failed to load counters');
+      }
+    };
+
+    const fetchTimersForVideo = async () => {
+      try {
+        // Fetch all timers
+        const { data: timersData, error: timersError } = await supabase
+          .from('timers')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (timersError) throw timersError;
+
+        // For each timer, fetch its events
+        const timersWithEvents = await Promise.all(
+          (timersData || []).map(async (timer) => {
+            const { data: events, error: eventsError } = await supabase
+              .from('timer_events')
+              .select('*')
+              .eq('timer_id', timer.id)
+              .order('start_time', { ascending: true });
+
+            if (eventsError) throw eventsError;
+
+            const mappedTimer: PlayerTimer = {
+              id: timer.id,
+              name: timer.name,
+              startTime: null,
+              endTime: null,
+              duration: timer.duration || 0,
+              active: false,
+              type: timer.type,
+              sessions: events.map(e => ({
+                startTime: e.start_time,
+                endTime: e.end_time,
+                duration: e.duration || 0
+              }))
+            };
+
+            // If it's a player-based timer, initialize player data
+            if (timer.type === 'player-based') {
+              mappedTimer.players = [];
+              mappedTimer.playerTimes = {};
+            }
+
+            return mappedTimer;
+          })
+        );
+
+        setPlayerTimers(timersWithEvents);
+      } catch (error) {
+        console.error('Error fetching timers:', error);
+        toast.error('Failed to load timers');
+      }
+    };
     
     fetchClipsForVideo();
+    fetchCountersForVideo();
+    fetchTimersForVideo();
   }, [selectedVideo]);
   
   // Function to fetch comments for clips
@@ -434,7 +544,7 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     setShowCounterForm(true)
   }
   
-  const saveCounter = () => {
+  const saveCounter = async () => {
     if (!newCounterName.trim()) {
       setNotification({
         message: 'Please enter a name for the counter',
@@ -451,55 +561,130 @@ function AnalyzeVideoPage({ user }: { user: any }) {
       })
       return
     }
-    
-    const newCounter: CountTracker = {
-      id: `counter-${Date.now()}`,
-      name: newCounterName,
-      count: 0,
-      timestamps: [],
-      type: newCounterType,
-    }
-    
-    // Add player-specific data if it's a player-based counter
-    if (newCounterType === 'player-based') {
-      newCounter.players = [...newCounterPlayers]
-      newCounter.playerCounts = {}
+
+    try {
+      // Create counter in database
+      const { data: counterData, error: counterError } = await supabase
+        .from('counters')
+        .insert({
+          name: newCounterName,
+          type: newCounterType,
+          count: 0
+        })
+        .select()
+        .single()
+
+      if (counterError) throw counterError
+
+      const newCounter: CountTracker = {
+        id: counterData.id,
+        name: newCounterName,
+        count: 0,
+        timestamps: [],
+        type: newCounterType,
+      }
       
-      // Initialize counts for each player
-      newCounterPlayers.forEach(player => {
-        newCounter.playerCounts![player] = {
-          count: 0,
-          timestamps: []
-        }
+      // Add player-specific data if it's a player-based counter
+      if (newCounterType === 'player-based') {
+        newCounter.players = [...newCounterPlayers]
+        newCounter.playerCounts = {}
+        
+        // Initialize counts for each player
+        newCounterPlayers.forEach(player => {
+          newCounter.playerCounts![player] = {
+            count: 0,
+            timestamps: []
+          }
+        })
+      }
+      
+      setCounters([...counters, newCounter])
+      setNewCounterName('')
+      setNewCounterType('standard')
+      setNewCounterPlayers([])
+      setNewPlayerName('')
+      setShowCounterForm(false)
+      setNotification({
+        message: `Counter "${newCounterName}" added!`,
+        type: 'success'
       })
+      setTimeout(() => setNotification(null), 3000)
+    } catch (error) {
+      console.error('Error creating counter:', error)
+      toast.error('Failed to create counter')
     }
-    
-    setCounters([...counters, newCounter])
-    setNewCounterName('')
-    setNewCounterType('standard')
-    setNewCounterPlayers([])
-    setNewPlayerName('')
-    setShowCounterForm(false)
-    setNotification({
-      message: `Counter "${newCounterName}" added!`,
-      type: 'success'
-    })
-    setTimeout(() => setNotification(null), 3000)
   }
   
-  const incrementCounter = (counterId: string, playerName?: string) => {
+  const incrementCounter = async (counterId: string, playerName?: string) => {
     if (!playerRef.current) return
     const currentTime = playerRef.current.getCurrentTime()
-    setCounters(prevCounters =>
-      prevCounters.map(counter => {
-        if (counter.id !== counterId) return counter;
-        
-        // Handle player-based counters differently
-        if (counter.type === 'player-based' && playerName && counter.playerCounts) {
-          // Prevent double-counting if video is paused and last timestamp is the same (within 0.5s)
-          const playerData = counter.playerCounts[playerName];
-          const lastTimestamp = playerData?.timestamps[playerData.timestamps.length - 1];
+
+    try {
+      // Create counter event
+      const { error: eventError } = await supabase
+        .from('counter_events')
+        .insert({
+          counter_id: counterId,
+          timestamp: currentTime,
+          value: 1,
+          team_member_id: null // We'll add player tracking later
+        })
+
+      if (eventError) throw eventError
+
+      // Get the new count using RPC
+      const { data: newCount, error: rpcError } = await supabase
+        .rpc('increment_counter', { counter_id: counterId })
+
+      if (rpcError) throw rpcError
+
+      // Get all events for this counter to update timestamps
+      const { data: events, error: eventsError } = await supabase
+        .from('counter_events')
+        .select('timestamp')
+        .eq('counter_id', counterId)
+        .order('timestamp', { ascending: true })
+
+      if (eventsError) throw eventsError
+
+      // Update local state
+      setCounters(prevCounters =>
+        prevCounters.map(counter => {
+          if (counter.id !== counterId) return counter;
           
+          // Handle player-based counters differently
+          if (counter.type === 'player-based' && playerName && counter.playerCounts) {
+            // Prevent double-counting if video is paused and last timestamp is the same (within 0.5s)
+            const playerData = counter.playerCounts[playerName];
+            const lastTimestamp = playerData?.timestamps[playerData.timestamps.length - 1];
+            
+            if (
+              playerState === 'paused' &&
+              lastTimestamp !== undefined &&
+              Math.abs(lastTimestamp - currentTime) < 0.5
+            ) {
+              return counter;
+            }
+            
+            // Create a deep copy to avoid mutating state directly
+            const updatedPlayerCounts = { ...counter.playerCounts };
+            updatedPlayerCounts[playerName] = {
+              count: (updatedPlayerCounts[playerName]?.count || 0) + 1,
+              timestamps: [...(updatedPlayerCounts[playerName]?.timestamps || []), currentTime]
+            };
+            
+            // Update the total count as well
+            return {
+              ...counter,
+              count: newCount,
+              timestamps: events.map(e => e.timestamp),
+              playerCounts: updatedPlayerCounts
+            };
+          }
+          
+          // Handle standard and resettable counters as before
+          // Prevent double-counting if video is paused and last timestamp is the same (within 0.5s)
+          const lastTimestamp = counter.timestamps[counter.timestamps.length - 1];
           if (
             playerState === 'paused' &&
             lastTimestamp !== undefined &&
@@ -507,46 +692,45 @@ function AnalyzeVideoPage({ user }: { user: any }) {
           ) {
             return counter;
           }
-          
-          // Create a deep copy to avoid mutating state directly
-          const updatedPlayerCounts = { ...counter.playerCounts };
-          updatedPlayerCounts[playerName] = {
-            count: (updatedPlayerCounts[playerName]?.count || 0) + 1,
-            timestamps: [...(updatedPlayerCounts[playerName]?.timestamps || []), currentTime]
-          };
-          
-          // Update the total count as well
           return {
             ...counter,
-            count: counter.count + 1,
-            timestamps: [...counter.timestamps, currentTime],
-            playerCounts: updatedPlayerCounts
+            count: newCount,
+            timestamps: events.map(e => e.timestamp)
           };
-        }
-        
-        // Handle standard and resettable counters as before
-        // Prevent double-counting if video is paused and last timestamp is the same (within 0.5s)
-        const lastTimestamp = counter.timestamps[counter.timestamps.length - 1];
-        if (
-          playerState === 'paused' &&
-          lastTimestamp !== undefined &&
-          Math.abs(lastTimestamp - currentTime) < 0.5
-        ) {
-          return counter;
-        }
-        return {
-          ...counter,
-          count: counter.count + 1,
-          timestamps: [...counter.timestamps, currentTime]
-        };
-      })
-    )
+        })
+      )
+    } catch (error) {
+      console.error('Error incrementing counter:', error)
+      toast.error('Failed to increment counter')
+    }
   }
   
-  const removeCounter = (counterId: string) => {
-    setCounters(prevCounters => 
-      prevCounters.filter(counter => counter.id !== counterId)
-    )
+  const removeCounter = async (counterId: string) => {
+    try {
+      // First delete all counter events
+      const { error: eventsError } = await supabase
+        .from('counter_events')
+        .delete()
+        .eq('counter_id', counterId)
+
+      if (eventsError) throw eventsError
+
+      // Then delete the counter
+      const { error: counterError } = await supabase
+        .from('counters')
+        .delete()
+        .eq('id', counterId)
+
+      if (counterError) throw counterError
+
+      // Update local state
+      setCounters(prevCounters => 
+        prevCounters.filter(counter => counter.id !== counterId)
+      )
+    } catch (error) {
+      console.error('Error removing counter:', error)
+      toast.error('Failed to remove counter')
+    }
   }
   
   const addLabel = (label: string) => {
@@ -776,7 +960,7 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     setShowTimerForm(true)
   }
   
-  const saveTimer = () => {
+  const saveTimer = async () => {
     if (!newTimerName.trim()) {
       setNotification({
         message: 'Please enter a name for the timer',
@@ -794,44 +978,62 @@ function AnalyzeVideoPage({ user }: { user: any }) {
       return
     }
     
-    const newTimer: PlayerTimer = {
-      id: `timer-${Date.now()}`,
-      name: newTimerName,
-      startTime: null,
-      endTime: null,
-      duration: 0,
-      active: false,
-      type: newTimerType,
-      sessions: []
-    }
-    
-    // Add player-specific data if it's a player-based timer
-    if (newTimerType === 'player-based') {
-      newTimer.players = [...newTimerPlayers]
-      newTimer.playerTimes = {}
+    try {
+      // Create timer in database
+      const { data: timerData, error: timerError } = await supabase
+        .from('timers')
+        .insert({
+          name: newTimerName,
+          type: newTimerType,
+          video_id: selectedVideo?.id // Use the database video ID instead of YouTube video ID
+        })
+        .select()
+        .single()
+
+      if (timerError) throw timerError
+
+      const newTimer: PlayerTimer = {
+        id: timerData.id,
+        name: newTimerName,
+        startTime: null,
+        endTime: null,
+        duration: 0,
+        active: false,
+        type: newTimerType,
+        sessions: []
+      }
       
-      // Initialize times for each player
-      newTimerPlayers.forEach(player => {
-        newTimer.playerTimes![player] = {
-          duration: 0,
-          active: false,
-          startTime: null,
-          sessions: []
-        }
+      // Add player-specific data if it's a player-based timer
+      if (newTimerType === 'player-based') {
+        newTimer.players = [...newTimerPlayers]
+        newTimer.playerTimes = {}
+        
+        // Initialize times for each player
+        newTimerPlayers.forEach(player => {
+          newTimer.playerTimes![player] = {
+            duration: 0,
+            active: false,
+            startTime: null,
+            sessions: []
+          }
+        })
+      }
+      
+      setPlayerTimers([...playerTimers, newTimer])
+      setNewTimerName('')
+      setNewTimerType('standard')
+      setNewTimerPlayers([])
+      setNewTimerPlayerName('')
+      setShowTimerForm(false)
+      setNotification({
+        message: `Timer "${newTimerName}" added!`,
+        type: 'success'
       })
+      setTimeout(() => setNotification(null), 3000)
+    } catch (error) {
+      console.error('Error creating timer:', error)
+      toast.error('Failed to create timer')
     }
-    
-    setPlayerTimers([...playerTimers, newTimer])
-    setNewTimerName('')
-    setNewTimerType('standard')
-    setNewTimerPlayers([])
-    setNewTimerPlayerName('')
-    setShowTimerForm(false)
-    setNotification({
-      message: `Timer "${newTimerName}" added!`,
-      type: 'success'
-    })
-    setTimeout(() => setNotification(null), 3000)
   }
   
   // Add player to timer form
@@ -1003,72 +1205,146 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     );
   };
 
-  const startTimer = (timerId: string) => {
+  const startTimer = async (timerId: string) => {
     if (!playerRef.current) return
     const currentTime = playerRef.current.getCurrentTime()
     
-    setPlayerTimers(prevTimers =>
-      prevTimers.map(timer => {
-        if (timer.id !== timerId) return timer
-        
-        // Create a new session when starting the timer
-        const newSession: TimerSession = {
-          startTime: currentTime,
-          endTime: null,
-          duration: 0
-        }
-        
-        return {
-          ...timer,
-          startTime: currentTime,
-          active: true,
-          sessions: [...timer.sessions, newSession]
-        }
-      })
-    )
-  }
-  
-  const stopTimer = (timerId: string) => {
-    if (!playerRef.current) return
-    const currentTime = playerRef.current.getCurrentTime()
-    
-    setPlayerTimers(prevTimers =>
-      prevTimers.map(timer => {
-        if (timer.id !== timerId) return timer
-        
-        // Calculate duration only if timer was active and had a start time
-        if (timer.active && timer.startTime !== null) {
-          const sessionDuration = currentTime - timer.startTime
+    try {
+      // Create timer event
+      const { data: eventData, error: eventError } = await supabase
+        .from('timer_events')
+        .insert({
+          timer_id: timerId,
+          start_time: currentTime,
+          end_time: null,
+          duration: null,
+          team_member_id: null // We'll add player tracking later
+        })
+        .select()
+        .single()
+
+      if (eventError) throw eventError
+
+      // Update local state
+      setPlayerTimers(prevTimers =>
+        prevTimers.map(timer => {
+          if (timer.id !== timerId) return timer
           
-          // Update the most recent session
-          const updatedSessions = [...timer.sessions]
-          if (updatedSessions.length > 0) {
-            const lastSession = updatedSessions[updatedSessions.length - 1]
-            updatedSessions[updatedSessions.length - 1] = {
-              ...lastSession,
-              endTime: currentTime,
-              duration: sessionDuration
-            }
+          // Create a new session when starting the timer
+          const newSession: TimerSession = {
+            startTime: currentTime,
+            endTime: null,
+            duration: 0
           }
           
           return {
             ...timer,
-            duration: timer.duration + sessionDuration,
-            active: false,
-            startTime: null,
-            sessions: updatedSessions
+            startTime: currentTime,
+            active: true,
+            sessions: [...timer.sessions, newSession]
           }
-        }
-        
-        return timer
-      })
-    )
+        })
+      )
+    } catch (error) {
+      console.error('Error starting timer:', error)
+      toast.error('Failed to start timer')
+    }
   }
   
-  const removeTimer = (timerId: string) => {
-    setPlayerTimers(prevTimers => 
-      prevTimers.filter(timer => timer.id !== timerId)
-    )
+  const stopTimer = async (timerId: string) => {
+    if (!playerRef.current) return
+    const currentTime = playerRef.current.getCurrentTime()
+    
+    try {
+      // Get the most recent timer event for this timer
+      const { data: events, error: eventsError } = await supabase
+        .from('timer_events')
+        .select('*')
+        .eq('timer_id', timerId)
+        .is('end_time', null)
+        .order('start_time', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (eventsError) throw eventsError
+
+      if (events) {
+        // Update the timer event
+        const { error: updateError } = await supabase
+          .from('timer_events')
+          .update({
+            end_time: currentTime,
+            duration: currentTime - events.start_time
+          })
+          .eq('id', events.id)
+
+        if (updateError) throw updateError
+      }
+
+      // Update local state
+      setPlayerTimers(prevTimers =>
+        prevTimers.map(timer => {
+          if (timer.id !== timerId) return timer
+          
+          // Calculate duration only if timer was active and had a start time
+          if (timer.active && timer.startTime !== null) {
+            const sessionDuration = currentTime - timer.startTime
+            
+            // Update the most recent session
+            const updatedSessions = [...timer.sessions]
+            if (updatedSessions.length > 0) {
+              const lastSession = updatedSessions[updatedSessions.length - 1]
+              updatedSessions[updatedSessions.length - 1] = {
+                ...lastSession,
+                endTime: currentTime,
+                duration: sessionDuration
+              }
+            }
+            
+            return {
+              ...timer,
+              duration: timer.duration + sessionDuration,
+              active: false,
+              startTime: null,
+              sessions: updatedSessions
+            }
+          }
+          
+          return timer
+        })
+      )
+    } catch (error) {
+      console.error('Error stopping timer:', error)
+      toast.error('Failed to stop timer')
+    }
+  }
+  
+  const removeTimer = async (timerId: string) => {
+    try {
+      // First delete all timer events
+      const { error: eventsError } = await supabase
+        .from('timer_events')
+        .delete()
+        .eq('timer_id', timerId)
+
+      if (eventsError) throw eventsError
+
+      // Then delete the timer
+      const { error: timerError } = await supabase
+        .from('timers')
+        .delete()
+        .eq('id', timerId)
+
+      if (timerError) throw timerError
+
+      // Update local state
+      setPlayerTimers(prevTimers => 
+        prevTimers.filter(timer => timer.id !== timerId)
+      )
+    } catch (error) {
+      console.error('Error removing timer:', error)
+      toast.error('Failed to remove timer')
+    }
   }
   
   const resetTimer = (timerId: string) => {
@@ -1178,9 +1454,12 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                         <button
                           onClick={e => {
                             e.stopPropagation();
-                            if (window.confirm('Are you sure you want to remove this counter?')) {
-                              removeCounter(counter.id);
-                            }
+                            setConfirmModalConfig({
+                              title: 'Remove Counter',
+                              message: `Are you sure you want to remove the counter "${counter.name}"? This action cannot be undone.`,
+                              onConfirm: () => removeCounter(counter.id)
+                            });
+                            setShowConfirmModal(true);
                           }}
                           className="ml-2 w-6 h-6 flex items-center justify-center rounded-full text-xs bg-red-700 hover:bg-red-800 text-white opacity-80 group-hover:opacity-100 transition-opacity"
                           title="Remove counter"
@@ -1388,9 +1667,12 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                         <span className="font-semibold text-center w-full pr-6">{timer.name}</span>
                         <button
                           onClick={() => {
-                            if (window.confirm('Are you sure you want to remove this timer?')) {
-                              removeTimer(timer.id);
-                            }
+                            setConfirmModalConfig({
+                              title: 'Remove Timer',
+                              message: `Are you sure you want to remove the timer "${timer.name}"? This action cannot be undone.`,
+                              onConfirm: () => removeTimer(timer.id)
+                            });
+                            setShowConfirmModal(true);
                           }}
                           className="ml-2 w-6 h-6 flex items-center justify-center rounded-full text-xs bg-red-700 hover:bg-red-800 text-white opacity-80 hover:opacity-100 transition-opacity"
                           title="Remove timer"
@@ -1888,9 +2170,47 @@ function AnalyzeVideoPage({ user }: { user: any }) {
           </div>
         </div>
       )}
+
+      {/* Confirmation Modal */}
+      {showConfirmModal && confirmModalConfig && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 p-6 rounded-lg w-96 border border-gray-700">
+            <h3 className="text-xl font-medium mb-3 text-white">{confirmModalConfig.title}</h3>
+            <p className="text-gray-300 mb-6">{confirmModalConfig.message}</p>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => {
+                  confirmModalConfig.onConfirm();
+                  setShowConfirmModal(false);
+                  setConfirmModalConfig(null);
+                }}
+                className="flex-1 px-4 py-2 rounded bg-red-700 hover:bg-red-600 text-white"
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => {
+                  setShowConfirmModal(false);
+                  setConfirmModalConfig(null);
+                }}
+                className="flex-1 px-4 py-2 rounded bg-gray-700 hover:bg-gray-600 text-white"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 // Allow coaches to access this page
-export default withAuth(AnalyzeVideoPage, ['coach'], 'Analyze Video') 
+export default withAuth(
+  AnalyzeVideoPage, 
+  {
+    teamId: 'any',
+    roles: ['coach']
+  }, 
+  'Analyze Video'
+) 

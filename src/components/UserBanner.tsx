@@ -3,12 +3,20 @@ import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/router'
 import Link from 'next/link'
 import { useTheme } from '@/contexts/ThemeContext'
+import { useTeam } from '@/contexts/TeamContext'
+
+type Team = {
+  id: string
+  name: string
+}
 
 export default function UserBanner({ email, roles }: { email: string; roles: string[] }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [teams, setTeams] = useState<Team[]>([])
   const { isDarkMode, toggleTheme } = useTheme()
+  const { selectedTeamId, setSelectedTeamId } = useTeam()
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -19,9 +27,57 @@ export default function UserBanner({ email, roles }: { email: string; roles: str
     fetchProfile()
   }, [])
 
+  useEffect(() => {
+    const fetchTeams = async () => {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      // Get user's team memberships
+      const { data: memberships, error: membershipsError } = await supabase
+        .from('team_members')
+        .select('team_id')
+        .eq('user_id', user.id)
+      
+      if (membershipsError) {
+        console.error('Error fetching team memberships:', membershipsError)
+        return
+      }
+
+      // Fetch team details, excluding System club teams
+      const { data: teamsData, error: teamsError } = await supabase
+        .from('teams')
+        .select('id, name')
+        .neq('club_affiliation', 'System')
+        .order('name')
+      
+      if (teamsError) {
+        console.error('Error fetching teams:', teamsError)
+        return
+      }
+      
+      setTeams(teamsData || [])
+
+      // If user is only in one team (excluding System club teams), set it as selected
+      const nonSystemTeamMemberships = memberships?.filter(m => 
+        teamsData?.some(t => t.id === m.team_id)
+      ) || []
+      
+      if (nonSystemTeamMemberships.length === 1) {
+        setSelectedTeamId(nonSystemTeamMemberships[0].team_id)
+      }
+    }
+    fetchTeams()
+  }, [setSelectedTeamId])
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push('/login')
+  }
+
+  const handleTeamChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value
+    setSelectedTeamId(value === 'all' ? null : value)
   }
 
   const initials = email
@@ -35,6 +91,34 @@ export default function UserBanner({ email, roles }: { email: string; roles: str
 
   return (
     <div className="flex items-center justify-end relative">
+      <div className="mr-4">
+        {teams.length > 0 && (
+          teams.length > 1 ? (
+            <select
+              value={selectedTeamId || 'all'}
+              onChange={handleTeamChange}
+              className={`px-3 py-1 rounded text-sm ${
+                isDarkMode 
+                  ? 'bg-gray-700 text-gray-200 border-gray-600' 
+                  : 'bg-white text-gray-700 border-gray-300'
+              } border focus:outline-none focus:ring-2 focus:ring-blue-500`}
+            >
+              <option value="all">All Teams</option>
+              {teams.map(team => (
+                <option key={team.id} value={team.id}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className={`px-3 py-1 text-sm ${
+              isDarkMode ? 'text-gray-200' : 'text-gray-700'
+            }`}>
+              {teams[0]?.name}
+            </div>
+          )
+        )}
+      </div>
       <button
         className={`w-10 h-10 rounded-full ${isDarkMode ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'} flex items-center justify-center overflow-hidden`}
         onClick={() => setOpen(!open)}

@@ -1,10 +1,10 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import withAuth from '@/components/withAuth'
+import { withAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 
-function VideosPage({ user }: { user: any }) {
+function VideosPage() {
   const [videos, setVideos] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -183,5 +183,12 @@ function VideosPage({ user }: { user: any }) {
   )
 }
 
-// Allow any authenticated user to access this page
-export default withAuth(VideosPage, ['admin', 'coach', 'player', 'parent'], 'Soccer Videos') 
+// Allow access to any team member (regardless of which team)
+export default withAuth(
+  VideosPage, 
+  {
+    teamId: 'any',
+    roles: ['coach', 'player', 'parent', 'manager']
+  }, 
+  'Soccer Videos'
+) 
