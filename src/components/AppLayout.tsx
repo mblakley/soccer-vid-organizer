@@ -10,9 +10,10 @@ type AppLayoutProps = {
     roles?: string[]
   }
   title?: string
+  fullWidth?: boolean
 }
 
-export default function AppLayout({ children, user, title }: AppLayoutProps) {
+export default function AppLayout({ children, user, title, fullWidth }: AppLayoutProps) {
   const { isDarkMode } = useTheme()
 
   // Only show UserBanner if user is provided
@@ -20,7 +21,7 @@ export default function AppLayout({ children, user, title }: AppLayoutProps) {
     <div className={`min-h-screen ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
       {user && (
         <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} shadow-sm border-b p-4`}>
-          <div className="max-w-7xl mx-auto flex justify-between items-center">
+          <div className={`${fullWidth ? '' : 'max-w-7xl mx-auto'} flex justify-between items-center`}>
             <div className="flex items-center space-x-6">
               <Link 
                 href="/" 
@@ -34,7 +35,7 @@ export default function AppLayout({ children, user, title }: AppLayoutProps) {
           </div>
         </div>
       )}
-      <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+      <main className={`${fullWidth ? 'w-full px-0' : 'max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8'}`}>
         {children}
       </main>
     </div>

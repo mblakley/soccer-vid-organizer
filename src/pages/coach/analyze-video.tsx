@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import withAuth from '@/components/withAuth'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -104,6 +104,26 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   const [recentLabels, setRecentLabels] = useState<string[]>([])
   // Track clip duration
   const [clipDuration, setClipDuration] = useState<number>(0)
+
+  // Track which sidebar tab is active
+  const [sidebarTab, setSidebarTab] = useState<'clips' | 'counters' | 'createClip' | null>('clips')
+  const [lastSidebarTab, setLastSidebarTab] = useState<'clips' | 'counters' | 'createClip'>('clips')
+
+  // Timer for recording duration
+  const [recordingElapsed, setRecordingElapsed] = useState(0)
+
+  // State to show/hide the right sidebar
+  const [sidebarVisible, setSidebarVisible] = useState(true)
+
+  // When sidebarVisible changes, clear or restore the selected tab
+  useEffect(() => {
+    if (!sidebarVisible) {
+      if (sidebarTab) setLastSidebarTab(sidebarTab)
+      setSidebarTab(null)
+    } else if (sidebarTab === null) {
+      setSidebarTab(lastSidebarTab)
+    }
+  }, [sidebarVisible])
 
   // Load videos on component mount
   useEffect(() => {
@@ -583,348 +603,141 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     // Optional: We could set up code to pause at the end time
     // by checking current time in the interval
   }
-  
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    if (isRecording && recordingStart !== null && playerRef.current) {
+      timer = setInterval(() => {
+        if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
+          setRecordingElapsed(playerRef.current.getCurrentTime() - recordingStart)
+        }
+      }, 200)
+    } else {
+      setRecordingElapsed(0)
+    }
+    return () => {
+      if (timer) clearInterval(timer)
+    }
+  }, [isRecording, recordingStart])
+
+  // Keyboard arrow key seeking for video player
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!playerRef.current || typeof playerRef.current.getCurrentTime !== 'function') return;
+      if (document.activeElement && ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+      const currentTime = playerRef.current.getCurrentTime();
+      if (e.key === 'ArrowLeft') {
+        playerRef.current.seekTo(Math.max(0, currentTime - 5), true);
+      } else if (e.key === 'ArrowRight') {
+        playerRef.current.seekTo(currentTime + 5, true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   return (
-    <div className="w-full mx-0 p-0 space-y-6 mb-36">
-      {/* Video selection - keep it in a contained area */}
-      <div className="container mx-auto px-2 md:px-4">
-        <div className="max-w-md">
-          <label 
-            htmlFor="video-select" 
-            className="block mb-1 text-sm font-medium"
-          >
-            Select a video to analyze
-          </label>
-          <select
-            id="video-select"
-            className={`w-full border rounded px-3 py-1 text-sm ${
-              isDarkMode 
-                ? 'bg-gray-700 border-gray-600 text-white' 
-                : 'bg-white border-gray-300'
-            }`}
-            value={selectedVideo?.id || ''}
-            onChange={handleVideoSelect}
-          >
-            <option value="">-- Select a video --</option>
-            {videos.map(video => (
-              <option key={video.id} value={video.id}>
-                {video.title}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-      
-      {/* Video player with side counters - full width with no horizontal constraints */}
-      {selectedVideo && (
-        <>
-          {/* Main video player and counters container - fullwidth with no margin */}
-          <div className="flex flex-col md:flex-row w-full">
-            {/* Video player container - absolute full width */}
-            <div className="w-full md:flex-1">
-              <div 
-                ref={playerContainerRef} 
-                className="aspect-video bg-black w-full h-full"
+    <div className="flex flex-col h-screen bg-gray-900">
+      {/* Top Bar - removed header and user avatar */}
+      <div className="h-4 bg-gray-900 border-b border-gray-800" />
+
+      {/* Main Content */}
+      <div className="flex flex-1 overflow-hidden w-full h-full">
+        {/* Video Area */}
+        <div className="flex-1 min-w-0 bg-black flex items-center justify-center relative h-full">
+          {selectedVideo ? (
+            <div className="h-full flex items-center justify-center w-full max-w-full overflow-hidden">
+              <div
+                ref={playerContainerRef}
+                className="aspect-video bg-black w-full max-w-full"
+                style={{ maxWidth: '100%' }}
               ></div>
             </div>
-            
-            {/* Counters section - right side vertical stack with minimal width */}
-            <div className="md:w-56 md:flex-shrink-0 p-2 md:p-3">
-              <h3 className="font-medium mb-2 text-sm">Event Counters</h3>
-              
-              {/* Counter buttons - stacked vertically */}
-              <div className="space-y-2">
-                {counters.map(counter => (
-                  <div 
-                    key={counter.id}
-                    className={`relative group p-2 border rounded ${
-                      isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-300'
-                    }`}
-                  >
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium text-sm">{counter.name}</span>
-                      <span className="text-base font-bold">{counter.count}</span>
-                    </div>
-                    <button
-                      onClick={() => incrementCounter(counter.id)}
-                      className={`mt-1 w-full px-2 py-1 rounded transition-colors text-center text-sm ${
-                        isDarkMode
-                          ? 'bg-gray-700 hover:bg-gray-600 text-white'
-                          : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
-                      }`}
-                    >
-                      Count
-                    </button>
-                    <button 
-                      onClick={() => removeCounter(counter.id)}
-                      className="absolute -top-2 -right-2 hidden group-hover:block bg-red-500 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs"
-                      title="Remove counter"
-                    >
-                      ×
-                    </button>
-                  </div>
+          ) : (
+            <div className="text-gray-400 text-lg">Select a video to begin</div>
+          )}
+        </div>
+
+        {/* Right Sidebar: Video selection, Clips or Counters */}
+        {sidebarVisible && (
+          <div className="w-[350px] bg-gray-900 text-white flex flex-col border-l border-gray-800 overflow-y-auto h-full">
+            {/* Video selection dropdown at the top */}
+            <div className="p-4 border-b border-gray-800">
+              <label htmlFor="video-select" className="block mb-1 text-sm font-medium">Select a video</label>
+              <select
+                id="video-select"
+                className="w-full border rounded px-3 py-1 text-sm bg-gray-800 border-gray-700 text-white"
+                value={selectedVideo?.id || ''}
+                onChange={handleVideoSelect}
+              >
+                <option value="">-- Select a video --</option>
+                {videos.map(video => (
+                  <option key={video.id} value={video.id}>{video.title}</option>
                 ))}
-                
-                {counters.length === 0 && !showCounterForm && (
-                  <div className={`p-2 text-center text-xs ${
-                    isDarkMode ? 'text-gray-400' : 'text-gray-500'
-                  }`}>
-                    Add counters to track events during video playback
-                  </div>
-                )}
-              </div>
+              </select>
             </div>
-          </div>
-          
-          {/* Content below video - keep it in a contained area */}
-          <div className="container mx-auto px-2 md:px-4">
-            {/* Clip creation form */}
-            {showClipForm && (
-              <div className={`p-3 rounded border ${
-                isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300'
-              }`}>
-                <h3 className="text-lg font-medium mb-3">Save Clip</h3>
-                
-                <div className="space-y-3">
-                  <div>
-                    <label htmlFor="clip-title" className="block mb-1 text-sm font-medium">
-                      Clip Title (optional)
-                    </label>
-                    <input
-                      id="clip-title"
-                      type="text"
-                      value={clipTitle}
-                      onChange={(e) => setClipTitle(e.target.value)}
-                      className={`w-full border rounded px-3 py-2 ${
-                        isDarkMode 
-                          ? 'bg-gray-700 border-gray-600 text-white' 
-                          : 'bg-white border-gray-300'
-                      }`}
-                      placeholder="Enter a descriptive title (optional)"
-                    />
-                  </div>
-                  
-                  {/* Show clip duration */}
-                  {clipDuration > 0 && (
-                    <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                      Clip duration: {formatTime(clipDuration)}
-                    </div>
+            <div className="p-4 border-b border-gray-800 font-bold text-lg flex items-center">
+              {sidebarTab === 'clips' ? 'Clips' : sidebarTab === 'counters' ? 'Counters' : 'Create Clip'}
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {sidebarTab === 'clips' ? (
+                <Fragment>
+                  {loadingClips && <div className="p-4 text-gray-400">Loading clips...</div>}
+                  {!loadingClips && clipMarkers.length === 0 && (
+                    <div className="p-4 text-gray-400">No clips created yet.</div>
                   )}
-                  
-                  <div>
-                    <label htmlFor="clip-comment" className="block mb-1 text-sm font-medium">
-                      Coach's Comment
-                    </label>
-                    <textarea
-                      id="clip-comment"
-                      value={clipComment}
-                      onChange={(e) => setClipComment(e.target.value)}
-                      className={`w-full border rounded px-3 py-2 ${
-                        isDarkMode 
-                          ? 'bg-gray-700 border-gray-600 text-white' 
-                          : 'bg-white border-gray-300'
-                      }`}
-                      rows={3}
-                      placeholder="Add your analysis of this clip"
-                    ></textarea>
-                  </div>
-                  
-                  <div>
-                    <label className="block mb-1 text-sm font-medium">
-                      Labels/Tags (optional)
-                    </label>
-                    <div className="flex flex-wrap gap-2 mb-2">
-                      <div className="flex w-full md:w-3/5">
-                        <input
-                          type="text"
-                          value={newLabel}
-                          onChange={(e) => setNewLabel(e.target.value)}
-                          onKeyPress={(e) => e.key === 'Enter' && addLabel(newLabel)}
-                          className={`flex-grow border rounded-l px-3 py-2 ${
-                            isDarkMode 
-                              ? 'bg-gray-700 border-gray-600 text-white' 
-                              : 'bg-white border-gray-300'
-                          }`}
-                          placeholder="Add labels (e.g., attack, defense, player name)"
-                        />
-                        <button
-                          onClick={() => addLabel(newLabel)}
-                          className={`px-3 py-2 rounded-r transition-colors ${
-                            isDarkMode
-                              ? 'bg-gray-700 hover:bg-gray-600 text-white'
-                              : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
-                          }`}
-                        >
-                          Add
-                        </button>
-                      </div>
-                      
-                      {/* Recent labels buttons */}
-                      <div className="flex flex-wrap gap-1 w-full md:w-2/5 md:pl-2">
-                        {recentLabels.slice(0, 10).map(label => (
-                          <button
-                            key={label}
-                            onClick={() => addLabel(label)}
-                            className={`text-xs px-2 py-1 rounded transition-colors ${
-                              clipLabels.includes(label)
-                                ? isDarkMode ? 'bg-blue-800 text-white' : 'bg-blue-200 text-blue-800'
-                                : isDarkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-800'
-                            } hover:opacity-80`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    {/* Display added labels */}
-                    {clipLabels.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mb-2">
-                        {clipLabels.map(label => (
-                          <div
-                            key={label}
-                            className={`flex items-center space-x-1 px-2 py-1 rounded text-sm ${
-                              isDarkMode ? 'bg-blue-900 text-blue-100' : 'bg-blue-100 text-blue-800'
-                            }`}
-                          >
-                            <span>{label}</span>
-                            <button
-                              onClick={() => removeLabel(label)}
-                              className="hover:text-red-500"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="flex space-x-3">
-                    <button
-                      onClick={handleSaveClip}
-                      disabled={isSavingClip}
-                      className={`px-4 py-2 rounded font-medium transition-colors ${
-                        isDarkMode
-                          ? 'bg-blue-700 hover:bg-blue-600 text-white'
-                          : 'bg-blue-600 hover:bg-blue-500 text-white'
-                      } ${isSavingClip ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      {isSavingClip ? 'Saving...' : 'Save Clip'}
-                    </button>
-                    
-                    <button
-                      onClick={cancelClipCreation}
-                      disabled={isSavingClip}
-                      className={`px-4 py-2 rounded font-medium transition-colors ${
-                        isDarkMode
-                          ? 'bg-gray-700 hover:bg-gray-600 text-white'
-                          : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
-                      } ${isSavingClip ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* Notification */}
-            {notification && (
-              <div className={`p-3 rounded ${
-                notification.type === 'success' 
-                  ? 'bg-green-100 text-green-800'
-                  : 'bg-red-100 text-red-800'
-              }`}>
-                {notification.message}
-              </div>
-            )}
-            
-            {/* Loading clips state */}
-            {loadingClips && (
-              <div className={`mt-4 p-2 text-center ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
-                <p>Loading clips for this video...</p>
-              </div>
-            )}
-            
-            {/* All clips section */}
-            {selectedVideo && clipMarkers.length > 0 && (
-              <div className="mt-4">
-                <h3 className="text-lg font-medium mb-2">Clips from this video</h3>
-                <div className="space-y-2">
                   {[...clipMarkers]
-                    .sort((a, b) => b.startTime - a.startTime) // Sort by startTime in descending order
+                    .sort((a, b) => b.startTime - a.startTime)
                     .map((clip, index) => (
-                    <div 
-                      key={clip.id || index}
-                      className={`border rounded-lg overflow-hidden ${
-                        isDarkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-300 bg-white'
-                      }`}
-                    >
-                      <div className="p-3 flex justify-between items-start">
-                        <div className="space-y-1 flex-1">
-                          <div className="font-medium">
-                            {clip.title}
+                      <div key={clip.id || index} className="p-4 border-b border-gray-800 hover:bg-gray-800 cursor-pointer">
+                        <div className="font-semibold">{clip.title}</div>
+                        <div className="text-xs text-gray-400">{formatTime(clip.startTime)} - {formatTime(clip.endTime)} (Duration: {formatTime(clip.endTime - clip.startTime)})</div>
+                        {clip.labels && clip.labels.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {clip.labels.map(label => (
+                              <span key={label} className="px-2 py-0.5 text-xs rounded bg-blue-900 text-blue-100">{label}</span>
+                            ))}
                           </div>
-                          <div className="text-sm text-gray-500">
-                            {formatTime(clip.startTime)} - {formatTime(clip.endTime)} (Duration: {formatTime(clip.endTime - clip.startTime)})
-                          </div>
-                          
-                          {/* Display labels */}
-                          {clip.labels && clip.labels.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {clip.labels.map(label => (
-                                <span 
-                                  key={label}
-                                  className={`px-2 py-0.5 text-xs rounded ${
-                                    isDarkMode ? 'bg-blue-900 text-blue-100' : 'bg-blue-100 text-blue-800'
-                                  }`}
-                                >
-                                  {label}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          
-                          {clip.comment && (
-                            <div className={`mt-2 p-2 rounded text-sm ${
-                              isDarkMode ? 'bg-gray-900' : 'bg-gray-100'
-                            }`}>
-                              {clip.comment}
-                            </div>
-                          )}
-                        </div>
+                        )}
+                        {clip.comment && (
+                          <div className="mt-2 p-2 rounded text-sm bg-gray-950 text-gray-200">{clip.comment}</div>
+                        )}
                         <button
                           onClick={() => playClip(clip)}
-                          className={`px-3 py-1 rounded text-sm transition-colors ${
-                            isDarkMode
-                              ? 'bg-gray-700 hover:bg-gray-600 text-white'
-                              : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
-                          }`}
+                          className="mt-2 px-3 py-1 rounded text-xs bg-gray-700 hover:bg-gray-600"
                         >
                           Play
                         </button>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {/* Display counter history */}
-            {counters.length > 0 && counters.some(c => c.timestamps.length > 0) && (
-              <div>
-                <h3 className="text-lg font-medium mb-2">Counter Statistics</h3>
-                <div className={`border rounded p-3 ${
-                  isDarkMode ? 'border-gray-700' : 'border-gray-300'
-                }`}>
-                  {counters.filter(c => c.timestamps.length > 0).map(counter => (
-                    <div key={counter.id} className="mb-3 last:mb-0">
-                      <h4 className="font-medium">{counter.name}: {counter.count} events</h4>
-                      <div className="mt-1 text-sm">
-                        <div className="flex flex-wrap gap-1">
+                    ))}
+                </Fragment>
+              ) : sidebarTab === 'counters' ? (
+                <Fragment>
+                  {counters.length === 0 && (
+                    <div className="p-4 text-gray-400">No counters yet. Add one below.</div>
+                  )}
+                  {counters.map(counter => (
+                    <div key={counter.id} className="p-4 border-b border-gray-800 hover:bg-gray-800 cursor-pointer">
+                      <div className="flex justify-between items-center">
+                        <span className="font-semibold">{counter.name}</span>
+                        <span className="text-base font-bold">{counter.count}</span>
+                      </div>
+                      <button
+                        onClick={() => incrementCounter(counter.id)}
+                        className="mt-2 px-3 py-1 rounded text-xs bg-blue-700 hover:bg-blue-600"
+                      >
+                        Count
+                      </button>
+                      <button
+                        onClick={() => removeCounter(counter.id)}
+                        className="ml-2 px-2 py-1 rounded text-xs bg-red-700 hover:bg-red-600"
+                      >
+                        Remove
+                      </button>
+                      {counter.timestamps.length > 0 && (
+                        <div className="mt-2 text-xs text-gray-400">
                           {counter.timestamps.map((time, i) => (
-                            <button 
+                            <button
                               key={i}
                               onClick={() => {
                                 if (playerRef.current) {
@@ -932,133 +745,234 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                                   playerRef.current.playVideo()
                                 }
                               }}
-                              className={`px-2 py-0.5 rounded hover:underline ${
-                                isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'
-                              }`}
+                              className="mr-1 px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700"
                             >
                               {formatTime(time)}
                             </button>
                           ))}
                         </div>
-                      </div>
+                      )}
                     </div>
                   ))}
-                </div>
-              </div>
-            )}
-          </div>
-          
-          {/* Add counter form - shows as a modal when active */}
-          {shouldShowCounterForm && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 z-20 flex items-center justify-center">
-              <div className={`p-4 rounded shadow-lg max-w-md w-full ${
-                isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-300'
-              }`}>
-                <h3 className="text-lg font-medium mb-3">Add New Counter</h3>
-                <div className="space-y-3">
-                  <input
-                    type="text"
-                    value={newCounterName}
-                    onChange={(e) => setNewCounterName(e.target.value)}
-                    placeholder="What are you counting?"
-                    className={`w-full border rounded px-3 py-2 ${
-                      isDarkMode 
-                        ? 'bg-gray-700 border-gray-600 text-white' 
-                        : 'bg-white border-gray-300'
-                    }`}
-                    autoFocus
-                  />
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={saveCounter}
-                      className={`flex-1 px-3 py-2 rounded transition-colors ${
-                        isDarkMode
-                          ? 'bg-green-700 hover:bg-green-600 text-white'
-                          : 'bg-green-600 hover:bg-green-500 text-white'
-                      }`}
-                    >
-                      Save
-                    </button>
-                    <button
-                      onClick={() => setShowCounterForm(false)}
-                      className={`flex-1 px-3 py-2 rounded transition-colors ${
-                        isDarkMode
-                          ? 'bg-gray-700 hover:bg-gray-600 text-white'
-                          : 'bg-gray-300 hover:bg-gray-400 text-gray-800'
-                      }`}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              </div>
+                  {/* Add Counter Form */}
+                  {showCounterForm ? (
+                    <div className="p-4 border-t border-gray-800">
+                      <input
+                        type="text"
+                        value={newCounterName}
+                        onChange={e => setNewCounterName(e.target.value)}
+                        placeholder="Counter name"
+                        className="w-full mb-2 px-3 py-2 rounded bg-gray-800 border border-gray-700 text-white"
+                      />
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={saveCounter}
+                          className="flex-1 px-3 py-2 rounded bg-green-700 hover:bg-green-600 text-white"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => setShowCounterForm(false)}
+                          className="flex-1 px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 text-white"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 border-t border-gray-800">
+                      <button
+                        onClick={handleAddCounter}
+                        className="w-full px-3 py-2 rounded bg-blue-700 hover:bg-blue-600 text-white"
+                      >
+                        Add Counter
+                      </button>
+                    </div>
+                  )}
+                </Fragment>
+              ) : (
+                <Fragment>
+                  {/* Show start/end buttons and status, only show form after ending the clip */}
+                  {!isRecording && recordingStart === null && (
+                    <div className="flex flex-col items-center justify-center p-6">
+                      <button
+                        onClick={handleStartRecording}
+                        className={`px-6 py-3 rounded-full font-medium text-lg transition-colors ${isDarkMode ? 'bg-red-700 hover:bg-red-600 text-white' : 'bg-red-600 hover:bg-red-500 text-white'}`}
+                      >
+                        Start Clip
+                      </button>
+                    </div>
+                  )}
+                  {isRecording && (
+                    <div className="flex flex-col items-center justify-center p-6">
+                      <div className="flex items-center mb-4">
+                        <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse mr-2"></div>
+                        <span>Recording from {recordingStart !== null ? formatTime(recordingStart) : '0:00'}</span>
+                        <span className="ml-4 text-sm font-mono text-blue-400">{formatTime(recordingElapsed)}</span>
+                      </div>
+                      <button
+                        onClick={handleStopRecording}
+                        className={`px-6 py-3 rounded-full font-medium text-lg transition-colors ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'}`}
+                      >
+                        End Clip
+                      </button>
+                    </div>
+                  )}
+                  {/* Only show the Save Clip form after recording has ended (recordingStart !== null && !isRecording) */}
+                  {recordingStart !== null && !isRecording && (
+                    <div className={`p-3 rounded border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300'}`}>
+                      <h3 className="text-lg font-medium mb-3">Save Clip</h3>
+                      <div className="space-y-3">
+                        <div>
+                          <label htmlFor="clip-title" className="block mb-1 text-sm font-medium">
+                            Clip Title (optional)
+                          </label>
+                          <input
+                            id="clip-title"
+                            type="text"
+                            value={clipTitle}
+                            onChange={(e) => setClipTitle(e.target.value)}
+                            className={`w-full border rounded px-3 py-2 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
+                            placeholder="Enter a descriptive title (optional)"
+                          />
+                        </div>
+                        {clipDuration > 0 && (
+                          <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Clip duration: {formatTime(clipDuration)}</div>
+                        )}
+                        <div>
+                          <label htmlFor="clip-comment" className="block mb-1 text-sm font-medium">Coach's Comment</label>
+                          <textarea
+                            id="clip-comment"
+                            value={clipComment}
+                            onChange={(e) => setClipComment(e.target.value)}
+                            className={`w-full border rounded px-3 py-2 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
+                            rows={3}
+                            placeholder="Add your analysis of this clip"
+                          ></textarea>
+                        </div>
+                        <div>
+                          <label className="block mb-1 text-sm font-medium">Labels/Tags (optional)</label>
+                          <div className="mb-2">
+                            <input
+                              type="text"
+                              value={newLabel}
+                              onChange={(e) => setNewLabel(e.target.value)}
+                              onKeyPress={(e) => e.key === 'Enter' && addLabel(newLabel)}
+                              className={`w-full border rounded px-3 py-2 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
+                              placeholder="Add labels (e.g., attack, defense, player name)"
+                            />
+                            <button
+                              onClick={() => addLabel(newLabel)}
+                              className={`mt-2 w-full px-3 py-2 rounded transition-colors ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'}`}
+                            >Add</button>
+                          </div>
+                          {/* Recent tags as buttons */}
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            {recentLabels.slice(0, 10).map(label => (
+                              <button
+                                key={label}
+                                onClick={() => addLabel(label)}
+                                className={`text-xs px-2 py-1 rounded transition-colors ${clipLabels.includes(label) ? isDarkMode ? 'bg-blue-800 text-white' : 'bg-blue-200 text-blue-800' : isDarkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-800'} hover:opacity-80`}
+                              >{label}</button>
+                            ))}
+                          </div>
+                          {clipLabels.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              {clipLabels.map(label => (
+                                <div key={label} className={`flex items-center space-x-1 px-2 py-1 rounded text-sm ${isDarkMode ? 'bg-blue-900 text-blue-100' : 'bg-blue-100 text-blue-800'}`}>
+                                  <span>{label}</span>
+                                  <button onClick={() => removeLabel(label)} className="hover:text-red-500">×</button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex space-x-3">
+                          <button
+                            onClick={handleSaveClip}
+                            disabled={isSavingClip}
+                            className={`px-4 py-2 rounded font-medium transition-colors ${isDarkMode ? 'bg-blue-700 hover:bg-blue-600 text-white' : 'bg-blue-600 hover:bg-blue-500 text-white'} ${isSavingClip ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >{isSavingClip ? 'Saving...' : 'Save Clip'}</button>
+                          <button
+                            onClick={() => {
+                              setSidebarTab('clips');
+                              cancelClipCreation();
+                            }}
+                            disabled={isSavingClip}
+                            className={`px-4 py-2 rounded font-medium transition-colors ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'} ${isSavingClip ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >Cancel</button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </Fragment>
+              )}
             </div>
-          )}
-        </>
-      )}
-      
-      {/* Loading state and No videos message - keep them in a contained area */}
-      <div className="container mx-auto px-2 md:px-4">
-        {/* Loading state */}
-        {loading && <p className="text-sm">Loading videos...</p>}
-        
-        {/* No videos available */}
-        {!loading && videos.length === 0 && (
-          <p className="text-sm">No videos available. Please import videos from the Videos page first.</p>
-        )}
-      </div>
-
-      {/* Fixed bottom recording controls with status indicator */}
-      {isRecording && (
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-opacity-95 z-10 flex justify-center items-center"
-          style={{ backgroundColor: isDarkMode ? 'rgba(17, 24, 39, 0.95)' : 'rgba(255, 255, 255, 0.95)' }}
-        >
-          <div className="flex items-center mr-4">
-            <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse mr-2"></div>
-            <span>
-              Recording from {recordingStart !== null ? formatTime(recordingStart) : '0:00'}
-            </span>
           </div>
-          
+        )}
+
+        {/* Far Right Sidebar for navigation */}
+        <div className="flex flex-col w-16 bg-gray-950 border-l border-gray-800 items-center py-4 space-y-4">
+          {/* Toggle sidebar visibility */}
           <button
-            onClick={handleStopRecording}
-            className={`px-6 py-3 rounded-full font-medium text-lg transition-colors ${
-              isDarkMode
-                ? 'bg-gray-700 hover:bg-gray-600 text-white'
-                : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
-            }`}
+            className={`w-10 h-10 flex items-center justify-center rounded-lg ${!sidebarVisible ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}
+            onClick={() => setSidebarVisible(!sidebarVisible)}
+            title={sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar'}
           >
-            End Clip
+            {sidebarVisible ? (
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 12h12" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12h15m-7.5-7.5l7.5 7.5-7.5 7.5" />
+              </svg>
+            )}
+          </button>
+          {/* Create Clip tab - now immediately after minimize */}
+          <button
+            className={`w-10 h-10 flex items-center justify-center rounded-lg ${sidebarTab === 'createClip' && sidebarVisible ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}
+            onClick={() => { setSidebarTab('createClip'); setLastSidebarTab('createClip'); }}
+            title="Create Clip"
+            disabled={!sidebarVisible}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+          </button>
+          <button
+            className={`w-10 h-10 flex items-center justify-center rounded-lg ${sidebarTab === 'clips' && sidebarVisible ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}
+            onClick={() => { setSidebarTab('clips'); setLastSidebarTab('clips'); }}
+            title="Show Clips"
+            disabled={!sidebarVisible}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6A2.25 2.25 0 005.25 5.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M18 15l3-3m0 0l-3-3m3 3H9" />
+            </svg>
+          </button>
+          <button
+            className={`w-10 h-10 flex items-center justify-center rounded-lg ${sidebarTab === 'counters' && sidebarVisible ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}
+            onClick={() => { setSidebarTab('counters'); setLastSidebarTab('counters'); }}
+            title="Show Counters"
+            disabled={!sidebarVisible}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h6" />
+              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" fill="none" />
+            </svg>
           </button>
         </div>
-      )}
+      </div>
 
-      {/* Fixed Action Buttons at bottom of screen */}
-      {shouldShowFixedButtons && (
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-opacity-95 z-10 flex justify-center space-x-4"
-          style={{ backgroundColor: isDarkMode ? 'rgba(17, 24, 39, 0.95)' : 'rgba(255, 255, 255, 0.95)' }}
-        >
-          <button
-            onClick={handleStartRecording}
-            className={`px-6 py-3 rounded-full font-medium text-lg transition-colors ${
-              isDarkMode
-                ? 'bg-red-700 hover:bg-red-600 text-white'
-                : 'bg-red-600 hover:bg-red-500 text-white'
-            }`}
-          >
-            Start Clip
-          </button>
-          
-          <button
-            onClick={handleAddCounter}
-            className={`px-6 py-3 rounded-full font-medium text-lg transition-colors ${
-              isDarkMode
-                ? 'bg-blue-700 hover:bg-blue-600 text-white'
-                : 'bg-blue-600 hover:bg-blue-500 text-white'
-            }`}
-          >
-            Add Counter
-          </button>
+      {/* Notification */}
+      {notification && (
+        <div className={`fixed bottom-6 left-1/2 transform -translate-x-1/2 p-3 rounded z-50 ${
+          notification.type === 'success' 
+            ? 'bg-green-100 text-green-800'
+            : 'bg-red-100 text-red-800'
+        }`}>
+          {notification.message}
         </div>
       )}
     </div>

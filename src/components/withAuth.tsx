@@ -49,9 +49,10 @@ export default function withAuth(Component: any, allowedRoles?: string[], pageTi
     
     if (loading) return <div className="p-8">Loading...</div>
     
-    // Render the page inside AppLayout
+    // Use fullWidth for analyze-video page
+    const isAnalyzeVideo = pageTitle === 'Analyze Video' || router.pathname.includes('analyze-video')
     return (
-      <AppLayout user={user} title={pageTitle}>
+      <AppLayout user={user} title={pageTitle} fullWidth={isAnalyzeVideo}>
         <Component {...props} user={user} />
       </AppLayout>
     )
