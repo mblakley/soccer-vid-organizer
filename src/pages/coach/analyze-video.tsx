@@ -58,13 +58,40 @@ interface ClipMarker {
   labels: string[];
 }
 
-type CounterType = 'standard' | 'resettable';
+type CounterType = 'standard' | 'resettable' | 'player-based';
 interface CountTracker {
   id: string;
   name: string;
   count: number;
   timestamps: number[];
   type: CounterType;
+  players?: string[]; // Array of player names for player-based counters
+  playerCounts?: Record<string, { count: number, timestamps: number[] }>; // Tracking counts per player
+}
+
+// Types for player timers
+interface TimerSession {
+  startTime: number;
+  endTime: number | null;
+  duration: number;
+}
+
+interface PlayerTimer {
+  id: string;
+  name: string;
+  startTime: number | null;
+  endTime: number | null;
+  duration: number;
+  active: boolean;
+  type?: 'standard' | 'player-based';
+  players?: string[];
+  playerTimes?: Record<string, {
+    duration: number;
+    active: boolean;
+    startTime: number | null;
+    sessions: TimerSession[];
+  }>;
+  sessions: TimerSession[];
 }
 
 function AnalyzeVideoPage({ user }: { user: any }) {
@@ -93,6 +120,12 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   const [showCounterForm, setShowCounterForm] = useState(false)
   const [newCounterName, setNewCounterName] = useState('')
   const [newCounterType, setNewCounterType] = useState<CounterType>('standard')
+  const [newCounterPlayers, setNewCounterPlayers] = useState<string[]>([])
+  const [newPlayerName, setNewPlayerName] = useState('')
+  const [showAddPlayerForm, setShowAddPlayerForm] = useState(false)
+  const [selectedCounterId, setSelectedCounterId] = useState<string | null>(null)
+  const [selectedTimerId, setSelectedTimerId] = useState<string | null>(null)
+  const [addPlayerName, setAddPlayerName] = useState('')
   
   // YouTube player reference
   const playerRef = useRef<any>(null)
@@ -109,14 +142,23 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   const [clipDuration, setClipDuration] = useState<number>(0)
 
   // Track which sidebar tab is active
-  const [sidebarTab, setSidebarTab] = useState<'clips' | 'counters' | 'createClip' | null>('clips')
-  const [lastSidebarTab, setLastSidebarTab] = useState<'clips' | 'counters' | 'createClip'>('clips')
+  const [sidebarTab, setSidebarTab] = useState<'clips' | 'counters' | 'createClip' | 'timers' | null>('clips')
+  const [lastSidebarTab, setLastSidebarTab] = useState<'clips' | 'counters' | 'createClip' | 'timers'>('clips')
 
   // Timer for recording duration
   const [recordingElapsed, setRecordingElapsed] = useState(0)
 
   // State to show/hide the right sidebar
   const [sidebarVisible, setSidebarVisible] = useState(true)
+
+  // For player timers
+  const [playerTimers, setPlayerTimers] = useState<PlayerTimer[]>([])
+  const [newTimerName, setNewTimerName] = useState('')
+  const [showTimerForm, setShowTimerForm] = useState(false)
+  const [newTimerType, setNewTimerType] = useState<'standard' | 'player-based'>('standard')
+  const [newTimerPlayers, setNewTimerPlayers] = useState<string[]>([])
+  const [newTimerPlayerName, setNewTimerPlayerName] = useState('')
+  const [selectedPlayerForSessions, setSelectedPlayerForSessions] = useState<{timerId: string, playerName: string} | null>(null)
 
   // When sidebarVisible changes, clear or restore the selected tab
   useEffect(() => {
@@ -400,6 +442,16 @@ function AnalyzeVideoPage({ user }: { user: any }) {
       })
       return
     }
+    
+    // For player-based counters, validate that we have players
+    if (newCounterType === 'player-based' && newCounterPlayers.length === 0) {
+      setNotification({
+        message: 'Please add at least one player for a player-based counter',
+        type: 'error'
+      })
+      return
+    }
+    
     const newCounter: CountTracker = {
       id: `counter-${Date.now()}`,
       name: newCounterName,
@@ -407,9 +459,26 @@ function AnalyzeVideoPage({ user }: { user: any }) {
       timestamps: [],
       type: newCounterType,
     }
+    
+    // Add player-specific data if it's a player-based counter
+    if (newCounterType === 'player-based') {
+      newCounter.players = [...newCounterPlayers]
+      newCounter.playerCounts = {}
+      
+      // Initialize counts for each player
+      newCounterPlayers.forEach(player => {
+        newCounter.playerCounts![player] = {
+          count: 0,
+          timestamps: []
+        }
+      })
+    }
+    
     setCounters([...counters, newCounter])
     setNewCounterName('')
     setNewCounterType('standard')
+    setNewCounterPlayers([])
+    setNewPlayerName('')
     setShowCounterForm(false)
     setNotification({
       message: `Counter "${newCounterName}" added!`,
@@ -418,12 +487,44 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     setTimeout(() => setNotification(null), 3000)
   }
   
-  const incrementCounter = (counterId: string) => {
+  const incrementCounter = (counterId: string, playerName?: string) => {
     if (!playerRef.current) return
     const currentTime = playerRef.current.getCurrentTime()
     setCounters(prevCounters =>
       prevCounters.map(counter => {
         if (counter.id !== counterId) return counter;
+        
+        // Handle player-based counters differently
+        if (counter.type === 'player-based' && playerName && counter.playerCounts) {
+          // Prevent double-counting if video is paused and last timestamp is the same (within 0.5s)
+          const playerData = counter.playerCounts[playerName];
+          const lastTimestamp = playerData?.timestamps[playerData.timestamps.length - 1];
+          
+          if (
+            playerState === 'paused' &&
+            lastTimestamp !== undefined &&
+            Math.abs(lastTimestamp - currentTime) < 0.5
+          ) {
+            return counter;
+          }
+          
+          // Create a deep copy to avoid mutating state directly
+          const updatedPlayerCounts = { ...counter.playerCounts };
+          updatedPlayerCounts[playerName] = {
+            count: (updatedPlayerCounts[playerName]?.count || 0) + 1,
+            timestamps: [...(updatedPlayerCounts[playerName]?.timestamps || []), currentTime]
+          };
+          
+          // Update the total count as well
+          return {
+            ...counter,
+            count: counter.count + 1,
+            timestamps: [...counter.timestamps, currentTime],
+            playerCounts: updatedPlayerCounts
+          };
+        }
+        
+        // Handle standard and resettable counters as before
         // Prevent double-counting if video is paused and last timestamp is the same (within 0.5s)
         const lastTimestamp = counter.timestamps[counter.timestamps.length - 1];
         if (
@@ -656,6 +757,335 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     );
   };
 
+  const addPlayer = (player: string) => {
+    if (!player.trim()) return;
+    
+    if (!newCounterPlayers.includes(player.trim())) {
+      setNewCounterPlayers([...newCounterPlayers, player.trim()]);
+    }
+    
+    setNewPlayerName('');
+  }
+  
+  const removePlayer = (player: string) => {
+    setNewCounterPlayers(newCounterPlayers.filter(p => p !== player));
+  }
+
+  // Timer functions
+  const handleAddTimer = () => {
+    setShowTimerForm(true)
+  }
+  
+  const saveTimer = () => {
+    if (!newTimerName.trim()) {
+      setNotification({
+        message: 'Please enter a name for the timer',
+        type: 'error'
+      })
+      return
+    }
+    
+    // For player-based timers, validate that we have players
+    if (newTimerType === 'player-based' && newTimerPlayers.length === 0) {
+      setNotification({
+        message: 'Please add at least one player for a player-based timer',
+        type: 'error'
+      })
+      return
+    }
+    
+    const newTimer: PlayerTimer = {
+      id: `timer-${Date.now()}`,
+      name: newTimerName,
+      startTime: null,
+      endTime: null,
+      duration: 0,
+      active: false,
+      type: newTimerType,
+      sessions: []
+    }
+    
+    // Add player-specific data if it's a player-based timer
+    if (newTimerType === 'player-based') {
+      newTimer.players = [...newTimerPlayers]
+      newTimer.playerTimes = {}
+      
+      // Initialize times for each player
+      newTimerPlayers.forEach(player => {
+        newTimer.playerTimes![player] = {
+          duration: 0,
+          active: false,
+          startTime: null,
+          sessions: []
+        }
+      })
+    }
+    
+    setPlayerTimers([...playerTimers, newTimer])
+    setNewTimerName('')
+    setNewTimerType('standard')
+    setNewTimerPlayers([])
+    setNewTimerPlayerName('')
+    setShowTimerForm(false)
+    setNotification({
+      message: `Timer "${newTimerName}" added!`,
+      type: 'success'
+    })
+    setTimeout(() => setNotification(null), 3000)
+  }
+  
+  // Add player to timer form
+  const addPlayerToTimerForm = (player: string) => {
+    if (!player.trim()) return;
+    
+    if (!newTimerPlayers.includes(player.trim())) {
+      setNewTimerPlayers([...newTimerPlayers, player.trim()]);
+    }
+    
+    setNewTimerPlayerName('');
+  }
+  
+  // Remove player from timer form
+  const removePlayerFromTimerForm = (player: string) => {
+    setNewTimerPlayers(newTimerPlayers.filter(p => p !== player));
+  }
+  
+  // Toggle individual player timer
+  const togglePlayerTimer = (timerId: string, playerName: string) => {
+    if (!playerRef.current) return;
+    const currentTime = playerRef.current.getCurrentTime();
+    
+    setPlayerTimers(prevTimers =>
+      prevTimers.map(timer => {
+        if (timer.id !== timerId || !timer.playerTimes || !timer.players?.includes(playerName)) 
+          return timer;
+        
+        const playerTime = timer.playerTimes[playerName];
+        
+        if (playerTime.active) {
+          // Stop the timer for this player
+          const sessionDuration = playerTime.startTime !== null
+            ? currentTime - playerTime.startTime
+            : 0;
+            
+          // Update the most recent session
+          const updatedSessions = [...playerTime.sessions];
+          if (updatedSessions.length > 0) {
+            const lastSession = updatedSessions[updatedSessions.length - 1];
+            updatedSessions[updatedSessions.length - 1] = {
+              ...lastSession,
+              endTime: currentTime,
+              duration: sessionDuration
+            };
+          }
+          
+          return {
+            ...timer,
+            playerTimes: {
+              ...timer.playerTimes,
+              [playerName]: {
+                ...playerTime,
+                duration: playerTime.duration + sessionDuration,
+                active: false,
+                startTime: null,
+                sessions: updatedSessions
+              }
+            }
+          };
+        } else {
+          // Start the timer for this player
+          const newSession: TimerSession = {
+            startTime: currentTime,
+            endTime: null,
+            duration: 0
+          };
+          
+          return {
+            ...timer,
+            playerTimes: {
+              ...timer.playerTimes,
+              [playerName]: {
+                ...playerTime,
+                active: true,
+                startTime: currentTime,
+                sessions: [...playerTime.sessions, newSession]
+              }
+            }
+          };
+        }
+      })
+    );
+  };
+
+  // Add player to existing player-based timer
+  const addPlayerToTimer = (timerId: string, playerName: string) => {
+    if (!playerName.trim()) return;
+    
+    setPlayerTimers(prevTimers =>
+      prevTimers.map(timer => {
+        if (timer.id !== timerId || timer.type !== 'player-based') return timer;
+        
+        // Check if player already exists
+        if (timer.players?.includes(playerName.trim())) {
+          return timer;
+        }
+        
+        // Add player to the timer
+        const updatedPlayers = [...(timer.players || []), playerName.trim()];
+        const updatedPlayerTimes = { ...(timer.playerTimes || {}) };
+        
+        // Initialize time for the new player
+        updatedPlayerTimes[playerName.trim()] = {
+          duration: 0,
+          active: false,
+          startTime: null,
+          sessions: []
+        };
+        
+        return {
+          ...timer,
+          players: updatedPlayers,
+          playerTimes: updatedPlayerTimes
+        };
+      })
+    );
+  };
+
+  // Real-time tracking for active timers
+  useEffect(() => {
+    let timerInterval: NodeJS.Timeout | null = null;
+    
+    // Only start the interval if there are active timers and player is ready
+    const hasActiveTimers = playerTimers.some(timer => timer.active);
+    
+    if (hasActiveTimers && playerRef.current) {
+      timerInterval = setInterval(() => {
+        // Force the component to re-render to update the active timer display
+        setCurrentTime(prev => prev + 0.2);  // Just trigger a re-render every 200ms
+      }, 200);
+    }
+    
+    return () => {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+      }
+    };
+  }, [playerTimers]);
+
+  const addPlayerToCounter = (counterId: string, playerName: string) => {
+    if (!playerName.trim()) return;
+    
+    setCounters(prevCounters =>
+      prevCounters.map(counter => {
+        if (counter.id !== counterId || counter.type !== 'player-based') return counter;
+        
+        // Check if player already exists
+        if (counter.players?.includes(playerName.trim())) {
+          return counter;
+        }
+        
+        // Add player to the counter
+        const updatedPlayers = [...(counter.players || []), playerName.trim()];
+        const updatedPlayerCounts = { ...(counter.playerCounts || {}) };
+        
+        // Initialize count for the new player
+        updatedPlayerCounts[playerName.trim()] = {
+          count: 0,
+          timestamps: []
+        };
+        
+        return {
+          ...counter,
+          players: updatedPlayers,
+          playerCounts: updatedPlayerCounts
+        };
+      })
+    );
+  };
+
+  const startTimer = (timerId: string) => {
+    if (!playerRef.current) return
+    const currentTime = playerRef.current.getCurrentTime()
+    
+    setPlayerTimers(prevTimers =>
+      prevTimers.map(timer => {
+        if (timer.id !== timerId) return timer
+        
+        // Create a new session when starting the timer
+        const newSession: TimerSession = {
+          startTime: currentTime,
+          endTime: null,
+          duration: 0
+        }
+        
+        return {
+          ...timer,
+          startTime: currentTime,
+          active: true,
+          sessions: [...timer.sessions, newSession]
+        }
+      })
+    )
+  }
+  
+  const stopTimer = (timerId: string) => {
+    if (!playerRef.current) return
+    const currentTime = playerRef.current.getCurrentTime()
+    
+    setPlayerTimers(prevTimers =>
+      prevTimers.map(timer => {
+        if (timer.id !== timerId) return timer
+        
+        // Calculate duration only if timer was active and had a start time
+        if (timer.active && timer.startTime !== null) {
+          const sessionDuration = currentTime - timer.startTime
+          
+          // Update the most recent session
+          const updatedSessions = [...timer.sessions]
+          if (updatedSessions.length > 0) {
+            const lastSession = updatedSessions[updatedSessions.length - 1]
+            updatedSessions[updatedSessions.length - 1] = {
+              ...lastSession,
+              endTime: currentTime,
+              duration: sessionDuration
+            }
+          }
+          
+          return {
+            ...timer,
+            duration: timer.duration + sessionDuration,
+            active: false,
+            startTime: null,
+            sessions: updatedSessions
+          }
+        }
+        
+        return timer
+      })
+    )
+  }
+  
+  const removeTimer = (timerId: string) => {
+    setPlayerTimers(prevTimers => 
+      prevTimers.filter(timer => timer.id !== timerId)
+    )
+  }
+  
+  const resetTimer = (timerId: string) => {
+    setPlayerTimers(prevTimers =>
+      prevTimers.map(timer => {
+        if (timer.id !== timerId) return timer
+        return {
+          ...timer,
+          startTime: null,
+          endTime: null,
+          duration: 0,
+          active: false
+        }
+      })
+    )
+  }
+
   return (
     <div className="flex flex-col h-screen bg-gray-900">
       {/* Top Bar - removed header and user avatar */}
@@ -697,7 +1127,7 @@ function AnalyzeVideoPage({ user }: { user: any }) {
               </select>
             </div>
             <div className="p-4 border-b border-gray-800 font-bold text-lg flex items-center">
-              {sidebarTab === 'clips' ? 'Clips' : sidebarTab === 'counters' ? 'Counters' : 'Create Clip'}
+              {sidebarTab === 'clips' ? 'Clips' : sidebarTab === 'counters' ? 'Counters' : sidebarTab === 'timers' ? 'Timers' : 'Create Clip'}
             </div>
             <div className="flex-1 overflow-y-auto">
               {sidebarTab === 'clips' ? (
@@ -740,7 +1170,7 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                     <div
                       key={counter.id}
                       className="relative p-4 border-b border-gray-800 hover:bg-gray-800 cursor-pointer group flex flex-col justify-between min-h-[120px]"
-                      onClick={() => incrementCounter(counter.id)}
+                      onClick={counter.type !== 'player-based' ? () => incrementCounter(counter.id) : undefined}
                     >
                       {/* Name and Remove X in a row at the top */}
                       <div className="flex items-center justify-between w-full mb-2">
@@ -758,10 +1188,49 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                           ×
                         </button>
                       </div>
-                      {/* Large centered number */}
-                      <div className="flex-1 flex items-center justify-center">
-                        <span className="text-6xl font-extrabold text-center select-none pointer-events-none">{counter.count}</span>
-                      </div>
+                      
+                      {/* Show appropriate content based on counter type */}
+                      {counter.type === 'player-based' ? (
+                        <div className="flex-1 flex flex-col items-center justify-center w-full">
+                          <div className="text-2xl font-bold mb-2">Total: {counter.count}</div>
+                          <div className="w-full grid grid-cols-3 gap-2">
+                            {counter.players?.map(player => (
+                              <button
+                                key={player}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  incrementCounter(counter.id, player);
+                                }}
+                                className="px-1 py-1 bg-blue-800 hover:bg-blue-700 rounded text-center"
+                              >
+                                <div className="text-xs truncate">{player}</div>
+                                <div className="text-lg font-bold">{counter.playerCounts?.[player]?.count || 0}</div>
+                              </button>
+                            ))}
+                          </div>
+                          
+                          {/* Add Player button */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedCounterId(counter.id);
+                              setAddPlayerName('');
+                              setShowAddPlayerForm(true);
+                            }}
+                            className="mt-3 px-2 py-1 bg-green-700 hover:bg-green-600 rounded text-center flex items-center justify-center text-sm"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                            </svg>
+                            Add Player
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex-1 flex items-center justify-center">
+                          <span className="text-6xl font-extrabold text-center select-none pointer-events-none">{counter.count}</span>
+                        </div>
+                      )}
+                      
                       {/* Reset button for resettable counters */}
                       {counter.type === 'resettable' && (
                         <button
@@ -774,7 +1243,9 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                           Reset
                         </button>
                       )}
-                      {counter.timestamps.length > 0 && (
+                      
+                      {/* Timestamps */}
+                      {counter.type !== 'player-based' && counter.timestamps.length > 0 && (
                         <div className="mt-2 text-xs text-gray-400 w-full text-center">
                           {counter.timestamps.map((time, i) => (
                             <button
@@ -791,6 +1262,34 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                               {formatTime(time)}
                             </button>
                           ))}
+                        </div>
+                      )}
+                      
+                      {/* Player timestamps for player-based counters */}
+                      {counter.type === 'player-based' && counter.players && (
+                        <div className="mt-2">
+                          <select
+                            className="w-full px-3 py-1 rounded bg-gray-800 border border-gray-700 text-white text-xs"
+                            onChange={(e) => {
+                              const player = e.target.value;
+                              if (player && counter.playerCounts?.[player]?.timestamps.length) {
+                                const time = counter.playerCounts[player].timestamps[0];
+                                if (playerRef.current) {
+                                  playerRef.current.seekTo(time, true);
+                                  playerRef.current.playVideo();
+                                }
+                              }
+                            }}
+                          >
+                            <option value="">View player timestamps...</option>
+                            {counter.players.map(player => 
+                              counter.playerCounts?.[player]?.timestamps.length ? (
+                                <option key={player} value={player}>
+                                  {player} ({counter.playerCounts[player].timestamps.length} timestamps)
+                                </option>
+                              ) : null
+                            )}
+                          </select>
                         </div>
                       )}
                     </div>
@@ -812,7 +1311,42 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                       >
                         <option value="standard">Standard (accumulates)</option>
                         <option value="resettable">Resettable (for streaks)</option>
+                        <option value="player-based">Player-based (per player)</option>
                       </select>
+                      
+                      {/* Player input fields (only shown for player-based counters) */}
+                      {newCounterType === 'player-based' && (
+                        <div className="mb-3 border border-gray-700 rounded p-2">
+                          <label className="text-sm text-gray-400 mb-1 block">Add Players:</label>
+                          <div className="flex mb-2">
+                            <input
+                              type="text"
+                              value={newPlayerName}
+                              onChange={e => setNewPlayerName(e.target.value)}
+                              onKeyPress={e => e.key === 'Enter' && addPlayer(newPlayerName)}
+                              placeholder="Player name"
+                              className="flex-1 px-3 py-2 rounded-l bg-gray-800 border border-gray-700 text-white"
+                            />
+                            <button
+                              onClick={() => addPlayer(newPlayerName)}
+                              className="px-3 py-2 rounded-r bg-blue-700 hover:bg-blue-600 text-white"
+                            >
+                              Add
+                            </button>
+                          </div>
+                          {newCounterPlayers.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {newCounterPlayers.map(player => (
+                                <div key={player} className="flex items-center space-x-1 px-2 py-1 rounded text-sm bg-blue-900 text-blue-100">
+                                  <span>{player}</span>
+                                  <button onClick={() => removePlayer(player)} className="hover:text-red-500">×</button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
                       <div className="flex space-x-2">
                         <button
                           onClick={saveCounter}
@@ -835,6 +1369,271 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                         className="w-full px-3 py-2 rounded bg-blue-700 hover:bg-blue-600 text-white"
                       >
                         Add Counter
+                      </button>
+                    </div>
+                  )}
+                </Fragment>
+              ) : sidebarTab === 'timers' ? (
+                <Fragment>
+                  {playerTimers.length === 0 && (
+                    <div className="p-4 text-gray-400">No timers yet. Add one below.</div>
+                  )}
+                  {playerTimers.map(timer => (
+                    <div
+                      key={timer.id}
+                      className="relative p-4 border-b border-gray-800 hover:bg-gray-800 flex flex-col justify-between min-h-[120px]"
+                    >
+                      {/* Name and Remove X in a row at the top */}
+                      <div className="flex items-center justify-between w-full mb-2">
+                        <span className="font-semibold text-center w-full pr-6">{timer.name}</span>
+                        <button
+                          onClick={() => {
+                            if (window.confirm('Are you sure you want to remove this timer?')) {
+                              removeTimer(timer.id);
+                            }
+                          }}
+                          className="ml-2 w-6 h-6 flex items-center justify-center rounded-full text-xs bg-red-700 hover:bg-red-800 text-white opacity-80 hover:opacity-100 transition-opacity"
+                          title="Remove timer"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      
+                      {/* Different content based on timer type */}
+                      {timer.type === 'player-based' ? (
+                        <div className="flex-1 flex flex-col justify-center w-full">
+                          <div className="w-full grid grid-cols-3 gap-2 mt-2">
+                            {timer.players?.map(player => {
+                              const playerTime = timer.playerTimes?.[player];
+                              const isActive = playerTime?.active || false;
+                              const duration = playerTime?.duration || 0;
+                              const currentSessionTime = isActive && playerTime?.startTime && playerRef.current
+                                ? playerRef.current.getCurrentTime() - playerTime.startTime 
+                                : 0;
+                              const totalTime = isActive ? duration + currentSessionTime : duration;
+                              
+                              return (
+                                <button
+                                  key={player}
+                                  onClick={() => togglePlayerTimer(timer.id, player)}
+                                  className={`px-1 py-1 ${isActive ? 'bg-green-800 hover:bg-green-700' : 'bg-blue-800 hover:bg-blue-700'} rounded text-center`}
+                                >
+                                  <div className="text-xs truncate flex items-center justify-center">
+                                    {player}
+                                    {isActive && (
+                                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse ml-1"></div>
+                                    )}
+                                  </div>
+                                  <div className="text-lg font-bold">
+                                    {formatTime(totalTime)}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          
+                          {/* Add Player button */}
+                          <div className="mt-3 flex justify-center">
+                            <button
+                              onClick={(e) => {
+                                setSelectedTimerId(timer.id);
+                                setSelectedCounterId(null);
+                                setAddPlayerName('');
+                                setShowAddPlayerForm(true);
+                              }}
+                              className="px-2 py-1 bg-green-700 hover:bg-green-600 rounded text-center flex items-center justify-center text-sm"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                              </svg>
+                              Add Player
+                            </button>
+                          </div>
+
+                          {/* Sessions view */}
+                          {timer.players && timer.players.length > 0 && (
+                            <div className="mt-3">
+                              <select 
+                                className="w-full px-3 py-1 rounded bg-gray-800 border border-gray-700 text-white text-xs"
+                                onChange={(e) => {
+                                  const selectedPlayer = e.target.value;
+                                  if (!selectedPlayer) {
+                                    setSelectedPlayerForSessions(null);
+                                    return;
+                                  }
+                                  
+                                  setSelectedPlayerForSessions({
+                                    timerId: timer.id,
+                                    playerName: selectedPlayer
+                                  });
+                                }}
+                                value={selectedPlayerForSessions?.timerId === timer.id ? selectedPlayerForSessions?.playerName : ""}
+                              >
+                                <option value="">View player sessions...</option>
+                                {timer.players.map(player => (
+                                  <option key={player} value={player}>
+                                    {player} ({timer.playerTimes?.[player]?.sessions.length || 0} sessions)
+                                  </option>
+                                ))}
+                              </select>
+                              
+                              {/* Display sessions for selected player */}
+                              {selectedPlayerForSessions?.timerId === timer.id && selectedPlayerForSessions?.playerName && (
+                                <div className="mt-2 max-h-28 overflow-y-auto text-xs">
+                                  <div className="text-xs text-gray-400 mb-1">Sessions for {selectedPlayerForSessions.playerName}:</div>
+                                  {timer.playerTimes?.[selectedPlayerForSessions.playerName]?.sessions.map((session, index) => (
+                                    <div key={index} className="flex justify-between py-1 border-b border-gray-700">
+                                      <span>{formatTime(session.startTime)}-{session.endTime ? formatTime(session.endTime) : 'Active'}</span>
+                                      <span>{formatTime(session.duration)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          {/* Timer status and duration for standard timers */}
+                          <div className="flex-1 flex flex-col items-center justify-center">
+                            <div className="text-lg">
+                              {timer.active ? (
+                                <span className="text-green-500 flex items-center">
+                                  <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse mr-2"></div>
+                                  Running
+                                </span>
+                              ) : (
+                                <span>Stopped</span>
+                              )}
+                            </div>
+                            <div className="text-4xl font-bold mt-2">
+                              {formatTime(timer.duration)}
+                            </div>
+                            {timer.active && timer.startTime !== null && (
+                              <div className="text-sm text-blue-400 mt-1">
+                                Current session: {formatTime(playerRef.current ? playerRef.current.getCurrentTime() - timer.startTime : 0)}
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Timer controls for standard timers */}
+                          <div className="flex space-x-2 mt-2">
+                            {!timer.active ? (
+                              <button
+                                onClick={() => startTimer(timer.id)}
+                                className="flex-1 px-3 py-2 rounded bg-green-700 hover:bg-green-600 text-white"
+                              >
+                                Start
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => stopTimer(timer.id)}
+                                className="flex-1 px-3 py-2 rounded bg-yellow-700 hover:bg-yellow-600 text-white"
+                              >
+                                Stop
+                              </button>
+                            )}
+                            <button
+                              onClick={() => resetTimer(timer.id)}
+                              className="flex-1 px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 text-white"
+                            >
+                              Reset
+                            </button>
+                          </div>
+
+                          {/* Session list for standard timers */}
+                          {timer.sessions.length > 0 && (
+                            <div className="mt-3">
+                              <div className="text-xs text-gray-400 mb-1">Sessions:</div>
+                              <div className="max-h-28 overflow-y-auto text-xs">
+                                {timer.sessions.map((session, index) => (
+                                  <div key={index} className="flex justify-between py-1 border-b border-gray-700">
+                                    <span>{formatTime(session.startTime)}-{session.endTime ? formatTime(session.endTime) : 'Active'}</span>
+                                    <span>{formatTime(session.duration)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  ))}
+                  
+                  {/* Add Timer Form */}
+                  {showTimerForm ? (
+                    <div className="p-4 border-t border-gray-800">
+                      <input
+                        type="text"
+                        value={newTimerName}
+                        onChange={e => setNewTimerName(e.target.value)}
+                        placeholder="Timer name (e.g. player name)"
+                        className="w-full mb-2 px-3 py-2 rounded bg-gray-800 border border-gray-700 text-white"
+                      />
+                      <select
+                        value={newTimerType}
+                        onChange={e => setNewTimerType(e.target.value as 'standard' | 'player-based')}
+                        className="w-full mb-2 px-3 py-2 rounded bg-gray-800 border border-gray-700 text-white"
+                      >
+                        <option value="standard">Standard (accumulates)</option>
+                        <option value="player-based">Player-based (per player)</option>
+                      </select>
+                      
+                      {/* Player input fields (only shown for player-based timers) */}
+                      {newTimerType === 'player-based' && (
+                        <div className="mb-3 border border-gray-700 rounded p-2">
+                          <label className="text-sm text-gray-400 mb-1 block">Add Players:</label>
+                          <div className="flex mb-2">
+                            <input
+                              type="text"
+                              value={newTimerPlayerName}
+                              onChange={e => setNewTimerPlayerName(e.target.value)}
+                              onKeyPress={e => e.key === 'Enter' && addPlayerToTimerForm(newTimerPlayerName)}
+                              placeholder="Player name"
+                              className="flex-1 px-3 py-2 rounded-l bg-gray-800 border border-gray-700 text-white"
+                            />
+                            <button
+                              onClick={() => addPlayerToTimerForm(newTimerPlayerName)}
+                              className="px-3 py-2 rounded-r bg-blue-700 hover:bg-blue-600 text-white"
+                            >
+                              Add
+                            </button>
+                          </div>
+                          {newTimerPlayers.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {newTimerPlayers.map(player => (
+                                <div key={player} className="flex items-center space-x-1 px-2 py-1 rounded text-sm bg-blue-900 text-blue-100">
+                                  <span>{player}</span>
+                                  <button onClick={() => removePlayerFromTimerForm(player)} className="hover:text-red-500">×</button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={saveTimer}
+                          className="flex-1 px-3 py-2 rounded bg-green-700 hover:bg-green-600 text-white"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => setShowTimerForm(false)}
+                          className="flex-1 px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 text-white"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 border-t border-gray-800">
+                      <button
+                        onClick={handleAddTimer}
+                        className="w-full px-3 py-2 rounded bg-blue-700 hover:bg-blue-600 text-white"
+                      >
+                        Add Timer
                       </button>
                     </div>
                   )}
@@ -1007,8 +1806,17 @@ function AnalyzeVideoPage({ user }: { user: any }) {
             disabled={!sidebarVisible}
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h6" />
-              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" fill="none" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+            </svg>
+          </button>
+          <button
+            className={`w-10 h-10 flex items-center justify-center rounded-lg ${sidebarTab === 'timers' && sidebarVisible ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}
+            onClick={() => { setSidebarTab('timers'); setLastSidebarTab('timers'); }}
+            title="Show Timers"
+            disabled={!sidebarVisible}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </button>
         </div>
@@ -1022,6 +1830,62 @@ function AnalyzeVideoPage({ user }: { user: any }) {
             : 'bg-red-100 text-red-800'
         }`}>
           {notification.message}
+        </div>
+      )}
+
+      {/* Add Player Form Modal */}
+      {showAddPlayerForm && (selectedCounterId || selectedTimerId) && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 p-4 rounded-lg w-80 border border-gray-700">
+            <h3 className="text-lg font-medium mb-3 text-white">Add Player</h3>
+            <input
+              type="text"
+              value={addPlayerName}
+              onChange={e => setAddPlayerName(e.target.value)}
+              onKeyPress={e => {
+                if (e.key === 'Enter') {
+                  if (selectedCounterId) {
+                    addPlayerToCounter(selectedCounterId, addPlayerName);
+                  } else if (selectedTimerId) {
+                    addPlayerToTimer(selectedTimerId, addPlayerName);
+                  }
+                  setShowAddPlayerForm(false);
+                  setAddPlayerName('');
+                }
+              }}
+              placeholder="Player name"
+              className="w-full mb-4 px-3 py-2 rounded bg-gray-700 border border-gray-600 text-white"
+              autoFocus
+            />
+            <div className="flex space-x-2">
+              <button
+                onClick={() => {
+                  if (selectedCounterId) {
+                    addPlayerToCounter(selectedCounterId, addPlayerName);
+                  } else if (selectedTimerId) {
+                    addPlayerToTimer(selectedTimerId, addPlayerName);
+                  }
+                  setShowAddPlayerForm(false);
+                  setAddPlayerName('');
+                }}
+                className="flex-1 px-3 py-2 rounded bg-green-700 hover:bg-green-600 text-white"
+                disabled={!addPlayerName.trim()}
+              >
+                Add
+              </button>
+              <button
+                onClick={() => {
+                  setShowAddPlayerForm(false);
+                  setAddPlayerName('');
+                  setSelectedCounterId(null);
+                  setSelectedTimerId(null);
+                }}
+                className="flex-1 px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 text-white"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
