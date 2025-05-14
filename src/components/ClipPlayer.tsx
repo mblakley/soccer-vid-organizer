@@ -37,7 +37,7 @@ const loadYouTubeAPI = () => {
   });
 };
 
-export default function ClipPlayer({ videoId, start, end, source = 'youtube', onEnd }: ClipPlayerProps) {
+export default function ClipPlayer({ videoId, start, end, source = 'youtube', onEnd, ...props }: ClipPlayerProps & { url?: string }) {
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const playerRef = useRef<any>(null);
@@ -275,7 +275,16 @@ export default function ClipPlayer({ videoId, start, end, source = 'youtube', on
   
   // For Veo videos
   if (source === 'veo') {
-    // Veo supports start parameter as seconds
+    // Use direct .mp4 link if available
+    const directUrl = (props as any).url;
+    if (directUrl) {
+      return (
+        <div className="mb-4 aspect-video">
+          <video controls src={directUrl} className="w-full h-full" />
+        </div>
+      );
+    }
+    // Fallback to embed if no direct link
     const src = `https://app.veo.co/embed/matches/${videoId}/?utm_source=embed&start=${start}`
     return (
       <div className="mb-4 aspect-video">

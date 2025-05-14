@@ -5,41 +5,10 @@ import { withAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useRouter } from 'next/router'
 import { toast } from 'react-toastify'
+import ClipPlayer from '@/components/ClipPlayer'
 
-// Type declaration for YouTube Player API
-declare global {
-  interface Window {
-    YT: {
-      Player: new (
-        elementId: string,
-        options: {
-          videoId: string;
-          height: string | number;
-          width: string | number;
-          playerVars?: {
-            autoplay?: number;
-            controls?: number;
-            modestbranding?: number;
-            rel?: number;
-            [key: string]: any;
-          };
-          events?: {
-            onReady?: () => void;
-            onStateChange?: (event: {data: number}) => void;
-            [key: string]: any;
-          };
-        }
-      ) => {
-        getCurrentTime: () => number;
-        seekTo: (seconds: number, allowSeekAhead: boolean) => void;
-        playVideo: () => void;
-        pauseVideo: () => void;
-        getPlayerState: () => number;
-      };
-    };
-    onYouTubeIframeAPIReady?: () => void;
-  }
-}
+// Add import for YouTube types
+// The types are automatically included from @types/youtube
 
 interface Video {
   id: string;
@@ -48,6 +17,15 @@ interface Video {
   source: string;
   duration?: number;
   url?: string;
+}
+
+// Add Veo player interface
+interface VeoPlayer {
+  getCurrentTime: () => number;
+  seekTo: (seconds: number) => void;
+  playVideo: () => void;
+  pauseVideo: () => void;
+  getPlayerState: () => number;
 }
 
 interface ClipMarker {
@@ -169,6 +147,9 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     onConfirm: () => void;
   } | null>(null)
 
+  // Debounce state for arrow key seeking
+  const lastSeekTimeRef = useRef<number>(0);
+
   // When sidebarVisible changes, clear or restore the selected tab
   useEffect(() => {
     if (!sidebarVisible) {
@@ -226,14 +207,17 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   useEffect(() => {
     if (!selectedVideo) return
     
-    // Only YouTube is supported for now
-    if (selectedVideo.source !== 'youtube') {
+    // Check if video source is supported
+    if (selectedVideo.source !== 'youtube' && selectedVideo.source !== 'veo') {
       setNotification({
-        message: 'Only YouTube videos are currently supported for analysis',
+        message: 'Only YouTube and Veo videos are currently supported for analysis',
         type: 'error'
       })
       return
     }
+
+    let messageHandler: ((event: MessageEvent) => void) | null = null;
+    let iframeElement: HTMLIFrameElement | null = null;
 
     const initializePlayer = () => {
       // Clear any existing interval
@@ -241,55 +225,136 @@ function AnalyzeVideoPage({ user }: { user: any }) {
         clearInterval(intervalRef.current)
       }
 
-      // Make sure the YouTube API is available
-      if (typeof window !== 'undefined' && window.YT && window.YT.Player) {
-        if (playerContainerRef.current) {
-          // Clear the container
-          playerContainerRef.current.innerHTML = ''
-          
-          // Create a new div for the player
-          const playerDiv = document.createElement('div')
-          playerDiv.id = 'youtube-player'
-          playerContainerRef.current.appendChild(playerDiv)
-          
-          // Create the player
-          playerRef.current = new window.YT.Player('youtube-player', {
-            videoId: selectedVideo.video_id,
-            height: '100%',
-            width: '100%',
-            playerVars: {
-              autoplay: 0,
-              controls: 1,
-              modestbranding: 1,
-              rel: 0
-            },
-            events: {
-              onReady: () => {
-                setPlayerReady(true)
-                // Start a timer to update the current time
-                intervalRef.current = setInterval(() => {
-                  if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
-                    setCurrentTime(playerRef.current.getCurrentTime())
-                    
-                    // Update player state
-                    const state = playerRef.current.getPlayerState()
-                    setPlayerState(state === 1 ? 'playing' : 'paused')
-                  }
-                }, 200)
+      if (selectedVideo.source === 'youtube') {
+        // Make sure the YouTube API is available
+        if (typeof window !== 'undefined' && window.YT && window.YT.Player) {
+          if (playerContainerRef.current) {
+            // Clear the container
+            playerContainerRef.current.innerHTML = ''
+            
+            // Create a new div for the player
+            const playerDiv = document.createElement('div')
+            playerDiv.id = 'youtube-player'
+            playerContainerRef.current.appendChild(playerDiv)
+            
+            // Create the player
+            playerRef.current = new window.YT.Player('youtube-player', {
+              videoId: selectedVideo.video_id,
+              height: '100%',
+              width: '100%',
+              playerVars: {
+                autoplay: 0,
+                controls: 1,
+                modestbranding: 1,
+                rel: 0
               },
-              onStateChange: (event) => {
-                setPlayerState(event.data === 1 ? 'playing' : 'paused')
+              events: {
+                onReady: () => {
+                  setPlayerReady(true)
+                  // Start a timer to update the current time
+                  intervalRef.current = setInterval(() => {
+                    if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
+                      setCurrentTime(playerRef.current.getCurrentTime())
+                      
+                      // Update player state
+                      const state = playerRef.current.getPlayerState()
+                      setPlayerState(state === 1 ? 'playing' : 'paused')
+                    }
+                  }, 200)
+                },
+                onStateChange: (event) => {
+                  setPlayerState(event.data === 1 ? 'playing' : 'paused')
+                }
               }
-            }
-          })
+            })
+          }
+        } else {
+          // If YouTube API isn't available yet, wait for it
+          window.onYouTubeIframeAPIReady = initializePlayer
         }
-      } else {
-        // If YouTube API isn't available yet, wait for it
-        window.onYouTubeIframeAPIReady = initializePlayer
+      } else if (selectedVideo.source === 'veo') {
+        // Initialize Veo player
+        const container = playerContainerRef.current
+        if (!container) return
+
+        // Clear the container
+        container.innerHTML = ''
+        
+        // Create iframe for Veo player
+        iframeElement = document.createElement('iframe')
+        iframeElement.src = `https://app.veo.co/embed/matches/${selectedVideo.video_id}/?utm_source=embed&autoplay=0&controls=1`
+        iframeElement.className = 'w-full h-full'
+        iframeElement.frameBorder = '0'
+        iframeElement.allowFullscreen = true
+        container.appendChild(iframeElement)
+        
+        // Set up message listener for Veo player
+        messageHandler = (event: MessageEvent) => {
+          // Only handle messages from Veo
+          if (event.origin !== 'https://app.veo.co') return
+          
+          try {
+            const data = JSON.parse(event.data)
+            
+            // Handle different message types from Veo player
+            switch (data.type) {
+              case 'ready':
+                setPlayerReady(true)
+                break
+              case 'timeupdate':
+                setCurrentTime(data.currentTime)
+                setPlayerState(data.isPlaying ? 'playing' : 'paused')
+                break
+            }
+          } catch (e) {
+            console.error('Error parsing Veo player message:', e)
+          }
+        }
+        
+        window.addEventListener('message', messageHandler)
+        
+        // Store player reference
+        playerRef.current = {
+          getCurrentTime: () => currentTime,
+          seekTo: (seconds: number) => {
+            iframeElement?.contentWindow?.postMessage(JSON.stringify({
+              type: 'seek',
+              time: seconds
+            }), 'https://app.veo.co')
+          },
+          playVideo: () => {
+            iframeElement?.contentWindow?.postMessage(JSON.stringify({
+              type: 'play'
+            }), 'https://app.veo.co')
+          },
+          pauseVideo: () => {
+            iframeElement?.contentWindow?.postMessage(JSON.stringify({
+              type: 'pause'
+            }), 'https://app.veo.co')
+          },
+          getPlayerState: () => playerState === 'playing' ? 1 : 2
+        } as VeoPlayer
+        
+        // Start interval to update current time
+        intervalRef.current = setInterval(() => {
+          if (playerRef.current) {
+            setCurrentTime(playerRef.current.getCurrentTime())
+          }
+        }, 200)
       }
     }
 
     initializePlayer()
+
+    // Cleanup function
+    return () => {
+      if (messageHandler) {
+        window.removeEventListener('message', messageHandler)
+      }
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+      }
+    }
   }, [selectedVideo])
   
   // Fetch clips when a video is selected
@@ -917,13 +982,20 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!playerRef.current || typeof playerRef.current.getCurrentTime !== 'function') return;
-      if (document.activeElement && ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+      const now = Date.now();
+      if (now - lastSeekTimeRef.current < 200) return; // 200ms debounce
+      let didSeek = false;
       const currentTime = playerRef.current.getCurrentTime();
       if (e.key === 'ArrowLeft') {
+        e.preventDefault();
         playerRef.current.seekTo(Math.max(0, currentTime - 5), true);
+        didSeek = true;
       } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
         playerRef.current.seekTo(currentTime + 5, true);
+        didSeek = true;
       }
+      if (didSeek) lastSeekTimeRef.current = now;
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -1373,11 +1445,33 @@ function AnalyzeVideoPage({ user }: { user: any }) {
         <div className="flex-1 min-w-0 bg-black flex items-center justify-center relative h-full">
           {selectedVideo ? (
             <div className="h-full flex items-center justify-center w-full max-w-full overflow-hidden">
-              <div
-                ref={playerContainerRef}
-                className="aspect-video bg-black w-full max-w-full"
-                style={{ maxWidth: '100%' }}
-              ></div>
+              {/* For YouTube and Veo, render the player with ref-based control */}
+              {selectedVideo.source === 'youtube' && (
+                <div ref={playerContainerRef} className="aspect-video bg-black w-full max-w-full" style={{ maxWidth: '100%' }}></div>
+              )}
+              {selectedVideo.source === 'veo' && selectedVideo.url && (
+                <video
+                  ref={el => {
+                    if (el) {
+                      playerRef.current = {
+                        getCurrentTime: () => el.currentTime,
+                        seekTo: (seconds: number) => { el.currentTime = seconds; },
+                        playVideo: () => { el.play(); },
+                        pauseVideo: () => { el.pause(); },
+                        getPlayerState: () => el.paused ? 2 : 1
+                      };
+                    }
+                  }}
+                  src={selectedVideo.url}
+                  controls
+                  className="w-full h-full aspect-video"
+                  style={{ background: 'black' }}
+                />
+              )}
+              {/* Fallback for unsupported sources */}
+              {!['youtube', 'veo'].includes(selectedVideo.source) && (
+                <div className="text-gray-400 text-lg">Unsupported video source</div>
+              )}
             </div>
           ) : (
             <div className="text-gray-400 text-lg">Select a video to begin</div>

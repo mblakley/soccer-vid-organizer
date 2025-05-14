@@ -38,6 +38,7 @@ function VideoManager({ user }: { user: any }) {
   const [videoTitle, setVideoTitle] = useState('')
   const [videoSource, setVideoSource] = useState<VideoSourceType>('youtube')
   const [videoUrl, setVideoUrl] = useState('')
+  const [veoApiToken, setVeoApiToken] = useState('')
   const [importSummary, setImportSummary] = useState<{
     message: string;
     type: 'success' | 'info' | 'error';
@@ -60,6 +61,31 @@ function VideoManager({ user }: { user: any }) {
     checkRole();
   }, [user]);
 
+  useEffect(() => {
+    // On mount, check for a stored Veo API token
+    const stored = localStorage.getItem('veoApiToken');
+    if (stored) {
+      try {
+        const { token, expiresAt } = JSON.parse(stored);
+        if (token && expiresAt && Date.now() < expiresAt) {
+          setVeoApiToken(token);
+        } else {
+          localStorage.removeItem('veoApiToken');
+        }
+      } catch {
+        localStorage.removeItem('veoApiToken');
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    // When veoApiToken changes, store it with a 20-hour expiry
+    if (veoApiToken && veoApiToken.trim()) {
+      const expiresAt = Date.now() + 20 * 60 * 60 * 1000; // 20 hours
+      localStorage.setItem('veoApiToken', JSON.stringify({ token: veoApiToken, expiresAt }));
+    }
+  }, [veoApiToken]);
+
   const fetchVideos = async () => {
     try {
       setLoading(true)
@@ -81,7 +107,7 @@ function VideoManager({ user }: { user: any }) {
   }, [])
 
   const handleImportVideo = async () => {
-    if (!videoUrl.trim()) return;
+    if (!videoUrl.trim() && importMode === 'single') return;
     
     try {
       setImporting(true);
@@ -130,6 +156,136 @@ function VideoManager({ user }: { user: any }) {
             message: 'Video imported successfully!',
             type: 'success'
           });
+        }
+      } else if (videoSource === 'veo') {
+        // Handle Veo video import
+        const sourceHandler = VIDEO_SOURCES['veo'];
+        
+        if (importMode === 'playlist') {
+          // Import all Veo videos
+          if (!veoApiToken.trim()) {
+            setImportSummary({
+              message: 'Please provide a Veo API token to import all videos.',
+              type: 'error'
+            });
+            return;
+          }
+          try {
+            let allRecordings: any[] = [];
+            let nextPageToken: string | undefined = undefined;
+            let page = 1;
+            do {
+              const url = new URL('https://api.veo.co/recordings');
+              url.searchParams.set('page_size', '20');
+              if (nextPageToken) {
+                url.searchParams.set('page_token', nextPageToken);
+              }
+              const response = await fetch(url.toString(), {
+                headers: {
+                  'Authorization': `Bearer ${veoApiToken}`,
+                  'Accept': 'application/json',
+                  'X-Request-Id': 'veo-api-explorer/0.18.6/ce07c1479e6aa8'
+                }
+              });
+              if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Veo API error:', {
+                  status: response.status,
+                  statusText: response.statusText,
+                  body: errorText
+                });
+                setImportSummary({
+                  message: `Failed to fetch Veo recordings (page ${page}): ${response.status} ${response.statusText}\n${errorText}`,
+                  type: 'error'
+                });
+                return;
+              }
+              const data = await response.json();
+              const recordings = data.items || [];
+              allRecordings = allRecordings.concat(recordings);
+              nextPageToken = data.next_page_token;
+              page++;
+            } while (nextPageToken);
+            let successCount = 0;
+            let updateCount = 0;
+            let errorCount = 0;
+            let skippedCount = 0;
+            for (const item of allRecordings) {
+              try {
+                const videoId = item.id;
+                // Use the web link as the video URL
+                const videoUrl = item.links?.find((l: any) => l.rel === 'web')?.href || `https://app.veo.co/matches/${videoId}`;
+                // Try to get the direct stream link from followcam
+                const streamUrl = item.followcam?.links?.find((l: any) => l.rel === 'stream' && l.type === 'video/mp4')?.href;
+                if (!streamUrl) {
+                  skippedCount++;
+                  continue;
+                }
+                // Try to import or update
+                try {
+                  const result = await (sourceHandler as any).importSingleVideo(videoId, videoUrl, user.id, veoApiToken);
+                  if (result && result.status === 'updated') {
+                    updateCount++;
+                  } else if (result && result.status === 'existing') {
+                    // Should not happen anymore, but count as update
+                    updateCount++;
+                  } else {
+                    successCount++;
+                  }
+                } catch (error: any) {
+                  // Handle 409 conflict (duplicate)
+                  if (error?.code === '23505' || (error?.message && error.message.includes('duplicate key value'))) {
+                    updateCount++;
+                  } else {
+                    errorCount++;
+                    console.error('Error importing Veo video:', error);
+                  }
+                }
+              } catch (error) {
+                errorCount++;
+                console.error('Error processing Veo recording:', error);
+              }
+            }
+            setImportSummary({
+              message: `Imported ${successCount} new, Updated ${updateCount}, Skipped ${skippedCount} (no stream), Failed ${errorCount}.`,
+              type: 'success'
+            });
+          } catch (error) {
+            console.error('Unexpected error during Veo import:', error);
+            setImportSummary({
+              message: `Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+              type: 'error'
+            });
+          }
+        } else {
+          // Single Veo video import
+          const videoId = sourceHandler.extractVideoId(videoUrl);
+          if (!videoId) {
+            setImportSummary({
+              message: `Invalid Veo URL. Please check and try again.`,
+              type: 'error'
+            });
+            return;
+          }
+          if (!videoTitle.trim()) {
+            setImportSummary({
+              message: 'Please enter a title for the video',
+              type: 'error'
+            });
+            return;
+          }
+          try {
+            await (sourceHandler as any).importSingleVideo(videoId, videoUrl, user.id, veoApiToken || undefined);
+            setImportSummary({
+              message: 'Veo video imported successfully!',
+              type: 'success'
+            });
+          } catch (error) {
+            setImportSummary({
+              message: error instanceof Error ? error.message : 'Failed to import Veo video',
+              type: 'error'
+            });
+          }
         }
       } else {
         // Handle other video sources
@@ -241,11 +397,12 @@ function VideoManager({ user }: { user: any }) {
     return sourceHandler ? sourceHandler.name : source.charAt(0).toUpperCase() + source.slice(1);
   }
 
-  // Show title input for non-YouTube videos
-  const showTitleInput = videoSource !== 'youtube' || importMode === 'single';
+  // Show title input for non-YouTube videos and single Veo videos
+  const showTitleInput = (videoSource !== 'youtube' && importMode === 'single') || 
+                        (videoSource === 'veo' && importMode === 'single');
   
-  // Only YouTube supports playlist import
-  const showPlaylistOption = videoSource === 'youtube';
+  // Only YouTube and Veo support playlist import
+  const showPlaylistOption = videoSource === 'youtube' || videoSource === 'veo';
 
   // Update the video list rendering to show status
   const getStatusBadge = (status: string) => {
@@ -292,9 +449,9 @@ function VideoManager({ user }: { user: any }) {
                   : isDarkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-800'}`}
                 onClick={() => {
                   setVideoSource(source.id as VideoSourceType);
-                  // Reset form when changing source
                   setVideoUrl('');
-                  if (source.id !== 'youtube') {
+                  setVeoApiToken('');
+                  if (source.id !== 'youtube' && source.id !== 'veo') {
                     setImportMode('single');
                   }
                 }}
@@ -321,13 +478,13 @@ function VideoManager({ user }: { user: any }) {
                 : isDarkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-800'}`}
               onClick={() => setImportMode('playlist')}
             >
-              YouTube Playlist
+              {videoSource === 'youtube' ? 'YouTube Playlist' : 'All Veo Videos'}
             </button>
           </div>
         )}
         
         <div className="space-y-3">
-          {showTitleInput && videoSource !== 'youtube' && (
+          {showTitleInput && (
             <div>
               <label className="block mb-1">Video Title:</label>
               <input
@@ -340,30 +497,61 @@ function VideoManager({ user }: { user: any }) {
             </div>
           )}
           
-          <div>
-            <label className="block mb-1">Video URL:</label>
-            <input
-              type="text"
-              className={`w-full border rounded px-3 py-2 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
-              placeholder={
-                importMode === 'playlist' 
-                  ? "Paste YouTube playlist URL" 
-                  : `Paste ${getSourceName(videoSource)} video URL`
-              }
-              value={videoUrl}
-              onChange={(e) => setVideoUrl(e.target.value)}
-            />
-          </div>
+          {videoSource === 'veo' && (
+            <div>
+              <label className="block mb-1">Veo API Token:</label>
+              <input
+                type="text"
+                className={`w-full border rounded px-3 py-2 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
+                placeholder="Paste your Veo API token here"
+                value={veoApiToken}
+                onChange={e => setVeoApiToken(e.target.value)}
+              />
+              <div className="text-xs text-gray-500 mt-1">
+                You can get a 24-hour token from the <a href="https://api.veo.co/docs/explorer" target="_blank" rel="noopener noreferrer" className="underline text-blue-600">Veo API Explorer</a>.
+              </div>
+            </div>
+          )}
+          
+          {importMode === 'single' && (
+            <div>
+              <label className="block mb-1">Video URL:</label>
+              <input
+                type="text"
+                className={`w-full border rounded px-3 py-2 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
+                placeholder={`Paste ${getSourceName(videoSource)} video URL`}
+                value={videoUrl}
+                onChange={(e) => setVideoUrl(e.target.value)}
+              />
+            </div>
+          )}
+          {videoSource === 'youtube' && importMode === 'playlist' && (
+            <div>
+              <label className="block mb-1">Playlist URL:</label>
+              <input
+                type="text"
+                className={`w-full border rounded px-3 py-2 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
+                placeholder="Paste YouTube playlist URL"
+                value={videoUrl}
+                onChange={(e) => setVideoUrl(e.target.value)}
+              />
+            </div>
+          )}
           
           <button
             className="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
             onClick={handleImportVideo}
-            disabled={importing || !videoUrl.trim() || (videoSource !== 'youtube' && !videoTitle.trim())}
+            disabled={
+              importing || 
+              (importMode === 'single' && !videoUrl.trim()) || 
+              (videoSource !== 'youtube' && importMode === 'single' && !videoTitle.trim()) || 
+              (videoSource === 'veo' && !veoApiToken.trim())
+            }
           >
             {importing 
               ? 'Importing...' 
               : importMode === 'playlist' 
-                ? 'Import Playlist' 
+                ? (videoSource === 'youtube' ? 'Import Playlist' : 'Import All Veo Videos')
                 : `Import ${getSourceName(videoSource)} Video`
             }
           </button>
