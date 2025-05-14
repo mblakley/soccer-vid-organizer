@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { ReactElement } from 'react';
 import { VideoSource, VideoMetadata } from './types';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -12,18 +12,13 @@ const VeoSource: VideoSource = {
     return match ? match[1] : null;
   },
   
-  getPlayerComponent(videoId: string, start: number = 0): JSX.Element {
-    // Veo supports start parameter as seconds
-    const src = `https://app.veo.co/embed/matches/${videoId}/?utm_source=embed&start=${start}`;
-    
+  getPlayerComponent(videoId: string, start: number = 0, end?: number): ReactElement {
+    // Try to get the direct video URL from the metadata (if available)
+    // In this context, we don't have metadata, so just show a message to use the main app UI
     return (
-      <div className="mb-4 aspect-video">
-        <iframe 
-          className="w-full h-full"
-          src={src} 
-          frameBorder="0" 
-          allowFullScreen
-        ></iframe>
+      <div className="mb-4 p-4 bg-gray-200 text-center rounded">
+        <p>Direct video playback is only supported via the main app UI.</p>
+        <p className="text-xs mt-2">Video ID: {videoId}</p>
       </div>
     );
   },
@@ -79,8 +74,12 @@ const VeoSource: VideoSource = {
 
       const recordingData = await response.json();
       console.log('Veo recordingData:', recordingData);
-      const streamUrl = recordingData.followcam?.links?.find(l => l.rel === 'stream' && l.type === 'video/mp4')?.href;
+      const streamUrl = recordingData.followcam?.links?.find((l: any) => l.rel === 'stream' && l.type === 'video/mp4')?.href;
       console.log('Direct streamUrl:', streamUrl);
+      // Calculate duration from timeline start and end
+      const timelineStart = recordingData.timeline?.start ? new Date(recordingData.timeline.start).getTime() : null;
+      const timelineEnd = recordingData.timeline?.end ? new Date(recordingData.timeline.end).getTime() : null;
+      const duration = (timelineStart && timelineEnd) ? Math.round((timelineEnd - timelineStart) / 1000) : null;
 
       if (!streamUrl) {
         throw new Error('No direct .mp4 stream link found for this Veo recording.');
@@ -88,8 +87,9 @@ const VeoSource: VideoSource = {
 
       if (existingVideo) {
         // Update the url and metadata for the existing video
-        await supabase.from('videos').update({
+        const updateData = {
           url: streamUrl,
+          duration,
           metadata: {
             recordingId: videoId,
             thumbnailUrl: recordingData.thumbnails?.[0]?.href || this.placeholderImage,
@@ -100,12 +100,15 @@ const VeoSource: VideoSource = {
             status: recordingData.status
           },
           last_synced: new Date().toISOString()
-        }).eq('id', existingVideo.id);
+        };
+        console.log('[VEO IMPORT] Updating video with:', updateData);
+        await supabase.from('videos').update(updateData).eq('id', existingVideo.id);
       } else {
         // Save video to database with recording details
-        const { error: dbError } = await supabase.from('videos').insert({
+        const insertData = {
           title: recordingData.title || `Veo Recording ${videoId}`,
           url: streamUrl,
+          duration,
           video_id: videoId,
           source: 'veo',
           metadata: {
@@ -120,7 +123,9 @@ const VeoSource: VideoSource = {
           status: 'active',
           last_synced: new Date().toISOString(),
           created_by: userId
-        });
+        };
+        console.log('[VEO IMPORT] Inserting video with:', insertData);
+        const { error: dbError } = await supabase.from('videos').insert(insertData);
 
         if (dbError) throw dbError;
       }

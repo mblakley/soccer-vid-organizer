@@ -142,23 +142,38 @@ function VideosPage() {
               key={video.id} 
               className={`border rounded overflow-hidden ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
             >
-              <a 
-                href={getVideoUrl(video)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block"
-              >
-                <div className="relative pb-[56.25%]">
-                  <img 
-                    src={getThumbnailUrl(video)}
-                    alt={video.title}
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
-                  <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white text-xs px-1 py-0.5 rounded">
-                    {formatDuration(video.duration)}
-                  </div>
+              {video.url && video.url.startsWith('https://app.veo.co') ? (
+                <div className="flex flex-col items-center justify-center h-full p-6">
+                  <div className="font-semibold text-lg mb-1">{video.title}</div>
+                  <div className="text-gray-500 text-lg mb-2">Full video not available</div>
+                  <a
+                    href={`https://app.veo.co/matches/${video.video_id}/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline"
+                  >
+                    View Match on Veo
+                  </a>
                 </div>
-              </a>
+              ) : (
+                <a 
+                  href={getVideoUrl(video)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block"
+                >
+                  <div className="relative pb-[56.25%]">
+                    <img 
+                      src={getThumbnailUrl(video)}
+                      alt={video.title}
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                    <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white text-xs px-1 py-0.5 rounded">
+                      {formatDuration(video.duration)}
+                    </div>
+                  </div>
+                </a>
+              )}
               <div className="p-3">
                 <h3 className="font-semibold">{video.title}</h3>
                 <div className="text-xs text-gray-500 mt-1">

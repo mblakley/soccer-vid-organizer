@@ -6,6 +6,8 @@ interface ClipPlayerProps {
   end: number;
   source?: string;
   onEnd?: () => void;
+  nextClipInfo?: { title: string; start_time: number; end_time: number };
+  navigationError?: string;
 }
 
 // Add YouTube Player state enum
@@ -37,7 +39,7 @@ const loadYouTubeAPI = () => {
   });
 };
 
-export default function ClipPlayer({ videoId, start, end, source = 'youtube', onEnd, ...props }: ClipPlayerProps & { url?: string }) {
+export default function ClipPlayer({ videoId, start, end, source = 'youtube', url, onEnd, nextClipInfo, navigationError }: ClipPlayerProps & { url?: string }) {
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const playerRef = useRef<any>(null);
@@ -273,49 +275,130 @@ export default function ClipPlayer({ videoId, start, end, source = 'youtube', on
     )
   }
   
-  // For Veo videos
-  if (source === 'veo') {
-    // Use direct .mp4 link if available
-    const directUrl = (props as any).url;
-    if (directUrl) {
-      return (
-        <div className="mb-4 aspect-video">
-          <video controls src={directUrl} className="w-full h-full" />
-        </div>
-      );
+  // Shared state for direct video sources
+  const directUrl = (url as any) || (props as any).url;
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Seek to start time on load or when clip changes
+  useEffect(() => {
+    const video = videoRef.current;
+    setIsTransitioning(false);
+    setSecondsLeft(null);
+    if (video && typeof start === 'number') {
+      video.currentTime = start;
+      video.play();
     }
-    // Fallback to embed if no direct link
-    const src = `https://app.veo.co/embed/matches/${videoId}/?utm_source=embed&start=${start}`
+  }, [videoId, start, directUrl]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (!videoRef.current || typeof end !== 'number') return;
+    const interval = setInterval(() => {
+      const video = videoRef.current;
+      if (video) {
+        const left = Math.max(0, Math.floor(end - video.currentTime));
+        setSecondsLeft(left);
+      }
+    }, 200);
+    return () => clearInterval(interval);
+  }, [end, videoId, directUrl]);
+
+  // Listen for timeupdate to auto-advance at end
+  const handleTimeUpdate = () => {
+    const video = videoRef.current;
+    if (video && typeof end === 'number' && video.currentTime >= end) {
+      video.pause();
+      setIsTransitioning(true);
+      setSecondsLeft(0);
+      setTimeout(() => {
+        setIsTransitioning(false);
+        if (onEnd) onEnd();
+      }, 1000); // Show transition message for 1s
+    }
+  };
+
+  // For Veo videos
+  if (source === 'veo' && directUrl) {
     return (
       <div className="mb-4 aspect-video">
-        <iframe 
+        {navigationError && (
+          <div className="text-red-700 bg-red-100 px-3 py-2 rounded mb-2">
+            {navigationError}
+          </div>
+        )}
+        <div className="flex items-center gap-2 mb-2">
+          <div className={`text-lg font-bold ${isTransitioning ? 'text-red-500 animate-pulse' : 'text-gray-500'}`}>
+            {isTransitioning
+              ? (
+                <>
+                  ⏭️ Navigating to next clip...
+                  {nextClipInfo && (
+                    <span className="ml-2 text-sm text-blue-900 bg-blue-100 px-2 py-1 rounded">
+                      Next: {nextClipInfo.title} ({nextClipInfo.start_time}–{nextClipInfo.end_time})
+                    </span>
+                  )}
+                </>
+              )
+              : '▶️ Playing clip...'}
+          </div>
+          {secondsLeft !== null && secondsLeft > 0 && (
+            <div className="text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded">
+              Next clip in {secondsLeft}s
+            </div>
+          )}
+        </div>
+        <video
+          ref={videoRef}
+          controls
+          autoPlay
+          src={directUrl}
           className="w-full h-full"
-          src={src} 
-          frameBorder="0" 
-          allowFullScreen
-        ></iframe>
+          onTimeUpdate={handleTimeUpdate}
+        />
       </div>
-    )
+    );
   }
   
-  // For Hudl videos
-  if (source === 'hudl') {
-    // Hudl embed doesn't directly support start/end in the iframe URL
-    // But you can use their embed code which may support playback options
-    const src = `https://www.hudl.com/embed/video/${videoId}`
+  // For other sources with a direct URL (e.g., custom uploads)
+  if (directUrl) {
     return (
       <div className="mb-4 aspect-video">
-        <iframe 
-          className="w-full h-full"
-          src={src} 
-          frameBorder="0" 
-          allowFullScreen
-        ></iframe>
-        <div className="text-xs text-gray-500 mt-1">
-          Start at {formatTime(start)} {end > 0 && `- End at ${formatTime(end)}`}
+        {navigationError && (
+          <div className="text-red-700 bg-red-100 px-3 py-2 rounded mb-2">
+            {navigationError}
+          </div>
+        )}
+        <div className="flex items-center gap-2 mb-2">
+          <div className={`text-lg font-bold ${isTransitioning ? 'text-red-500 animate-pulse' : 'text-gray-500'}`}>
+            {isTransitioning
+              ? (
+                <>
+                  ⏭️ Navigating to next clip...
+                  {nextClipInfo && (
+                    <span className="ml-2 text-sm text-blue-900 bg-blue-100 px-2 py-1 rounded">
+                      Next: {nextClipInfo.title} ({nextClipInfo.start_time}–{nextClipInfo.end_time})
+                    </span>
+                  )}
+                </>
+              )
+              : '▶️ Playing clip...'}
+          </div>
+          {secondsLeft !== null && secondsLeft > 0 && (
+            <div className="text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded">
+              Next clip in {secondsLeft}s
+            </div>
+          )}
         </div>
+        <video
+          ref={videoRef}
+          controls
+          autoPlay
+          src={directUrl}
+          className="w-full h-full"
+          onTimeUpdate={handleTimeUpdate}
+        />
       </div>
-    )
+    );
   }
   
   // Default fallback for unsupported sources

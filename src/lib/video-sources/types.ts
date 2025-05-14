@@ -27,6 +27,14 @@ export interface VideoSource {
   
   /** Default placeholder image for this source */
   placeholderImage: string;
+
+  /** Optional function to import a single video (for sources that support it) */
+  importSingleVideo?: (
+    videoId: string,
+    originalUrl: string,
+    userId: string,
+    apiToken?: string
+  ) => Promise<void>;
 }
 
 /**

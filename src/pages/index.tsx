@@ -30,13 +30,15 @@ function HomePage({ user }: { user: any }) {
   const [comments, setComments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const { isDarkMode } = useTheme()
+  const [navigationError, setNavigationError] = useState<string | null>(null);
+  const [nextClipInfo, setNextClipInfo] = useState<any | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
-      // Fetch clips
+      // Fetch clips with joined video URL
       const { data: clipsData, error: clipsError } = await supabase
         .from('clips')
-        .select('*')
+        .select('*, videos:video_id(url)')
         .order('created_at', { ascending: false })
         .limit(5)
 
@@ -159,8 +161,17 @@ function HomePage({ user }: { user: any }) {
 
   // Add handler for clip end
   const handleClipEnd = () => {
-    if (currentIndex < clips.length - 1) {
-      setCurrentIndex(prev => prev + 1)
+    const nextIndex = currentIndex + 1;
+    if (nextIndex < clips.length) {
+      setNextClipInfo(clips[nextIndex]);
+      setNavigationError(null);
+      setTimeout(() => {
+        setCurrentIndex(nextIndex);
+        setNextClipInfo(null);
+      }, 1000); // match the transition time in ClipPlayer
+    } else {
+      setNavigationError('No more clips to play.');
+      setNextClipInfo(null);
     }
   }
 
@@ -184,14 +195,27 @@ function HomePage({ user }: { user: any }) {
           <p className="py-4">No clips available yet.</p>
         ) : (
           <div>
-            <h3 className="text-xl font-semibold mb-3">{clips[currentIndex]?.title}</h3>
+            <h3 className="text-xl font-semibold mb-3">
+              {clips[currentIndex]?.title}
+              {clips[currentIndex]?.id && (
+                <span className="ml-3 text-xs text-gray-500">ID: {clips[currentIndex].id}</span>
+              )}
+            </h3>
             <ClipPlayer 
               videoId={clips[currentIndex]?.video_id} 
               start={clips[currentIndex]?.start_time} 
               end={clips[currentIndex]?.end_time} 
               source={videoSources[clips[currentIndex]?.video_id] || 'youtube'}
+              url={clips[currentIndex]?.videos?.url}
               onEnd={handleClipEnd}
+              nextClipInfo={nextClipInfo}
+              navigationError={navigationError}
             />
+            {navigationError && (
+              <div className="text-red-700 bg-red-100 px-3 py-2 rounded mb-2 mt-2">
+                {navigationError}
+              </div>
+            )}
             
             <ul className="list-disc list-inside space-y-1 mt-3">
               {comments.filter(c => c.role_visibility === 'both' || c.role_visibility === user.role).map(c => (
@@ -240,23 +264,38 @@ function HomePage({ user }: { user: any }) {
                 key={video.id} 
                 className={`border rounded overflow-hidden ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
               >
-                <a 
-                  href={getVideoUrl(video) || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block"
-                >
-                  <div className="relative pb-[56.25%]">
-                    <img 
-                      src={getThumbnailUrl(video)}
-                      alt={video.title}
-                      className="absolute inset-0 w-full h-full object-cover"
-                    />
-                    <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white text-xs px-1 py-0.5 rounded">
-                      {formatDuration(video.duration)}
-                    </div>
+                {video.url && video.url.startsWith('https://app.veo.co') ? (
+                  <div className="flex flex-col items-center justify-center h-full p-6">
+                    <div className="font-semibold text-lg mb-1">{video.title}</div>
+                    <div className="text-gray-500 text-lg mb-2">Full video not available</div>
+                    <a
+                      href={`https://app.veo.co/matches/${video.video_id}/`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      View Match on Veo
+                    </a>
                   </div>
-                </a>
+                ) : (
+                  <a 
+                    href={getVideoUrl(video) || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block"
+                  >
+                    <div className="relative pb-[56.25%]">
+                      <img 
+                        src={getThumbnailUrl(video)}
+                        alt={video.title}
+                        className="absolute inset-0 w-full h-full object-cover"
+                      />
+                      <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white text-xs px-1 py-0.5 rounded">
+                        {formatDuration(video.duration)}
+                      </div>
+                    </div>
+                  </a>
+                )}
                 <div className="p-3">
                   <h3 className="font-semibold">{video.title}</h3>
                   <div className="text-xs text-gray-500 mt-1">
