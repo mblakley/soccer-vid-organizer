@@ -157,6 +157,13 @@ function HomePage({ user }: { user: any }) {
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   }
 
+  // Add handler for clip end
+  const handleClipEnd = () => {
+    if (currentIndex < clips.length - 1) {
+      setCurrentIndex(prev => prev + 1)
+    }
+  }
+
   if (loading) return <p className="p-8">Loading content...</p>
 
   return (
@@ -182,7 +189,8 @@ function HomePage({ user }: { user: any }) {
               videoId={clips[currentIndex]?.video_id} 
               start={clips[currentIndex]?.start_time} 
               end={clips[currentIndex]?.end_time} 
-              source={videoSources[clips[currentIndex]?.video_id] || 'youtube'} 
+              source={videoSources[clips[currentIndex]?.video_id] || 'youtube'}
+              onEnd={handleClipEnd}
             />
             
             <ul className="list-disc list-inside space-y-1 mt-3">
