@@ -101,30 +101,145 @@ const VeoSource: VideoSource = {
           },
           last_synced: new Date().toISOString()
         }).eq('id', existingVideo.id);
-        return { status: 'updated', videoId };
+      } else {
+        // Save video to database with recording details
+        const { error: dbError } = await supabase.from('videos').insert({
+          title: recordingData.title || `Veo Recording ${videoId}`,
+          url: streamUrl,
+          video_id: videoId,
+          source: 'veo',
+          metadata: {
+            recordingId: videoId,
+            thumbnailUrl: recordingData.thumbnails?.[0]?.href || this.placeholderImage,
+            embedUrl: `https://app.veo.co/embed/matches/${videoId}/`,
+            timeline: recordingData.timeline,
+            clubs: recordingData.clubs,
+            matches: recordingData.matches,
+            status: recordingData.status
+          },
+          status: 'active',
+          last_synced: new Date().toISOString(),
+          created_by: userId
+        });
+
+        if (dbError) throw dbError;
       }
 
-      // Save video to database with recording details
-      const { error: dbError } = await supabase.from('videos').insert({
-        title: recordingData.title || `Veo Recording ${videoId}`,
-        url: streamUrl,
-        video_id: videoId,
-        source: 'veo',
-        metadata: {
-          recordingId: videoId,
-          thumbnailUrl: recordingData.thumbnails?.[0]?.href || this.placeholderImage,
-          embedUrl: `https://app.veo.co/embed/matches/${videoId}/`,
-          timeline: recordingData.timeline,
-          clubs: recordingData.clubs,
-          matches: recordingData.matches,
-          status: recordingData.status
-        },
-        status: 'active',
-        last_synced: new Date().toISOString(),
-        created_by: userId
-      });
+      // After inserting/updating the video, import Veo clips using the global /clips endpoint
+      try {
+        let nextPageToken: string | undefined = undefined;
+        do {
+          const url = new URL('https://api.veo.co/clips');
+          url.searchParams.set('recording', videoId);
+          url.searchParams.set('page_size', '20');
+          if (nextPageToken) url.searchParams.set('page_token', nextPageToken);
 
-      if (dbError) throw dbError;
+          const clipsRes = await fetch(url.toString(), {
+            headers: {
+              'Authorization': `Bearer ${apiToken}`,
+              'Accept': 'application/json'
+            }
+          });
+
+          if (clipsRes.ok) {
+            const clipsData = await clipsRes.json();
+            if (Array.isArray(clipsData.items)) {
+              const recordingStart = recordingData.timeline?.start ? new Date(recordingData.timeline.start).getTime() / 1000 : 0;
+              for (const clip of clipsData.items) {
+                // Calculate start and end times relative to recording start
+                const clipStart = clip.timeline?.start ? new Date(clip.timeline.start).getTime() / 1000 : 0;
+                const clipEnd = clip.timeline?.end ? new Date(clip.timeline.end).getTime() / 1000 : clipStart + 10;
+                const start_time = Math.max(0, Math.floor(clipStart - recordingStart));
+                const end_time = Math.max(start_time, Math.floor(clipEnd - recordingStart));
+
+                // Debug log for start_time and end_time
+                console.log('[DEBUG] start_time:', start_time, typeof start_time, 'end_time:', end_time, typeof end_time);
+                if (
+                  typeof start_time !== 'number' || isNaN(start_time) ||
+                  typeof end_time !== 'number' || isNaN(end_time)
+                ) {
+                  console.error('[ERROR] Invalid start_time or end_time:', start_time, end_time);
+                  continue; // Skip this clip
+                }
+
+                const title = clip.title || clip.type || 'Veo Clip';
+                const comment = clip.description || '';
+                
+                // Log the raw Veo API clip data
+                console.log('[VEO IMPORT] Raw Veo API clip data:', clip);
+                const dbClipData = {
+                  title,
+                  video_id: videoId,
+                  start_time,
+                  end_time,
+                  created_by: userId
+                };
+                // Log the DB data we're trying to insert/update
+                console.log('[VEO IMPORT] DB clip data to insert/update:', dbClipData);
+
+                // Debug log before select
+                console.log('[DEBUG] SELECT for video_id:', videoId, 'start_time:', start_time, 'end_time:', end_time);
+                // Check if this clip already exists by matching video_id, start_time, and end_time
+                const { data: existingClip, error: selectError } = await supabase
+                  .from('clips')
+                  .select('id')
+                  .eq('video_id', videoId)
+                  .eq('start_time', start_time)
+                  .eq('end_time', end_time)
+                  .single();
+
+                if (selectError && selectError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+                  console.error('[VEO IMPORT] Supabase select error for clip:', selectError);
+                }
+
+                if (existingClip) {
+                  // Update the existing clip
+                  const { error: updateError } = await supabase.from('clips').update({
+                    title,
+                    start_time,
+                    end_time
+                  }).eq('id', existingClip.id);
+                  if (updateError) {
+                    console.error('[VEO IMPORT] Supabase update error for clip:', updateError);
+                    console.log('[VEO IMPORT] FAILURE updating clip:', dbClipData);
+                  } else {
+                    console.log('[VEO IMPORT] SUCCESS updating existing clip:', dbClipData);
+                  }
+                  // Optionally, update the comment in the comments table if needed
+                } else {
+                  // Insert new clip
+                  const { data: insertedClip, error: insertError } = await supabase.from('clips').insert(dbClipData).select('id').single();
+                  if (insertError) {
+                    console.error('[VEO IMPORT] Supabase insert error for clip:', insertError);
+                    console.log('[VEO IMPORT] FAILURE inserting clip:', dbClipData);
+                  } else {
+                    console.log('[VEO IMPORT] SUCCESS inserting new clip:', dbClipData);
+                  }
+                  if (comment && insertedClip?.id) {
+                    // Insert the comment into the comments table
+                    const { error: commentError } = await supabase.from('comments').insert({
+                      clip_id: insertedClip.id,
+                      user_id: userId,
+                      content: comment,
+                      role_visibility: 'both'
+                    });
+                    if (commentError) {
+                      console.error('[VEO IMPORT] Supabase insert error for comment:', commentError);
+                    } else {
+                      console.log('[VEO IMPORT] SUCCESS inserting comment for clip:', insertedClip.id);
+                    }
+                  }
+                }
+              }
+            }
+            nextPageToken = clipsData.next_page_token;
+          } else {
+            break;
+          }
+        } while (nextPageToken);
+      } catch (err) {
+        console.error('Error importing Veo clips:', err);
+      }
     } catch (error) {
       console.error('Error importing Veo video:', error);
       // Fallback to basic import if API call fails
