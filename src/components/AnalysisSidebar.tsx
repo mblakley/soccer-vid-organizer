@@ -5,6 +5,7 @@ import { VideoPlayerControls } from '@/components/VideoPlayer'
 import CountersSection from '@/components/counters/CountersSection'
 import TimersSection from '@/components/timers/TimersSection'
 import { useTheme } from '@/contexts/ThemeContext' // Import useTheme
+import ClipList from '@/components/ClipList'; // Import the new ClipList component
 
 // Re-define or import necessary types if not directly exportable from analyze-video
 // For now, let's assume Video and ClipMarker can be imported or are defined here/globally.
@@ -148,37 +149,13 @@ const AnalysisSidebar: React.FC<AnalysisSidebarProps> = ({
       <div className="flex-1 overflow-y-auto">
         {sidebarTab === 'clips' ? (
           <Fragment>
-            {loadingClips && <div className="p-4 text-gray-400">Loading clips...</div>}
-            {!loadingClips && clipMarkers.length === 0 && (
-              <div className="p-4 text-gray-400">No clips created yet.</div>
-            )}
-            {[...clipMarkers]
-              .sort((a, b) => b.startTime - a.startTime)
-              .map((clip, index) => {
-                const isActive = currentTime >= clip.startTime && currentTime < clip.endTime;
-                return (
-                  <div key={clip.id || index} className={`p-4 border-b border-gray-800 hover:bg-gray-800 cursor-pointer ${isActive ? 'bg-green-800 border-l-4 border-green-400' : ''}`}>
-                    <div className="font-semibold">{clip.title}</div>
-                    <div className="text-xs text-gray-400">{formatTime(clip.startTime)} - {formatTime(clip.endTime)} (Duration: {formatTime(clip.endTime - clip.startTime)})</div>
-                    {clip.labels && clip.labels.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {clip.labels.map(label => (
-                          <span key={label} className="px-2 py-0.5 text-xs rounded bg-blue-900 text-blue-100">{label}</span>
-                        ))}
-                      </div>
-                    )}
-                    {clip.comment && (
-                      <div className="mt-2 p-2 rounded text-sm bg-gray-950 text-gray-200">{clip.comment}</div>
-                    )}
-                    <button
-                      onClick={() => onPlayClip(clip)}
-                      className="mt-2 px-3 py-1 rounded text-xs bg-gray-700 hover:bg-gray-600"
-                    >
-                      Play
-                    </button>
-                  </div>
-                );
-              })}
+            <ClipList 
+              clipMarkers={clipMarkers}
+              loadingClips={loadingClips}
+              currentTime={currentTime}
+              formatTime={formatTime}
+              onPlayClip={onPlayClip}
+            />
           </Fragment>
         ) : sidebarTab === 'counters' ? (
           <Fragment>

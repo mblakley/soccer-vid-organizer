@@ -309,22 +309,28 @@ function AnalyzeVideoPage({ user }: { user: any }) {
       setNotification({
         message: 'Clip is too short (minimum 1 second)',
         type: 'error'
-      })
-      setIsRecording(false)
-      return
+      });
+      setIsRecording(false); // Still need to set isRecording to false
+      // No need to switch tab here, user might want to try recording again from 'createClip' tab
+      return;
     }
     
     // Calculate and store duration
-    const duration = endTime - recordingStart
-    setClipDuration(duration)
+    const duration = endTime - recordingStart;
+    setClipDuration(duration);
     
     // Pause the video when ending the clip recording
-    playerRef.current.pauseVideo()
+    playerRef.current.pauseVideo();
     
-    // Set up for the clip form
-    setIsRecording(false)
-    setShowClipForm(true)
-  }, []);
+    // Set up for the clip form display in AnalysisSidebar
+    setIsRecording(false); 
+    // recordingStart remains set, which AnalysisSidebar uses to show the form
+
+    // Ensure the sidebar is on the 'createClip' tab to show the save form
+    if (sidebarTab !== 'createClip') {
+      setSidebarTab('createClip');
+    }
+  }, [recordingStart, playerRef, setNotification, setClipDuration, setIsRecording, sidebarTab, setSidebarTab]);
   
   // Counter management functions have been moved to useCounters hook
   
