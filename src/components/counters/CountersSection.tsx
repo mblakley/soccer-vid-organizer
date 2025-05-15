@@ -13,7 +13,7 @@ interface CountersSectionProps {
     message: string;
     onConfirm: () => void;
   }) => void;
-  onShowAddPlayerForm: (counterId: string) => void;
+  onShowAddPlayerForm: (counterId: string, onAddPlayer: (playerName: string) => void) => void;
   currentTime: number;
   playerState: 'playing' | 'paused';
   onSeekTo: (time: number) => void;
@@ -73,7 +73,9 @@ const CountersSection: React.FC<CountersSectionProps> = ({
           }}
           onReset={resetCounter}
           onAddPlayer={(counterId) => {
-            onShowAddPlayerForm(counterId);
+            onShowAddPlayerForm(counterId, (playerName: string) => {
+              addPlayerToCounter(counterId, playerName);
+            });
           }}
           formatTime={formatTime}
           onSeekTo={onSeekTo}

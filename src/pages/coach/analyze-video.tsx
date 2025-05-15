@@ -6,11 +6,11 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { useRouter } from 'next/router'
 import { toast } from 'react-toastify'
 import ClipPlayer from '@/components/ClipPlayer'
-import CounterFactory from '@/components/counters/CounterFactory'
-import { CountTracker, CounterType } from '@/components/counters/CounterInterfaces'
 import TimersSection from '@/components/timers/TimersSection'
 import { PlayerTimer, TimerSession } from '@/components/timers/TimerInterfaces'
 import CountersSection from '@/components/counters/CountersSection'
+// Only imported for types, no longer using the implementation directly
+import type { CounterType, CountTracker } from '@/components/counters/CounterInterfaces'
 
 // Add import for YouTube types
 // The types are automatically included from @types/youtube
@@ -66,17 +66,12 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   const [isSavingClip, setIsSavingClip] = useState(false)
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null)
   
-  // For count tracking
-  const [counters, setCounters] = useState<CountTracker[]>([])
-  const [showCounterForm, setShowCounterForm] = useState(false)
-  const [newCounterName, setNewCounterName] = useState('')
-  const [newCounterType, setNewCounterType] = useState<CounterType>('standard')
-  const [newCounterPlayers, setNewCounterPlayers] = useState<string[]>([])
-  const [newPlayerName, setNewPlayerName] = useState('')
+  // For player form modal
   const [showAddPlayerForm, setShowAddPlayerForm] = useState(false)
   const [selectedCounterId, setSelectedCounterId] = useState<string | null>(null)
   const [selectedTimerId, setSelectedTimerId] = useState<string | null>(null)
   const [addPlayerName, setAddPlayerName] = useState('')
+  const [onConfirmAddPlayerForModal, setOnConfirmAddPlayerForModal] = useState<((playerName: string) => void) | null>(null)
   
   // YouTube player reference
   const playerRef = useRef<any>(null)
@@ -85,7 +80,6 @@ function AnalyzeVideoPage({ user }: { user: any }) {
 
   // Track if we should show the fixed buttons
   const shouldShowFixedButtons = selectedVideo && playerReady && !isRecording && !showClipForm
-  const shouldShowCounterForm = showCounterForm && selectedVideo
 
   // Track all used labels for suggestions
   const [recentLabels, setRecentLabels] = useState<string[]>([])
@@ -439,64 +433,10 @@ function AnalyzeVideoPage({ user }: { user: any }) {
       }
     };
 
-    const fetchCountersForVideo = async () => {
-      try {
-        // Ensure selectedVideo and its id are available
-        if (!selectedVideo?.id) {
-          console.warn("fetchCountersForVideo called without selectedVideo.id, clearing counters.");
-          setCounters([]); // Clear existing counters if no video is selected or id is missing
-          return;
-        }
-
-        // Fetch counters for the specific video
-        const { data: countersData, error: countersError } = await supabase
-          .from('counters')
-          .select('*')
-          .eq('video_id', selectedVideo.id) // Filter by video_id
-          .order('created_at', { ascending: false });
-
-        if (countersError) throw countersError;
-
-        // For each counter, fetch its events
-        const countersWithEvents = await Promise.all(
-          (countersData || []).map(async (counter) => {
-            const { data: events, error: eventsError } = await supabase
-              .from('counter_events')
-              .select('timestamp')
-              .eq('counter_id', counter.id)
-              .order('timestamp', { ascending: true });
-
-            if (eventsError) throw eventsError;
-
-            const mappedCounter: CountTracker = {
-              id: counter.id,
-              name: counter.name,
-              count: counter.count,
-              timestamps: events.map(e => e.timestamp),
-              type: counter.type,
-            };
-
-            // If it's a player-based counter, initialize player data
-            if (counter.type === 'player-based') {
-              mappedCounter.players = [];
-              mappedCounter.playerCounts = {};
-            }
-
-            return mappedCounter;
-          })
-        );
-
-        setCounters(countersWithEvents);
-      } catch (error) {
-        console.error('Error fetching counters:', error);
-        toast.error('Failed to load counters');
-      }
-    };
-
+    // Counter fetching is now handled by the CountersSection
     // Timer fetching is now handled by the useTimers hook
     
     fetchClipsForVideo();
-    fetchCountersForVideo();
     // Timer fetching is now handled by the useTimers hook
   }, [selectedVideo]);
   
@@ -602,208 +542,9 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     setShowClipForm(true)
   }
   
-  const handleAddCounter = () => {
-    setShowCounterForm(true)
-  }
+  // Counter management functions have been moved to useCounters hook
   
-  const saveCounter = async () => {
-    if (!newCounterName.trim()) {
-      setNotification({
-        message: 'Please enter a name for the counter',
-        type: 'error'
-      })
-      return
-    }
-
-    if (!selectedVideo) {
-      setNotification({
-        message: 'Please select a video before saving a counter.',
-        type: 'error'
-      });
-      return;
-    }
-    
-    // For player-based counters, validate that we have players
-    if (newCounterType === 'player-based' && newCounterPlayers.length === 0) {
-      setNotification({
-        message: 'Please add at least one player for a player-based counter',
-        type: 'error'
-      })
-      return
-    }
-
-    try {
-      // Create counter in database
-      const { data: counterData, error: counterError } = await supabase
-        .from('counters')
-        .insert({
-          name: newCounterName,
-          type: newCounterType,
-          count: 0,
-          video_id: selectedVideo?.id,
-          created_by: user?.id
-        })
-        .select()
-        .single()
-
-      if (counterError) throw counterError
-
-      const newCounter: CountTracker = {
-        id: counterData.id,
-        name: newCounterName,
-        count: 0,
-        timestamps: [],
-        type: newCounterType,
-      }
-      
-      // Add player-specific data if it's a player-based counter
-      if (newCounterType === 'player-based') {
-        newCounter.players = [...newCounterPlayers]
-        newCounter.playerCounts = {}
-        
-        // Initialize counts for each player
-        newCounterPlayers.forEach(player => {
-          newCounter.playerCounts![player] = {
-            count: 0,
-            timestamps: []
-          }
-        })
-      }
-      
-      setCounters([...counters, newCounter])
-      setNewCounterName('')
-      setNewCounterType('standard')
-      setNewCounterPlayers([])
-      setNewPlayerName('')
-      setShowCounterForm(false)
-      setNotification({
-        message: `Counter "${newCounterName}" added!`,
-        type: 'success'
-      })
-      setTimeout(() => setNotification(null), 3000)
-    } catch (error) {
-      console.error('Error creating counter:', error)
-      toast.error('Failed to create counter')
-    }
-  }
-  
-  const incrementCounter = async (counterId: string, playerName?: string) => {
-    if (!playerRef.current) return
-    const currentTime = playerRef.current.getCurrentTime()
-
-    try {
-      // Create counter event
-      const { error: eventError } = await supabase
-        .from('counter_events')
-        .insert({
-          counter_id: counterId,
-          timestamp: currentTime,
-          value: 1,
-          team_member_id: null // We'll add player tracking later
-        })
-
-      if (eventError) throw eventError
-
-      // Get the new count using RPC
-      const { data: newCount, error: rpcError } = await supabase
-        .rpc('increment_counter', { counter_id: counterId })
-
-      if (rpcError) throw rpcError
-
-      // Get all events for this counter to update timestamps
-      const { data: events, error: eventsError } = await supabase
-        .from('counter_events')
-        .select('timestamp')
-        .eq('counter_id', counterId)
-        .order('timestamp', { ascending: true })
-
-      if (eventsError) throw eventsError
-
-      // Update local state
-      setCounters(prevCounters =>
-        prevCounters.map(counter => {
-          if (counter.id !== counterId) return counter;
-          
-          // Handle player-based counters differently
-          if (counter.type === 'player-based' && playerName && counter.playerCounts) {
-            // Prevent double-counting if video is paused and last timestamp is the same (within 0.5s)
-            const playerData = counter.playerCounts[playerName];
-            const lastTimestamp = playerData?.timestamps[playerData.timestamps.length - 1];
-            
-            if (
-              playerState === 'paused' &&
-              lastTimestamp !== undefined &&
-              Math.abs(lastTimestamp - currentTime) < 0.5
-            ) {
-              return counter;
-            }
-            
-            // Create a deep copy to avoid mutating state directly
-            const updatedPlayerCounts = { ...counter.playerCounts };
-            updatedPlayerCounts[playerName] = {
-              count: (updatedPlayerCounts[playerName]?.count || 0) + 1,
-              timestamps: [...(updatedPlayerCounts[playerName]?.timestamps || []), currentTime]
-            };
-            
-            // Update the total count as well
-            return {
-              ...counter,
-              count: newCount,
-              timestamps: events.map(e => e.timestamp),
-              playerCounts: updatedPlayerCounts
-            };
-          }
-          
-          // Handle standard and resettable counters as before
-          // Prevent double-counting if video is paused and last timestamp is the same (within 0.5s)
-          const lastTimestamp = counter.timestamps[counter.timestamps.length - 1];
-          if (
-            playerState === 'paused' &&
-            lastTimestamp !== undefined &&
-            Math.abs(lastTimestamp - currentTime) < 0.5
-          ) {
-            return counter;
-          }
-          return {
-            ...counter,
-            count: newCount,
-            timestamps: events.map(e => e.timestamp)
-          };
-        })
-      )
-    } catch (error) {
-      console.error('Error incrementing counter:', error)
-      toast.error('Failed to increment counter')
-    }
-  }
-  
-  const removeCounter = async (counterId: string) => {
-    try {
-      // First delete all counter events
-      const { error: eventsError } = await supabase
-        .from('counter_events')
-        .delete()
-        .eq('counter_id', counterId)
-
-      if (eventsError) throw eventsError
-
-      // Then delete the counter
-      const { error: counterError } = await supabase
-        .from('counters')
-        .delete()
-        .eq('id', counterId)
-
-      if (counterError) throw counterError
-
-      // Update local state
-      setCounters(prevCounters => 
-        prevCounters.filter(counter => counter.id !== counterId)
-      )
-    } catch (error) {
-      console.error('Error removing counter:', error)
-      toast.error('Failed to remove counter')
-    }
-  }
+  // removeCounter has been moved to useCounters hook
   
   const addLabel = (label: string) => {
     if (!label.trim()) return
@@ -1008,73 +749,8 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const resetCounter = (counterId: string) => {
-    if (!playerRef.current) return;
-    const currentTime = playerRef.current.getCurrentTime();
-    setCounters(prevCounters =>
-      prevCounters.map(counter =>
-        counter.id === counterId
-          ? { ...counter, count: 1, timestamps: [currentTime] }
-          : counter
-      )
-    );
-  };
-
-  const addPlayer = (player: string) => {
-    if (!player.trim()) return;
-    
-    if (!newCounterPlayers.includes(player.trim())) {
-      setNewCounterPlayers([...newCounterPlayers, player.trim()]);
-    }
-    
-    setNewPlayerName('');
-  }
-  
-  const removePlayer = (player: string) => {
-    setNewCounterPlayers(newCounterPlayers.filter(p => p !== player));
-  }
-
-  // Timer functions
-    // Timer functions moved to useTimers hook
-  
-    // saveTimer moved to useTimers hook
-  
-    // Player timer form functions moved to useTimers hook
-  
-    // Toggle player timer function moved to useTimers hook
-
-    // Timer player functions moved to useTimers hook
-
-  const addPlayerToCounter = (counterId: string, playerName: string) => {
-    if (!playerName.trim()) return;
-    
-    setCounters(prevCounters =>
-      prevCounters.map(counter => {
-        if (counter.id !== counterId || counter.type !== 'player-based') return counter;
-        
-        // Check if player already exists
-        if (counter.players?.includes(playerName.trim())) {
-          return counter;
-        }
-        
-        // Add player to the counter
-        const updatedPlayers = [...(counter.players || []), playerName.trim()];
-        const updatedPlayerCounts = { ...(counter.playerCounts || {}) };
-        
-        // Initialize count for the new player
-        updatedPlayerCounts[playerName.trim()] = {
-          count: 0,
-          timestamps: []
-        };
-        
-        return {
-          ...counter,
-          players: updatedPlayers,
-          playerCounts: updatedPlayerCounts
-        };
-      })
-    );
-  };
+  // All counter-related functions have been moved to the useCounters hook
+  // All timer-related functions have been moved to the useTimers hook
 
     // All timer functions moved to useTimers hook
 
@@ -1200,9 +876,10 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                       setConfirmModalConfig(config);
                       setShowConfirmModal(true);
                     }}
-                    onShowAddPlayerForm={(counterId) => {
+                    onShowAddPlayerForm={(counterId, onConfirm) => {
                       setSelectedCounterId(counterId);
-                      setAddPlayerName('');
+                      setSelectedTimerId(null);
+                      setOnConfirmAddPlayerForModal(onConfirm);
                       setShowAddPlayerForm(true);
                     }}
                     currentTime={currentTime}
@@ -1227,10 +904,11 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                           }}
                     onShowAddPlayerForm={(timerId) => {
                       setSelectedTimerId(timerId);
-                                setSelectedCounterId(null);
-                                setAddPlayerName('');
-                                setShowAddPlayerForm(true);
-                              }}
+                      setSelectedCounterId(null);
+                      // We don't set a callback here since timer player handling is done within TimersSection
+                      setOnConfirmAddPlayerForModal(null);
+                      setShowAddPlayerForm(true);
+                    }}
                   />
                 </Fragment>
               ) : (
@@ -1439,12 +1117,20 @@ function AnalyzeVideoPage({ user }: { user: any }) {
               onChange={e => setAddPlayerName(e.target.value)}
               onKeyPress={e => {
                 if (e.key === 'Enter') {
-                  if (selectedCounterId) {
-                    addPlayerToCounter(selectedCounterId, addPlayerName);
+                  if (selectedCounterId && onConfirmAddPlayerForModal && addPlayerName.trim()) {
+                    onConfirmAddPlayerForModal(addPlayerName.trim());
+                    setShowAddPlayerForm(false);
+                    setAddPlayerName('');
+                    setSelectedCounterId(null);
+                    setOnConfirmAddPlayerForModal(null);
+                  } else if (selectedTimerId) {
+                    toast.info("Player addition for timers is managed by TimersSection");
+                    setShowAddPlayerForm(false);
+                    setAddPlayerName('');
+                    setSelectedTimerId(null);
+                  } else if (!addPlayerName.trim()) {
+                    toast.warn("Player name cannot be empty");
                   }
-                  // Timer player handling is done in TimersSection
-                  setShowAddPlayerForm(false);
-                  setAddPlayerName('');
                 }
               }}
               placeholder="Player name"
@@ -1454,12 +1140,20 @@ function AnalyzeVideoPage({ user }: { user: any }) {
             <div className="flex space-x-2">
               <button
                 onClick={() => {
-                  if (selectedCounterId) {
-                    addPlayerToCounter(selectedCounterId, addPlayerName);
+                  if (selectedCounterId && onConfirmAddPlayerForModal && addPlayerName.trim()) {
+                    onConfirmAddPlayerForModal(addPlayerName.trim());
+                    setShowAddPlayerForm(false);
+                    setAddPlayerName('');
+                    setSelectedCounterId(null);
+                    setOnConfirmAddPlayerForModal(null);
+                  } else if (selectedTimerId) {
+                    toast.info("Player addition for timers is managed by TimersSection");
+                    setShowAddPlayerForm(false);
+                    setAddPlayerName('');
+                    setSelectedTimerId(null);
+                  } else if (!addPlayerName.trim()) {
+                    toast.warn("Player name cannot be empty");
                   }
-                  // Timer player handling is done in TimersSection
-                  setShowAddPlayerForm(false);
-                  setAddPlayerName('');
                 }}
                 className="flex-1 px-3 py-2 rounded bg-green-700 hover:bg-green-600 text-white"
                 disabled={!addPlayerName.trim()}
@@ -1472,6 +1166,7 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                   setAddPlayerName('');
                   setSelectedCounterId(null);
                   setSelectedTimerId(null);
+                  setOnConfirmAddPlayerForModal(null);
                 }}
                 className="flex-1 px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 text-white"
               >
