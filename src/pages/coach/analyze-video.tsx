@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef, Fragment } from 'react'
+import { useState, useEffect, useRef, Fragment, useCallback } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { withAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -11,6 +11,7 @@ import { PlayerTimer, TimerSession } from '@/components/timers/TimerInterfaces'
 import CountersSection from '@/components/counters/CountersSection'
 // Only imported for types, no longer using the implementation directly
 import type { CounterType, CountTracker } from '@/components/counters/CounterInterfaces'
+import VideoPlayer, { VideoPlayerControls } from '@/components/VideoPlayer'
 
 // Add import for YouTube types
 // The types are automatically included from @types/youtube
@@ -74,7 +75,7 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   const [onConfirmAddPlayerForModal, setOnConfirmAddPlayerForModal] = useState<((playerName: string) => void) | null>(null)
   
   // YouTube player reference
-  const playerRef = useRef<any>(null)
+  const playerRef = useRef<VideoPlayerControls>(null)
   const playerContainerRef = useRef<HTMLDivElement>(null)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -145,250 +146,30 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     
     fetchVideos()
     
-    // Load YouTube API
-    if (typeof window !== 'undefined') {
-      // Check if YouTube iframe API is already loaded
-      if (!window.YT) {
-        const tag = document.createElement('script')
-        tag.src = 'https://www.youtube.com/iframe_api'
-        const firstScriptTag = document.getElementsByTagName('script')[0]
-        firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag)
-      }
-    }
-    
     return () => {
       // Clean up interval on unmount
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-      }
+      // if (intervalRef.current) { // This interval is removed
+      //   clearInterval(intervalRef.current)
+      // }
     }
   }, [])
   
   // Initialize player when selected video changes
   useEffect(() => {
-    if (!selectedVideo) return
+    if (!selectedVideo) {
+      setPlayerReady(false); // Reset player ready state
+      return;
+    }
     
-    // Check if video source is supported
-    if (
-      selectedVideo.source !== 'youtube' &&
-      selectedVideo.source !== 'veo' &&
-      selectedVideo.source !== 'facebook'
-    ) {
-      setNotification({
-        message: 'Only YouTube, Veo, and Facebook videos are currently supported for analysis',
-        type: 'error'
-      })
-      return
-    }
+    // The VideoPlayer component now handles its own initialization.
+    // We might still want to reset certain states here when video changes.
+    // For instance, if playerRef.current exists, we might want to ensure it's paused.
+    // playerRef.current?.pauseVideo(); // Example
 
-    let messageHandler: ((event: MessageEvent) => void) | null = null;
-    let iframeElement: HTMLIFrameElement | null = null;
-
-    const initializePlayer = () => {
-      // Clear any existing interval
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-      }
-
-      if (selectedVideo.source === 'youtube') {
-        // Make sure the YouTube API is available
-        if (typeof window !== 'undefined' && window.YT && window.YT.Player) {
-          if (playerContainerRef.current) {
-            // Clear the container
-            playerContainerRef.current.innerHTML = ''
-            
-            // Create a new div for the player
-            const playerDiv = document.createElement('div')
-            playerDiv.id = 'youtube-player'
-            playerContainerRef.current.appendChild(playerDiv)
-            
-            // Create the player
-            playerRef.current = new window.YT.Player('youtube-player', {
-              videoId: selectedVideo.video_id,
-              height: '100%',
-              width: '100%',
-              playerVars: {
-                autoplay: 0,
-                controls: 1,
-                modestbranding: 1,
-                rel: 0
-              },
-              events: {
-                onReady: () => {
-                  setPlayerReady(true)
-                  // Start a timer to update the current time
-                  intervalRef.current = setInterval(() => {
-                    if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
-                      setCurrentTime(playerRef.current.getCurrentTime())
-                      
-                      // Update player state
-                      const state = playerRef.current.getPlayerState()
-                      setPlayerState(state === 1 ? 'playing' : 'paused')
-                    }
-                  }, 200)
-                },
-                onStateChange: (event) => {
-                  setPlayerState(event.data === 1 ? 'playing' : 'paused')
-                }
-              }
-            })
-          }
-        } else {
-          // If YouTube API isn't available yet, wait for it
-          window.onYouTubeIframeAPIReady = initializePlayer
-        }
-      } else if (selectedVideo.source === 'veo') {
-        // Initialize Veo player
-        const container = playerContainerRef.current
-        if (!container) return
-
-        // Clear the container
-        container.innerHTML = ''
-        
-        // Create iframe for Veo player
-        iframeElement = document.createElement('iframe')
-        iframeElement.src = `https://app.veo.co/embed/matches/${selectedVideo.video_id}/?utm_source=embed&autoplay=0&controls=1`
-        iframeElement.className = 'w-full h-full'
-        iframeElement.frameBorder = '0'
-        iframeElement.allowFullscreen = true
-        container.appendChild(iframeElement)
-        
-        // Set up message listener for Veo player
-        messageHandler = (event: MessageEvent) => {
-          // Only handle messages from Veo
-          if (event.origin !== 'https://app.veo.co') return
-          
-          try {
-            const data = JSON.parse(event.data)
-            
-            // Handle different message types from Veo player
-            switch (data.type) {
-              case 'ready':
-                setPlayerReady(true)
-                break
-              case 'timeupdate':
-                setCurrentTime(data.currentTime)
-                setPlayerState(data.isPlaying ? 'playing' : 'paused')
-                break
-            }
-          } catch (e) {
-            console.error('Error parsing Veo player message:', e)
-          }
-        }
-        
-        window.addEventListener('message', messageHandler)
-        
-        // Store player reference
-        playerRef.current = {
-          getCurrentTime: () => currentTime,
-          seekTo: (seconds: number) => {
-            iframeElement?.contentWindow?.postMessage(JSON.stringify({
-              type: 'seek',
-              time: seconds
-            }), 'https://app.veo.co')
-          },
-          playVideo: () => {
-            iframeElement?.contentWindow?.postMessage(JSON.stringify({
-              type: 'play'
-            }), 'https://app.veo.co')
-          },
-          pauseVideo: () => {
-            iframeElement?.contentWindow?.postMessage(JSON.stringify({
-              type: 'pause'
-            }), 'https://app.veo.co')
-          },
-          getPlayerState: () => playerState === 'playing' ? 1 : 2
-        } as VeoPlayer
-        
-        // Start interval to update current time
-        intervalRef.current = setInterval(() => {
-          if (playerRef.current) {
-            setCurrentTime(playerRef.current.getCurrentTime())
-          }
-        }, 200)
-      } else if (selectedVideo.source === 'facebook') {
-        // Initialize Facebook player
-        const container = playerContainerRef.current
-        if (!container) return
-
-        // Clear the container
-        container.innerHTML = ''
-        
-        // Create iframe for Facebook player
-        iframeElement = document.createElement('iframe')
-        iframeElement.src = `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(selectedVideo.url || '')}`
-        iframeElement.className = 'w-full h-full'
-        iframeElement.frameBorder = '0'
-        iframeElement.allowFullscreen = true
-        container.appendChild(iframeElement)
-        
-        // Set up message listener for Facebook player
-        messageHandler = (event: MessageEvent) => {
-          // Only handle messages from Facebook
-          if (event.origin !== 'https://www.facebook.com') return
-          
-          try {
-            const data = JSON.parse(event.data)
-            
-            // Handle different message types from Facebook player
-            switch (data.type) {
-              case 'ready':
-                setPlayerReady(true)
-                break
-              case 'timeupdate':
-                setCurrentTime(data.currentTime)
-                setPlayerState(data.isPlaying ? 'playing' : 'paused')
-                break
-            }
-          } catch (e) {
-            console.error('Error parsing Facebook player message:', e)
-          }
-        }
-        
-        window.addEventListener('message', messageHandler)
-        
-        // Store player reference
-        playerRef.current = {
-          getCurrentTime: () => currentTime,
-          seekTo: (seconds: number) => {
-            iframeElement?.contentWindow?.postMessage(JSON.stringify({
-              type: 'seek',
-              time: seconds
-            }), 'https://www.facebook.com')
-          },
-          playVideo: () => {
-            iframeElement?.contentWindow?.postMessage(JSON.stringify({
-              type: 'play'
-            }), 'https://www.facebook.com')
-          },
-          pauseVideo: () => {
-            iframeElement?.contentWindow?.postMessage(JSON.stringify({
-              type: 'pause'
-            }), 'https://www.facebook.com')
-          },
-          getPlayerState: () => playerState === 'playing' ? 1 : 2
-        } as VeoPlayer
-        
-        // Start interval to update current time
-        intervalRef.current = setInterval(() => {
-          if (playerRef.current) {
-            setCurrentTime(playerRef.current.getCurrentTime())
-          }
-        }, 200)
-      }
-    }
-
-    initializePlayer()
-
-    // Cleanup function
+    // Cleanup is handled by VideoPlayer's own useEffect
     return () => {
-      if (messageHandler) {
-        window.removeEventListener('message', messageHandler)
-      }
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-      }
-    }
+      // Any specific cleanup related to analyze-video when video changes, if necessary
+    };
   }, [selectedVideo])
   
   // Fetch clips when a video is selected
@@ -511,8 +292,8 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   const handleStartRecording = () => {
     if (!playerRef.current) return
     
-    const currentTime = playerRef.current.getCurrentTime()
-    setRecordingStart(currentTime)
+    const currentVideoTime = playerRef.current.getCurrentTime()
+    setRecordingStart(currentVideoTime)
     setIsRecording(true)
   }
   
@@ -733,14 +514,14 @@ function AnalyzeVideoPage({ user }: { user: any }) {
       const now = Date.now();
       if (now - lastSeekTimeRef.current < 200) return; // 200ms debounce
       let didSeek = false;
-      const currentTime = playerRef.current.getCurrentTime();
+      const currentVideoTime = playerRef.current.getCurrentTime();
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        playerRef.current.seekTo(Math.max(0, currentTime - 5), true);
+        playerRef.current.seekTo(Math.max(0, currentVideoTime - 5), true);
         didSeek = true;
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
-        playerRef.current.seekTo(currentTime + 5, true);
+        playerRef.current.seekTo(currentVideoTime + 5, true);
         didSeek = true;
       }
       if (didSeek) lastSeekTimeRef.current = now;
@@ -754,6 +535,40 @@ function AnalyzeVideoPage({ user }: { user: any }) {
 
     // All timer functions moved to useTimers hook
 
+  // Memoized callbacks for VideoPlayer
+  const handlePlayerReady = useCallback(() => {
+    setPlayerReady(true);
+    // Potentially auto-play or other logic here
+  }, []);
+
+  const handleTimeUpdate = useCallback((time: number) => {
+    setCurrentTime(time);
+  }, []);
+
+  const handlePlayerStateChange = useCallback((newState: 'playing' | 'paused' | 'ended' | 'buffering' | 'cued') => {
+    if (newState === 'playing') {
+      setPlayerState('playing');
+    } else if (newState === 'paused' || newState === 'ended') {
+      setPlayerState('paused');
+    }
+  }, []);
+
+  const handlePlayerPlay = useCallback(() => {
+    setPlayerState('playing');
+    console.log("Video started playing");
+  }, []);
+
+  const handlePlayerPause = useCallback(() => {
+    setPlayerState('paused');
+    console.log("Video paused/stopped");
+  }, []);
+
+  const handlePlayerError = useCallback((error: { message?: string; [key: string]: any }) => {
+    console.error("Video Player Error:", error);
+    setNotification({ message: error.message || 'Video player error', type: 'error' });
+    setPlayerReady(false);
+  }, []);
+
   return (
     <div className="flex flex-col h-screen bg-gray-900">
       {/* Top Bar - removed header and user avatar */}
@@ -765,45 +580,20 @@ function AnalyzeVideoPage({ user }: { user: any }) {
         <div className="flex-1 min-w-0 bg-black flex items-center justify-center relative h-full">
           {selectedVideo ? (
             <div className="h-full flex items-center justify-center w-full max-w-full overflow-hidden">
-              {/* For YouTube and Veo, render the player with ref-based control */}
-              {selectedVideo.source === 'youtube' && (
-                <div ref={playerContainerRef} className="aspect-video bg-black w-full max-w-full" style={{ maxWidth: '100%' }}></div>
-              )}
-              {selectedVideo.source === 'veo' && selectedVideo.url && (
-                <video
-                  ref={el => {
-                    if (el) {
-                      playerRef.current = {
-                        getCurrentTime: () => el.currentTime,
-                        seekTo: (seconds: number) => { el.currentTime = seconds; },
-                        playVideo: () => { el.play(); },
-                        pauseVideo: () => { el.pause(); },
-                        getPlayerState: () => el.paused ? 2 : 1
-                      };
-                    }
-                  }}
-                  src={selectedVideo.url}
-                  controls
-                  className="w-full h-full aspect-video"
-                  style={{ background: 'black' }}
-                  onTimeUpdate={e => setCurrentTime(e.currentTarget.currentTime)}
-                  onLoadedMetadata={e => setCurrentTime(e.currentTarget.currentTime)}
-                />
-              )}
-              {selectedVideo.source === 'facebook' && selectedVideo.url && (
-                <iframe
-                  className="w-full h-full aspect-video"
-                  src={`https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(selectedVideo.url || '')}`}
-                  frameBorder="0"
-                  allowFullScreen
-                  allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
-                  scrolling="no"
-                ></iframe>
-              )}
-              {/* Fallback for unsupported sources */}
-              {!['youtube', 'veo', 'facebook'].includes(selectedVideo.source) && (
-                <div className="text-gray-400 text-lg">Unsupported video source</div>
-              )}
+              {/* Replace old player logic with the new VideoPlayer component */}
+              <VideoPlayer
+                ref={playerRef}
+                video={selectedVideo}
+                onPlayerReady={handlePlayerReady}
+                onTimeUpdate={handleTimeUpdate}
+                onStateChange={handlePlayerStateChange}
+                onPlay={handlePlayerPlay}
+                onPause={handlePlayerPause}
+                onError={handlePlayerError}
+                className="aspect-video bg-black w-full max-w-full" // Apply similar styling
+                // width="100%" // Default
+                // height="100%" // Default
+              />
             </div>
           ) : (
             <div className="text-gray-400 text-lg">Select a video to begin</div>

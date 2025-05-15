@@ -54,7 +54,7 @@ const TimerForm: React.FC<TimerFormProps> = ({
               type="text"
               value={newTimerPlayerName}
               onChange={e => onPlayerNameChange(e.target.value)}
-              onKeyPress={e => e.key === 'Enter' && onAddPlayer(newTimerPlayerName)}
+              onKeyDown={e => e.key === 'Enter' && onAddPlayer(newTimerPlayerName)}
               placeholder="Player name"
               className="flex-1 px-3 py-2 rounded-l bg-gray-800 border border-gray-700 text-white"
             />
