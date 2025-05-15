@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabaseClient'
 import { withAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import { VideoSourceType, YouTubeSource } from '@/lib/video-sources/types'
+import { toast } from 'react-toastify'; // Import toast for success messages
 
 // Import video sources
 import YouTubeSourceModule from '@/lib/video-sources/youtube'
@@ -43,6 +44,7 @@ function VideoManager({ user }: { user: any }) {
     message: string;
     type: 'success' | 'info' | 'error';
   } | null>(null)
+  const [pageError, setPageError] = useState<string | null>(null); // For errors like delete, fetch
   const { isDarkMode } = useTheme()
 
   // Temporary code to debug role issues
@@ -87,16 +89,21 @@ function VideoManager({ user }: { user: any }) {
   }, [veoApiToken]);
 
   const fetchVideos = async () => {
+    setPageError(null); // Clear error on fetch
     try {
       setLoading(true)
       const response = await fetch('/api/videos/list')
       if (!response.ok) {
-        throw new Error('Failed to fetch videos')
+        // throw new Error('Failed to fetch videos')
+        const errorText = await response.text();
+        setPageError(`Failed to fetch videos: ${response.status} ${errorText || response.statusText}`);
+        return;
       }
-      const videos = await response.json()
-      setVideos(videos)
-    } catch (err) {
+      const videosData = await response.json()
+      setVideos(videosData)
+    } catch (err: any) {
       console.error('Exception fetching videos:', err)
+      setPageError(err.message || 'An unexpected error occurred while fetching videos.');
     } finally {
       setLoading(false)
     }
@@ -359,16 +366,24 @@ function VideoManager({ user }: { user: any }) {
   }
 
   const handleDeleteVideo = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this video? Any clips associated with this video will not be deleted.')) {
-      return
+    setPageError(null); // Clear previous page error
+    if (!confirm("Are you sure you want to delete this video and its associated clips, counters, and timers? This action cannot be undone.")) {
+      return;
     }
-    
     try {
-      await supabase.from('videos').delete().eq('id', id)
-      fetchVideos()
-    } catch (error) {
+      const response = await fetch(`/api/videos/delete?id=${id}`, { method: 'DELETE' })
+      if (!response.ok) {
+        // throw new Error('Failed to delete video');
+        const errorText = await response.text();
+        setPageError(`Failed to delete video: ${response.status} ${errorText || response.statusText}`);
+        return;
+      }
+      toast.success('Video deleted successfully!');
+      fetchVideos() // Refresh the list
+    } catch (error: any) {
       console.error('Error deleting video:', error)
-      alert('Failed to delete video. Please try again.')
+      // alert('Failed to delete video. Please try again.');
+      setPageError(error.message || 'Failed to delete video. Please try again.');
     }
   }
 
@@ -421,6 +436,12 @@ function VideoManager({ user }: { user: any }) {
   return (
     <div className="p-8 space-y-6">
       <h1 className="text-2xl font-bold">Manage Videos</h1>
+      
+      {pageError && (
+        <div className={`mb-4 p-4 text-sm rounded ${isDarkMode ? 'bg-red-800 text-red-200' : 'bg-red-100 text-red-700'}`} role="alert">
+          <span className="font-medium">Error:</span> {pageError}
+        </div>
+      )}
       
       <div className={`p-4 border rounded ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-300'}`}>
         <h2 className="text-xl font-semibold mb-3">Import Videos</h2>

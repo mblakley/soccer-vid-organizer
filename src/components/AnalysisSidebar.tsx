@@ -10,6 +10,7 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { supabase } from '@/lib/supabaseClient'
 import { useClips } from '@/hooks/useClips'
 import { toast } from 'react-toastify'
+import { PanelLeftClose, PanelRightOpen, PlusSquare, ListVideo, BarChart3, Timer, AlertCircle } from 'lucide-react'
 
 export type AnalysisTabType = 'clips' | 'counters' | 'createClip' | 'timers';
 
@@ -53,7 +54,16 @@ const AnalysisSidebar: React.FC<AnalysisSidebarProps> = ({
   const [selectedTimerId, setSelectedTimerId] = useState<string | null>(null);
   const [addPlayerName, setAddPlayerName] = useState('');
   const [onConfirmAddPlayerForModal, setOnConfirmAddPlayerForModal] = useState<((playerName: string) => void) | null>(null);
-  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const [sidebarError, setSidebarError] = useState<string | null>(null);
+
+  const handleNotification = (notification: {message: string, type: 'success' | 'error'}) => {
+    if (notification.type === 'success') {
+      toast.success(notification.message);
+      setSidebarError(null);
+    } else {
+      setSidebarError(notification.message);
+    }
+  };
 
   const {
     clipMarkers,
@@ -74,7 +84,7 @@ const AnalysisSidebar: React.FC<AnalysisSidebarProps> = ({
     userId: user?.id,
     selectedVideo,
     playerRef,
-    onNotifiy: setNotification,
+    onNotifiy: handleNotification,
   });
   
   const seekToPlayer = (time: number) => {
@@ -102,7 +112,7 @@ const AnalysisSidebar: React.FC<AnalysisSidebarProps> = ({
   
   const handleSaveClip = async (clipFormData: { title: string; comment: string; labels: string[] }) => {
     if (!selectedVideo || recordingStart === null || !user) {
-      setNotification({message: 'Cannot save clip: Missing required info.', type: 'error'});
+      handleNotification({message: 'Cannot save clip: Missing required info.', type: 'error'});
       return;
     }
     const result = await saveClip(clipFormData);
@@ -138,15 +148,6 @@ const AnalysisSidebar: React.FC<AnalysisSidebarProps> = ({
     setOnConfirmAddPlayerForModal(null);
     setShowAddPlayerForm(true);
   };
-  
-  useEffect(() => {
-    if (notification) {
-      if (notification.type === 'success') toast.success(notification.message);
-      else toast.error(notification.message);
-      const timer = setTimeout(() => setNotification(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [notification]);
 
   const handleToggleContentVisibility = () => {
     const newVisibility = !isContentVisible;
@@ -169,6 +170,10 @@ const AnalysisSidebar: React.FC<AnalysisSidebarProps> = ({
     }
   };
 
+  useEffect(() => {
+    setSidebarError(null);
+  }, [activeTab, isContentVisible]);
+
   return (
     <div className="flex h-full"> 
       {isContentVisible && (
@@ -187,6 +192,21 @@ const AnalysisSidebar: React.FC<AnalysisSidebarProps> = ({
               ))}
             </select>
           </div>
+          
+          {sidebarError && (
+            <div className="p-3 border-b border-gray-800 bg-red-900 text-red-200 text-sm flex items-start">
+              <AlertCircle size={20} className="mr-2 flex-shrink-0" />
+              <span>{sidebarError}</span>
+              <button 
+                onClick={() => setSidebarError(null)} 
+                className="ml-auto text-red-200 hover:text-white p-1 rounded-full focus:outline-none"
+                aria-label="Clear error"
+              >
+                &times;
+              </button>
+            </div>
+          )}
+
           {activeTab && (
              <div className="p-4 border-b border-gray-800 font-bold text-lg flex items-center">
                 {activeTab === 'clips' ? 'Clips' : activeTab === 'counters' ? 'Counters' : activeTab === 'timers' ? 'Timers' : 'Create Clip'}
@@ -248,13 +268,9 @@ const AnalysisSidebar: React.FC<AnalysisSidebarProps> = ({
           title={isContentVisible ? 'Hide Panel' : 'Show Panel'}
         >
           {isContentVisible ? (
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 12h12" />
-            </svg>
+            <PanelLeftClose size={24} />
           ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12h15m-7.5-7.5l7.5 7.5-7.5 7.5" />
-            </svg>
+            <PanelRightOpen size={24} />
           )}
         </button>
         <button
@@ -263,19 +279,14 @@ const AnalysisSidebar: React.FC<AnalysisSidebarProps> = ({
           title="Create Clip"
           disabled={!selectedVideo} 
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
+          <PlusSquare size={24} />
         </button>
         <button
           className={`w-10 h-10 flex items-center justify-center rounded-lg ${activeTab === 'clips' && isContentVisible ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}
           onClick={() => handleFarRightTabClick('clips')}
           title="Show Clips"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6A2.25 2.25 0 005.25 5.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M18 15l3-3m0 0l-3-3m3 3H9" />
-          </svg>
+          <ListVideo size={24} />
         </button>
         <button
           className={`w-10 h-10 flex items-center justify-center rounded-lg ${activeTab === 'counters' && isContentVisible ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}
@@ -283,9 +294,7 @@ const AnalysisSidebar: React.FC<AnalysisSidebarProps> = ({
           title="Show Counters"
           disabled={!selectedVideo} 
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-          </svg>
+          <BarChart3 size={24} />
         </button>
         <button
           className={`w-10 h-10 flex items-center justify-center rounded-lg ${activeTab === 'timers' && isContentVisible ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800'}`}
@@ -293,9 +302,7 @@ const AnalysisSidebar: React.FC<AnalysisSidebarProps> = ({
           title="Show Timers"
           disabled={!selectedVideo}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+          <Timer size={24} />
         </button>
       </div>
 

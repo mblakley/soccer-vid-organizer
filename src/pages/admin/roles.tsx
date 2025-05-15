@@ -3,14 +3,18 @@ import { useEffect, useState } from 'react'
 import { X as LucideX } from 'lucide-react'
 import { withAdminAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
+import { toast } from 'react-toastify'
 
 function RoleApprovalPage() {
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null); // General error state
   const { isDarkMode } = useTheme()
 
   useEffect(() => {
     const fetchUsers = async () => {
+      setError(null); // Clear error on fetch
+      setLoading(true);
       try {
         // Fetch users with admin status
         const response = await fetch('/api/admin/users-with-roles')
@@ -18,10 +22,12 @@ function RoleApprovalPage() {
           const usersData = await response.json()
           setUsers(usersData)
         } else {
-          console.error('Error fetching users:', response.statusText)
+          console.error('Error fetching users:', response.statusText);
+          setError('Failed to fetch user roles. Please try again.');
         }
-      } catch (error) {
-        console.error('Error fetching users:', error)
+      } catch (error: any) {
+        console.error('Error fetching users:', error);
+        setError(error.message || 'An error occurred while fetching user roles.');
       } finally {
         setLoading(false)
       }
@@ -30,6 +36,7 @@ function RoleApprovalPage() {
   }, [])
 
   const updateAdminStatus = async (id: string, isAdmin: boolean) => {
+    setError(null); // Clear previous error
     try {
       const response = await fetch(`/api/admin/update-user-role`, {
         method: 'POST',
@@ -38,18 +45,24 @@ function RoleApprovalPage() {
       })
       
       if (!response.ok) {
-        throw new Error(`Failed to update admin status: ${response.statusText}`)
+        // throw new Error(`Failed to update admin status: ${response.statusText}`)
+        const errorData = await response.json().catch(() => ({}));
+        setError(errorData.message || 'Failed to update admin status.');
+        return;
       }
-      
+      toast.success('Admin status updated successfully.');
       // Refresh the user list
       const refreshResponse = await fetch('/api/admin/users-with-roles')
       if (refreshResponse.ok) {
         const usersData = await refreshResponse.json()
         setUsers(usersData)
+      } else {
+        setError('Admin status updated, but failed to refresh user list.');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating admin status:', error)
-      alert('Failed to update admin status')
+      // toast.error('Failed to update admin status')
+      setError(error.message || 'An unexpected error occurred while updating admin status.');
     }
   }
 
@@ -57,7 +70,12 @@ function RoleApprovalPage() {
 
   return (
     <div className="p-8">
-      {users.length === 0 ? (
+      {error && (
+        <div className={`mb-4 p-4 text-sm rounded ${isDarkMode ? 'bg-red-800 text-red-200' : 'bg-red-100 text-red-700'}`} role="alert">
+          <span className="font-medium">Error:</span> {error}
+        </div>
+      )}
+      {users.length === 0 && !loading && !error ? (
         <div className={`${isDarkMode ? 'bg-gray-800' : 'bg-gray-100'} p-4 rounded`}>
           <p>No users found.</p>
         </div>

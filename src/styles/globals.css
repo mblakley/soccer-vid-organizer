@@ -3,6 +3,26 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* React Toastify semi-transparent backgrounds for theme="colored" (variables) */
+  --toastify-color-info: rgba(52, 152, 219, 0.7); /* Original: #3498db */
+  --toastify-color-success: rgba(7, 188, 12, 0.7);  /* Original: #07bc0c */
+  --toastify-color-warning: rgba(241, 196, 15, 0.7);/* Original: #f1c40f */
+  --toastify-color-error: rgba(231, 76, 60, 0.7);   /* Original: #e74c3c */
+}
+
+/* Direct overrides for react-toastify colored toasts for semi-transparency */
+.Toastify__toast--info {
+  background-color: rgba(52, 152, 219, 0.7) !important;
+}
+.Toastify__toast--success {
+  background-color: rgba(7, 188, 12, 0.7) !important;
+}
+.Toastify__toast--warning {
+  background-color: rgba(241, 196, 15, 0.7) !important;
+}
+.Toastify__toast--error {
+  background-color: rgba(231, 76, 60, 0.7) !important;
 }
 
 @theme inline {

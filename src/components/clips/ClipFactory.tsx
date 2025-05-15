@@ -2,6 +2,7 @@ import React from 'react';
 // Assuming ClipMarker is exported from analyze-video or a shared types file.
 // If this path is incorrect, it may need adjustment based on ClipMarker's actual location.
 import { ClipMarker } from '@/types/clips';
+import { Play } from 'lucide-react'; // Import Play icon
 
 // --- Data Utility Functions (from original clipFactory.ts) ---
 /**
@@ -94,9 +95,7 @@ const ClipFactory: React.FC<ClipFactoryProps> = ({
           }`}
           title="Play clip"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-            <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
-          </svg>
+          <Play size={20} className={isSelected ? 'text-white' : 'text-gray-200'} />
         </button>
       </div>
       <p className={`text-xs ${isSelected ? 'text-blue-200' : 'text-gray-400'} mb-2`}>

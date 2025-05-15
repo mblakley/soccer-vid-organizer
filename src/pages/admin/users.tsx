@@ -2,14 +2,17 @@
 import { useEffect, useState } from 'react'
 import { withAdminAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
+import { toast } from 'react-toastify'
 
 function UsersPage() {
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const { isDarkMode } = useTheme()
 
   useEffect(() => {
     const fetchUsers = async () => {
+      setError(null)
       try {
         const response = await fetch('/api/admin/users-with-roles')
         if (response.ok) {
@@ -17,9 +20,11 @@ function UsersPage() {
           setUsers(usersData)
         } else {
           console.error('Error fetching users:', response.statusText)
+          setError('Failed to fetch user list.')
         }
       } catch (error) {
         console.error('Error fetching users:', error)
+        setError('An error occurred while fetching users.')
       } finally {
         setLoading(false)
       }
@@ -28,6 +33,7 @@ function UsersPage() {
   }, [])
 
   const toggleUserStatus = async (id: string, disabled: boolean) => {
+    setError(null)
     try {
       const response = await fetch('/api/admin/disable-user', {
         method: 'POST',
@@ -36,18 +42,21 @@ function UsersPage() {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to update user status')
+        const errorData = await response.json().catch(() => ({}))
+        setError(errorData.message || 'Failed to update user status')
+        return
       }
-
-      // Refresh user list
+      toast.success(`User ${disabled ? 'disabled' : 'enabled'} successfully.`)
       const refreshResponse = await fetch('/api/admin/users-with-roles')
       if (refreshResponse.ok) {
         const usersData = await refreshResponse.json()
         setUsers(usersData)
+      } else {
+        setError('User status updated, but failed to refresh user list.')
       }
     } catch (error) {
       console.error('Error updating user status:', error)
-      alert('Failed to update user status')
+      setError('An unexpected error occurred while updating user status.')
     }
   }
 
@@ -55,7 +64,7 @@ function UsersPage() {
     if (!confirm('Are you sure you want to remove this user? This action cannot be undone.')) {
       return
     }
-
+    setError(null)
     try {
       const response = await fetch('/api/admin/remove-user', {
         method: 'POST',
@@ -64,18 +73,21 @@ function UsersPage() {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to remove user')
+        const errorData = await response.json().catch(() => ({}))
+        setError(errorData.message || 'Failed to remove user.')
+        return
       }
-
-      // Refresh user list
+      toast.success('User removed successfully.')
       const refreshResponse = await fetch('/api/admin/users-with-roles')
       if (refreshResponse.ok) {
         const usersData = await refreshResponse.json()
         setUsers(usersData)
+      } else {
+        setError('User removed, but failed to refresh user list.')
       }
     } catch (error) {
       console.error('Error removing user:', error)
-      alert('Failed to remove user')
+      setError('An unexpected error occurred while removing user.')
     }
   }
 
@@ -83,7 +95,12 @@ function UsersPage() {
 
   return (
     <div className="p-8">
-      {users.length === 0 ? (
+      {error && (
+        <div className={`mb-4 p-4 text-sm rounded ${isDarkMode ? 'bg-red-800 text-red-200' : 'bg-red-100 text-red-700'}`} role="alert">
+          <span className="font-medium">Error:</span> {error}
+        </div>
+      )}
+      {users.length === 0 && !loading && !error ? (
         <div className={`${isDarkMode ? 'bg-gray-800' : 'bg-gray-100'} p-4 rounded`}>
           <p>No users found.</p>
         </div>

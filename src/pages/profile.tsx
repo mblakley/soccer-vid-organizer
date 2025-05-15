@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import RequestRoleForm from '@/components/RequestRoleForm'
-import withAuth from '@/components/withAuth'
+import { withAuth } from '@/components/auth'
 import { getCurrentUser } from '@/lib/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 
@@ -29,6 +29,10 @@ function ProfilePage() {
   if (loading) return <div className="p-8">Loading...</div>
   if (!user) return <div className="p-8">User not found. Please log in again.</div>
 
+  // Determine if there are any roles to display to prevent empty sections
+  const hasAdminRole = user.isAdmin;
+  const hasTeamRoles = user.teamRoles && Object.keys(user.teamRoles).length > 0;
+
   return (
     <div className="max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mt-8 mb-6">Your Profile</h1>
@@ -44,25 +48,64 @@ function ProfilePage() {
             <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>User ID</p>
             <p className="font-mono text-sm">{user.id}</p>
           </div>
-          <div>
-            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Current Roles</p>
-            {user.roles && user.roles.length > 0 ? (
-              <div className="flex flex-wrap gap-2 mt-1">
-                {user.roles.map((role: string) => (
-                  <span 
-                    key={role} 
-                    className={`px-2 py-1 ${isDarkMode ? 'bg-blue-900 text-blue-200' : 'bg-blue-100 text-blue-800'} rounded text-sm`}
-                  >
-                    {role}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} italic`}>No roles assigned</p>
-            )}
-          </div>
         </div>
       </div>
+
+      {/* Roles Section - Updated Structure */}
+      {(hasAdminRole || hasTeamRoles) && (
+        <div className={`${isDarkMode ? 'bg-gray-800 text-white' : 'bg-white'} rounded-lg shadow-sm p-6 mb-8`}>
+          <h2 className="text-xl font-semibold mb-4">Your Roles</h2>
+          
+          {/* General Roles (Admin) */}
+          {hasAdminRole && (
+            <div className="mb-4">
+              <div className="flex flex-wrap gap-2">
+                <span 
+                  className={`px-2 py-1 ${isDarkMode ? 'bg-blue-900 text-blue-200' : 'bg-blue-100 text-blue-800'} rounded text-sm`}
+                >
+                  Admin
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Team Roles */}
+          {hasTeamRoles && Object.entries(user.teamRoles).map(([teamId, teamData]: [string, any]) => {
+            if (teamData.roles && teamData.roles.length > 0) {
+              const teamIdentifier = teamData.name || `Team ID: ${teamId.substring(0, 6)}...`;
+              return (
+                <div key={teamId} className="mb-4">
+                  <h3 className={`text-md font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-700'} mb-2`}>
+                    {teamIdentifier}
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {teamData.roles.map((role: string) => (
+                      <span 
+                        key={`${teamId}-${role}`}
+                        className={`px-2 py-1 ${isDarkMode ? 'bg-green-900 text-green-200' : 'bg-green-100 text-green-800'} rounded text-sm`}
+                      >
+                        {role}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })}
+
+          {!hasAdminRole && !hasTeamRoles && (
+             <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} italic`}>No roles assigned</p>
+          )}
+        </div>
+      )}
+
+      {!hasAdminRole && !hasTeamRoles && (
+         <div className={`${isDarkMode ? 'bg-gray-800 text-white' : 'bg-white'} rounded-lg shadow-sm p-6 mb-8`}>
+             <h2 className="text-xl font-semibold mb-4">Your Roles</h2>
+            <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} italic`}>No roles assigned</p>
+        </div>
+      )}
       
       {/* Theme Preferences Section */}
       <div className={`${isDarkMode ? 'bg-gray-800 text-white' : 'bg-white'} rounded-lg shadow-sm p-6 mb-8`}>

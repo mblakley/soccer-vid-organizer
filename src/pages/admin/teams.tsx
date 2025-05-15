@@ -5,6 +5,8 @@ import { useTheme } from '@/contexts/ThemeContext'
 import ThemeToggle from '@/components/ThemeToggle'
 import { withAdminAuth } from '@/components/auth'
 import { User } from '@supabase/supabase-js'
+import { Pencil, Eye } from 'lucide-react'
+import { toast } from 'react-toastify'
 
 interface AuthUser {
   id: string
@@ -20,6 +22,7 @@ interface Team {
   club_affiliation: string | null
   season: string | null
   age_group: string | null
+  gender?: 'Male' | 'Female' | 'Co-ed' | 'Other' | null
   additional_info: Record<string, any> | null
   created_by: string | null
   created_at: string | null
@@ -46,6 +49,7 @@ function TeamsPage() {
     club_affiliation: '',
     season: '',
     age_group: '',
+    gender: '',
     additional_info: {}
   })
   const { isDarkMode } = useTheme()
@@ -54,6 +58,9 @@ function TeamsPage() {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [loadingMembers, setLoadingMembers] = useState(false)
+  const [editingTeamId, setEditingTeamId] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTeams()
@@ -61,6 +68,7 @@ function TeamsPage() {
 
   const handleCreateTeam = async (e: React.FormEvent) => {
     e.preventDefault()
+    setFormError(null);
     try {
       const { data, error } = await supabase
         .from('teams')
@@ -69,6 +77,7 @@ function TeamsPage() {
           club_affiliation: newTeam.club_affiliation || null,
           season: newTeam.season || null,
           age_group: newTeam.age_group || null,
+          gender: newTeam.gender || null,
           additional_info: newTeam.additional_info
         }])
         .select()
@@ -82,20 +91,23 @@ function TeamsPage() {
         club_affiliation: '',
         season: '',
         age_group: '',
+        gender: '',
         additional_info: {}
       })
 
       // Refresh the teams list
       await fetchTeams()
 
-      alert('Team created successfully!')
-    } catch (error) {
+      toast.success('Team created successfully!')
+    } catch (error: any) {
       console.error('Error creating team:', error)
-      alert('Failed to create team. Please try again.')
+      setFormError(error.message || 'Failed to create team. Please try again.');
     }
   }
 
   const fetchTeams = async () => {
+    setPageError(null);
+    setLoading(true)
     try {
       const { data, error } = await supabase
         .from('teams')
@@ -105,8 +117,9 @@ function TeamsPage() {
       if (error) throw error
 
       setTeams(data)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching teams:', error)
+      setPageError(error.message || 'Failed to fetch teams.');
     } finally {
       setLoading(false)
     }
@@ -157,6 +170,84 @@ function TeamsPage() {
     }
   }
 
+  // Handle clicking the Edit button for a team
+  const handleEditClick = (teamToEdit: Team) => {
+    setEditingTeamId(teamToEdit.id);
+    setNewTeam({
+      name: teamToEdit.name,
+      club_affiliation: teamToEdit.club_affiliation || '',
+      season: teamToEdit.season || '',
+      age_group: teamToEdit.age_group || '',
+      gender: teamToEdit.gender || '',
+      additional_info: teamToEdit.additional_info || {}
+    });
+    // Scroll to form if desired (optional)
+    // window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Handle canceling an edit
+  const handleCancelEdit = () => {
+    setEditingTeamId(null);
+    setNewTeam({
+      name: '',
+      club_affiliation: '',
+      season: '',
+      age_group: '',
+      gender: '',
+      additional_info: {}
+    });
+  };
+
+  const handleSaveTeam = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setFormError(null);
+    try {
+      const teamData = {
+        name: newTeam.name,
+        club_affiliation: newTeam.club_affiliation || null,
+        season: newTeam.season || null,
+        age_group: newTeam.age_group || null,
+        gender: newTeam.gender || null,
+        additional_info: newTeam.additional_info
+      };
+
+      if (editingTeamId) {
+        // Update existing team
+        const { error } = await supabase
+          .from('teams')
+          .update(teamData)
+          .eq('id', editingTeamId)
+        if (error) throw error
+        toast.success('Team updated successfully!');
+        setEditingTeamId(null); // Exit edit mode
+      } else {
+        // Create new team
+        const { data, error } = await supabase
+          .from('teams')
+          .insert([teamData])
+          .select()
+          .single()
+        if (error) throw error
+        toast.success('Team created successfully!');
+      }
+
+      // Reset form
+      setNewTeam({
+        name: '',
+        club_affiliation: '',
+        season: '',
+        age_group: '',
+        gender: '',
+        additional_info: {}
+      })
+
+      await fetchTeams() // Refresh the teams list
+    } catch (error: any) {
+      console.error('Error saving team:', error)
+      setFormError(error.message || 'Failed to save team. Please try again.');
+    }
+  }
+
   return (
     <div className={`min-h-screen ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
       <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
@@ -166,8 +257,15 @@ function TeamsPage() {
 
         {/* Create Team Form */}
         <div className="mb-8">
-          <h2 className="text-2xl font-bold mb-4">Create New Team</h2>
-          <form onSubmit={handleCreateTeam} className="space-y-4">
+          <h2 className="text-2xl font-bold mb-4">
+            {editingTeamId ? `Edit Team: ${teams.find(t => t.id === editingTeamId)?.name || ''}` : 'Create New Team'}
+          </h2>
+          {formError && (
+            <div className={`mb-4 p-3 text-sm rounded ${isDarkMode ? 'bg-red-800 text-red-200' : 'bg-red-100 text-red-700'}`} role="alert">
+              {formError}
+            </div>
+          )}
+          <form onSubmit={handleSaveTeam} className="space-y-4">
             <div>
               <label className="block text-sm font-medium mb-2">Team Name</label>
               <input
@@ -215,18 +313,50 @@ function TeamsPage() {
                 placeholder="e.g., U12, U14, etc."
               />
             </div>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-            >
-              Create Team
-            </button>
+            <div>
+              <label className="block text-sm font-medium mb-2">Gender</label>
+              <select
+                value={newTeam.gender}
+                onChange={(e) => setNewTeam({ ...newTeam, gender: e.target.value })}
+                className={`w-full p-2 rounded border ${
+                  isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
+                }`}
+              >
+                <option value="">Not Specified</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Co-ed">Co-ed</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div className="flex space-x-2">
+              <button
+                type="submit"
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+              >
+                {editingTeamId ? 'Update Team' : 'Create Team'}
+              </button>
+              {editingTeamId && (
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
           </form>
         </div>
 
         {/* Teams List */}
         <div className="mt-8">
           <h2 className="text-2xl font-bold mb-4">All Teams</h2>
+          {pageError && (
+            <div className={`mb-4 p-3 text-sm rounded ${isDarkMode ? 'bg-red-800 text-red-200' : 'bg-red-100 text-red-700'}`} role="alert">
+              {pageError}
+            </div>
+          )}
           {loading ? (
             <div className="flex justify-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
@@ -240,22 +370,43 @@ function TeamsPage() {
                     <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Club Affiliation</th>
                     <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Season</th>
                     <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Age Group</th>
+                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Gender</th>
                     <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Created</th>
+                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Actions</th>
                   </tr>
                 </thead>
                 <tbody className={`divide-y ${isDarkMode ? 'divide-gray-700 bg-gray-900' : 'divide-gray-200 bg-white'}`}>
                   {teams.map((team) => (
                     <tr 
                       key={team.id}
-                      className={`${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-50'} cursor-pointer`}
-                      onClick={() => handleTeamClick(team)}
                     >
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>{team.name}</td>
+                      <td 
+                        className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}
+                      >
+                        {team.name}
+                      </td>
                       <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>{team.club_affiliation || '-'}</td>
                       <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>{team.season || '-'}</td>
                       <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>{team.age_group || '-'}</td>
+                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>{team.gender || '-'}</td>
                       <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
                         {team.created_at ? new Date(team.created_at).toLocaleDateString() : '-'}
+                      </td>
+                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-500'} space-x-2`}>
+                        <button
+                          onClick={() => handleEditClick(team)}
+                          className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-200 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                          title="Edit Team"
+                        >
+                          <Pencil size={20} />
+                        </button>
+                        <button
+                          onClick={() => handleTeamClick(team)}
+                          className="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-200 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                          title="View Team Members"
+                        >
+                          <Eye size={20} />
+                        </button>
                       </td>
                     </tr>
                   ))}

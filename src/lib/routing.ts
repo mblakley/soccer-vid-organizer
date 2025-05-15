@@ -1,17 +1,18 @@
 import { NextRouter } from 'next/router'
 import { supabase } from './supabaseClient'
-import { getRedirectPath } from './auth'
+import { getRedirectPath, User } from './auth'
+import { toast } from 'react-toastify';
 
 export async function handleRoleBasedRouting(
-  userRoles: string[] | null | undefined,
+  user: User | null,
   router: NextRouter,
   shouldSignOut: boolean = false,
   showApprovalMessage: boolean = false
 ) {
-  if (!userRoles || userRoles.length === 0) {
-    console.log("No user roles assigned or pending approval")
-    if (showApprovalMessage) {
-      alert('Your account is awaiting role approval. Please contact an admin.')
+  if (!user || (!user.isAdmin && (!user.teamRoles || Object.keys(user.teamRoles).length === 0))) {
+    console.log("User has no roles or is null, or roles are pending approval")
+    if (showApprovalMessage && !user?.isAdmin && (!user?.teamRoles || Object.keys(user.teamRoles).length === 0) ) {
+      toast.info('Your account is awaiting role approval. Please contact an admin.');
     }
     if (shouldSignOut) {
       await supabase.auth.signOut()
@@ -20,7 +21,11 @@ export async function handleRoleBasedRouting(
     return
   }
 
-  const redirectPath = getRedirectPath(userRoles)
-  console.log(`Redirecting user with roles [${userRoles.join(', ')}] to ${redirectPath}`)
+  const redirectPath = getRedirectPath(user)
+  const rolesDisplay = user ? [
+      user.isAdmin ? 'admin' : null,
+      ...(user.teamRoles ? Object.keys(user.teamRoles) : []),
+  ].filter(Boolean).join(', ') : 'no roles';
+  console.log(`Redirecting user with roles [${rolesDisplay}] to ${redirectPath}`)
   router.push(redirectPath)
 } 

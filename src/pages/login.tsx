@@ -5,6 +5,7 @@ import { useRouter } from 'next/router'
 import { getCurrentUser, getRedirectPath } from '@/lib/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import ThemeToggle from '@/components/ThemeToggle'
+import { toast } from 'react-toastify'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -49,6 +50,7 @@ export default function LoginPage() {
   useEffect(() => {
     console.log("Login page loaded, checking session...")
     const handleAuthRedirect = async () => {
+      setError(''); // Clear error on auth check
       const { data: sessionData } = await supabase.auth.getSession()
       const session = sessionData.session
       
@@ -59,9 +61,10 @@ export default function LoginPage() {
           console.log("User data:", userData)
           const redirectPath = getRedirectPath(userData)
           router.push(redirectPath)
-        } catch (error) {
+        } catch (error: any) {
           console.error("Error processing session:", error)
-          alert('An error occurred. Please try again.')
+          // toast.error('An error occurred. Please try again.');
+          setError(error.message || 'An error occurred while processing your session. Please try logging in again.');
         }
       } else {
         console.log("No session found - user needs to log in")
