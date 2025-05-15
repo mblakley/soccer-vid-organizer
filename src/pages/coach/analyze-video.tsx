@@ -532,10 +532,18 @@ function AnalyzeVideoPage({ user }: { user: any }) {
 
     const fetchTimersForVideo = async () => {
       try {
-        // Fetch all timers
+        // Ensure selectedVideo and its id are available
+        if (!selectedVideo?.id) {
+          console.warn("fetchTimersForVideo called without selectedVideo.id, clearing timers.");
+          setPlayerTimers([]); // Clear existing timers if no video is selected or id is missing
+          return;
+        }
+
+        // Fetch timers for the specific video
         const { data: timersData, error: timersError } = await supabase
           .from('timers')
           .select('*')
+          .eq('video_id', selectedVideo.id) // Filter by video_id
           .order('created_at', { ascending: false });
 
         if (timersError) throw timersError;
@@ -551,12 +559,15 @@ function AnalyzeVideoPage({ user }: { user: any }) {
 
             if (eventsError) throw eventsError;
 
+            // Calculate total duration from sessions
+            const totalDurationFromSessions = (events || []).reduce((acc, session) => acc + (session.duration || 0), 0);
+
             const mappedTimer: PlayerTimer = {
               id: timer.id,
               name: timer.name,
               startTime: null,
               endTime: null,
-              duration: timer.duration || 0,
+              duration: totalDurationFromSessions, // Use sum of session durations
               active: false,
               type: timer.type,
               sessions: events.map(e => ({
@@ -1152,7 +1163,8 @@ function AnalyzeVideoPage({ user }: { user: any }) {
         .insert({
           name: newTimerName,
           type: newTimerType,
-          video_id: selectedVideo?.id // Use the database video ID instead of YouTube video ID
+          video_id: selectedVideo?.id, // Use the database video ID instead of YouTube video ID
+          created_by: user?.id       // Added created_by field
         })
         .select()
         .single()
