@@ -1,6 +1,7 @@
 'use client'
 import { Fragment, useState } from 'react'
-import { Video, ClipMarker } from '@/pages/coach/analyze-video' // Assuming types can be imported or redefined
+import { Video } from '@/pages/coach/analyze-video' // Video is still exported from here
+import { ClipMarker } from '@/types/clips'; // Corrected import path for ClipMarker
 import { VideoPlayerControls } from '@/components/VideoPlayer'
 import CountersSection from '@/components/counters/CountersSection'
 import TimersSection from '@/components/timers/TimersSection'
