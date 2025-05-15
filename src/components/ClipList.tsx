@@ -1,6 +1,6 @@
 'use client'
 import { Fragment } from 'react'
-import { ClipMarker } from '@/pages/coach/analyze-video' // Assuming types can be imported or are defined
+import { ClipMarker } from '@/types/clips'
 import { useTheme } from '@/contexts/ThemeContext'
 
 export interface ClipListProps {
