@@ -168,6 +168,10 @@ function AnalyzeVideoPage({ user }: { user: any }) {
         const { data, error } = await supabase
           .from('videos')
           .select('*')
+          .or(
+            'source.eq.youtube,' +
+            'and(source.eq.veo,url.not.is.null,url.not.like.%https://app.veo.co%)'
+          )
           .order('created_at', { ascending: false })
         
         if (error) {
@@ -208,9 +212,13 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     if (!selectedVideo) return
     
     // Check if video source is supported
-    if (selectedVideo.source !== 'youtube' && selectedVideo.source !== 'veo') {
+    if (
+      selectedVideo.source !== 'youtube' &&
+      selectedVideo.source !== 'veo' &&
+      selectedVideo.source !== 'facebook'
+    ) {
       setNotification({
-        message: 'Only YouTube and Veo videos are currently supported for analysis',
+        message: 'Only YouTube, Veo, and Facebook videos are currently supported for analysis',
         type: 'error'
       })
       return
@@ -331,6 +339,75 @@ function AnalyzeVideoPage({ user }: { user: any }) {
             iframeElement?.contentWindow?.postMessage(JSON.stringify({
               type: 'pause'
             }), 'https://app.veo.co')
+          },
+          getPlayerState: () => playerState === 'playing' ? 1 : 2
+        } as VeoPlayer
+        
+        // Start interval to update current time
+        intervalRef.current = setInterval(() => {
+          if (playerRef.current) {
+            setCurrentTime(playerRef.current.getCurrentTime())
+          }
+        }, 200)
+      } else if (selectedVideo.source === 'facebook') {
+        // Initialize Facebook player
+        const container = playerContainerRef.current
+        if (!container) return
+
+        // Clear the container
+        container.innerHTML = ''
+        
+        // Create iframe for Facebook player
+        iframeElement = document.createElement('iframe')
+        iframeElement.src = `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(selectedVideo.url || '')}`
+        iframeElement.className = 'w-full h-full'
+        iframeElement.frameBorder = '0'
+        iframeElement.allowFullscreen = true
+        container.appendChild(iframeElement)
+        
+        // Set up message listener for Facebook player
+        messageHandler = (event: MessageEvent) => {
+          // Only handle messages from Facebook
+          if (event.origin !== 'https://www.facebook.com') return
+          
+          try {
+            const data = JSON.parse(event.data)
+            
+            // Handle different message types from Facebook player
+            switch (data.type) {
+              case 'ready':
+                setPlayerReady(true)
+                break
+              case 'timeupdate':
+                setCurrentTime(data.currentTime)
+                setPlayerState(data.isPlaying ? 'playing' : 'paused')
+                break
+            }
+          } catch (e) {
+            console.error('Error parsing Facebook player message:', e)
+          }
+        }
+        
+        window.addEventListener('message', messageHandler)
+        
+        // Store player reference
+        playerRef.current = {
+          getCurrentTime: () => currentTime,
+          seekTo: (seconds: number) => {
+            iframeElement?.contentWindow?.postMessage(JSON.stringify({
+              type: 'seek',
+              time: seconds
+            }), 'https://www.facebook.com')
+          },
+          playVideo: () => {
+            iframeElement?.contentWindow?.postMessage(JSON.stringify({
+              type: 'play'
+            }), 'https://www.facebook.com')
+          },
+          pauseVideo: () => {
+            iframeElement?.contentWindow?.postMessage(JSON.stringify({
+              type: 'pause'
+            }), 'https://www.facebook.com')
           },
           getPlayerState: () => playerState === 'playing' ? 1 : 2
         } as VeoPlayer
@@ -1470,8 +1547,18 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                   onLoadedMetadata={e => setCurrentTime(e.currentTarget.currentTime)}
                 />
               )}
+              {selectedVideo.source === 'facebook' && selectedVideo.url && (
+                <iframe
+                  className="w-full h-full aspect-video"
+                  src={`https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(selectedVideo.url || '')}`}
+                  frameBorder="0"
+                  allowFullScreen
+                  allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+                  scrolling="no"
+                ></iframe>
+              )}
               {/* Fallback for unsupported sources */}
-              {!['youtube', 'veo'].includes(selectedVideo.source) && (
+              {!['youtube', 'veo', 'facebook'].includes(selectedVideo.source) && (
                 <div className="text-gray-400 text-lg">Unsupported video source</div>
               )}
             </div>

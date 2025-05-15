@@ -1,21 +1,21 @@
 import React from 'react';
 import { VideoSource, VideoMetadata } from './types';
+import { supabase } from '@/lib/supabaseClient';
 
 const FacebookSource: VideoSource = {
   id: 'facebook',
   name: 'Facebook',
-  urlPattern: '(?:facebook\\.com\\/watch\\/?\\?v=(\\d+)|facebook\\.com\\/\\w+\\/videos\\/(\\d+)|fb\\.watch\\/([^\\/]+))',
+  urlPattern: 'facebook\.com/share/v/([\w\d]+)',
   
   extractVideoId(url: string): string | null {
-    const match = url.match(new RegExp(this.urlPattern));
-    if (!match) return null;
-    // Return the first non-undefined group (there are multiple capture patterns)
-    return match[1] || match[2] || match[3] || null;
+    const match = url.match(/facebook\.com\/share\/v\/([\w\d]+)/);
+    return match ? match[1] : null;
   },
   
-  getPlayerComponent(videoId: string, start: number = 0): JSX.Element {
+  getPlayerComponent(videoId: string, start: number = 0): React.ReactElement {
     // Facebook doesn't support end time, only start time via t= parameter
-    const src = `https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/watch/?v=${videoId}&t=${start}`;
+    const videoUrl = `https://www.facebook.com/share/v/${videoId}/`;
+    const src = `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(videoUrl)}&t=${start}`;
     
     return (
       <div className="mb-4 aspect-video">
@@ -43,10 +43,22 @@ const FacebookSource: VideoSource = {
   },
   
   getVideoUrl(videoId: string): string {
-    return `https://www.facebook.com/watch/?v=${videoId}`;
+    return `https://www.facebook.com/share/v/${videoId}/`;
   },
   
-  placeholderImage: '/images/facebook-video.svg'
+  placeholderImage: '/images/facebook-video.svg',
+
+  async importSingleVideo(videoId: string, originalUrl: string, userId: string) {
+    await supabase.from('videos').insert({
+      title: `Facebook Video ${videoId}`,
+      video_id: videoId,
+      source: 'facebook',
+      url: originalUrl,
+      status: 'active',
+      last_synced: new Date().toISOString(),
+      created_by: userId,
+    });
+  }
 };
 
 export default FacebookSource; 

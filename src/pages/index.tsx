@@ -209,7 +209,7 @@ function HomePage({ user }: { user: any }) {
               url={clips[currentIndex]?.videos?.url}
               onEnd={handleClipEnd}
               nextClipInfo={nextClipInfo}
-              navigationError={navigationError}
+              navigationError={navigationError === null ? undefined : navigationError}
             />
             {navigationError && (
               <div className="text-red-700 bg-red-100 px-3 py-2 rounded mb-2 mt-2">
@@ -259,61 +259,75 @@ function HomePage({ user }: { user: any }) {
           <p className="py-4">No videos available yet.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {videos.map(video => (
-              <div 
-                key={video.id} 
-                className={`border rounded overflow-hidden ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
-              >
-                {video.url && video.url.startsWith('https://app.veo.co') ? (
-                  <div className="flex flex-col items-center justify-center h-full p-6">
-                    <div className="font-semibold text-lg mb-1">{video.title}</div>
-                    <div className="text-gray-500 text-lg mb-2">Full video not available</div>
-                    <a
-                      href={`https://app.veo.co/matches/${video.video_id}/`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline"
-                    >
-                      View Match on Veo
-                    </a>
-                  </div>
-                ) : (
-                  <a 
-                    href={getVideoUrl(video) || '#'}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block"
-                  >
-                    <div className="relative pb-[56.25%]">
-                      <img 
-                        src={getThumbnailUrl(video)}
-                        alt={video.title}
-                        className="absolute inset-0 w-full h-full object-cover"
-                      />
-                      <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white text-xs px-1 py-0.5 rounded">
-                        {formatDuration(video.duration)}
+            {videos.map(video => {
+              const externalLink = getVideoUrl(video);
+              const isSpecialVeo = video.source === 'veo' && video.url && video.url.startsWith('https://app.veo.co');
+
+              return (
+                <div 
+                  key={video.id} 
+                  className={`border rounded overflow-hidden ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
+                >
+                  {video.source === 'facebook' ? (
+                    // Facebook specific rendering: Info and direct link
+                    <div className="p-3">
+                      <h3 className="font-semibold">{video.title}</h3>
+                      <div className="text-xs text-gray-500 mt-1">
+                        Source: Facebook
                       </div>
+                      {externalLink ? (
+                        <div className="mt-2 text-sm">
+                          <a href={externalLink} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                            View on Facebook
+                          </a>
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-sm text-gray-400">Facebook URL not available</p>
+                      )}
                     </div>
-                  </a>
-                )}
-                <div className="p-3">
-                  <h3 className="font-semibold">{video.title}</h3>
-                  <div className="text-xs text-gray-500 mt-1">
-                    Source: {video.source ? video.source.charAt(0).toUpperCase() + video.source.slice(1) : 'Unknown'}
-                  </div>
-                  <div className="mt-2 text-sm">
-                    <a 
-                      href={getVideoUrl(video) || '#'}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-500 hover:underline"
-                    >
-                      Watch Video
-                    </a>
-                  </div>
+                  ) : isSpecialVeo ? (
+                    // Veo "full video not available" specific rendering
+                    <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+                      <div className="font-semibold text-lg mb-1">{video.title}</div>
+                      <div className="text-gray-500 text-lg mb-2">Full video not available for direct playback.</div>
+                      <a href={`https://app.veo.co/matches/${video.video_id}/`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline mt-1">
+                        View Match on Veo
+                      </a>
+                    </div>
+                  ) : (
+                    // Default rendering for other videos (YouTube, Veo with MP4)
+                    <>
+                      <a href={externalLink || '#'} target="_blank" rel="noopener noreferrer" className="block">
+                        <div className="relative pb-[56.25%]">
+                          <img src={getThumbnailUrl(video)} alt={video.title} className="absolute inset-0 w-full h-full object-cover" />
+                          {video.duration != null && (
+                            <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white text-xs px-1 py-0.5 rounded">
+                              {formatDuration(video.duration)}
+                            </div>
+                          )}
+                        </div>
+                      </a>
+                      <div className="p-3">
+                        <h3 className="font-semibold">{video.title}</h3>
+                        <div className="text-xs text-gray-500 mt-1">
+                          Source: {video.source ? video.source.charAt(0).toUpperCase() + video.source.slice(1) : 'Unknown'}
+                        </div>
+                        <div className="mt-2 text-sm flex flex-wrap gap-x-4 gap-y-1 items-center">
+                          {externalLink && (
+                            <a href={externalLink} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                              Watch Externally
+                            </a>
+                          )}
+                          <Link href={`/analyze/${video.source}/${video.video_id}`} className="text-green-600 hover:underline">
+                            Analyze In-App
+                          </Link>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
