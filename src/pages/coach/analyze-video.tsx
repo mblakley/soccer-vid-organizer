@@ -12,11 +12,12 @@ import CountersSection from '@/components/counters/CountersSection'
 // Only imported for types, no longer using the implementation directly
 import type { CounterType, CountTracker } from '@/components/counters/CounterInterfaces'
 import VideoPlayer, { VideoPlayerControls } from '@/components/VideoPlayer'
+import AnalysisSidebar from '@/components/AnalysisSidebar'
 
 // Add import for YouTube types
 // The types are automatically included from @types/youtube
 
-interface Video {
+export interface Video {
   id: string;
   video_id: string;
   title: string;
@@ -26,7 +27,7 @@ interface Video {
 }
 
 // Add Veo player interface
-interface VeoPlayer {
+export interface VeoPlayer {
   getCurrentTime: () => number;
   seekTo: (seconds: number) => void;
   playVideo: () => void;
@@ -34,7 +35,7 @@ interface VeoPlayer {
   getPlayerState: () => number;
 }
 
-interface ClipMarker {
+export interface ClipMarker {
   id: string;
   startTime: number;
   endTime: number;
@@ -289,18 +290,20 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     }
   }
   
-  const handleStartRecording = () => {
-    if (!playerRef.current) return
+  const handleStartRecording = useCallback(() => {
+    if (!playerRef.current) return;
     
-    const currentVideoTime = playerRef.current.getCurrentTime()
-    setRecordingStart(currentVideoTime)
-    setIsRecording(true)
-  }
+    const currentVideoTime = playerRef.current.getCurrentTime();
+    setRecordingStart(currentVideoTime);
+    setIsRecording(true);
+    // Optionally switch to createClip tab if not already there
+    // setSidebarTab('createClip'); 
+  }, []);
   
-  const handleStopRecording = () => {
-    if (!playerRef.current || recordingStart === null) return
+  const handleStopRecording = useCallback(() => {
+    if (!playerRef.current || recordingStart === null) return;
     
-    const endTime = playerRef.current.getCurrentTime()
+    const endTime = playerRef.current.getCurrentTime();
     // Only proceed if we have a valid clip (at least 1 second long)
     if (endTime - recordingStart < 1) {
       setNotification({
@@ -321,7 +324,7 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     // Set up for the clip form
     setIsRecording(false)
     setShowClipForm(true)
-  }
+  }, []);
   
   // Counter management functions have been moved to useCounters hook
   
@@ -341,13 +344,21 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     setClipLabels(clipLabels.filter(l => l !== label))
   }
   
-  const handleSaveClip = async () => {
-    if (!selectedVideo || recordingStart === null || !playerRef.current) return
+  const formatTime = useCallback((seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = Math.floor(seconds % 60);
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  }, []);
+  
+  const handleSaveClip = useCallback(async (clipFormData: { title: string; comment: string; labels: string[] }) => {
+    if (!selectedVideo || recordingStart === null || !playerRef.current || !user) return;
     
+    const { title, comment, labels } = clipFormData;
+
     try {
-      setIsSavingClip(true)
+      setIsSavingClip(true);
       
-      const endTime = playerRef.current.getCurrentTime()
+      const endTime = playerRef.current.getCurrentTime();
       
       // Get the current session to include the access token
       const { data: sessionData } = await supabase.auth.getSession()
@@ -359,7 +370,7 @@ function AnalyzeVideoPage({ user }: { user: any }) {
       
       // Create the clip via API endpoint
       const clipPayload = {
-        title: clipTitle.trim() || `Clip at ${formatTime(recordingStart)}`,
+        title: title.trim() || `Clip at ${formatTime(recordingStart)}`,
         video_id: selectedVideo.video_id,
         start_time: Math.floor(recordingStart),
         end_time: Math.floor(endTime),
@@ -381,19 +392,19 @@ function AnalyzeVideoPage({ user }: { user: any }) {
       const clipId = clipData.id
       
       // Add labels to recent labels for future suggestions (avoiding duplicates)
-      if (clipLabels.length > 0) {
-        const updatedRecentLabels = [...clipLabels, ...recentLabels]
+      if (labels.length > 0) {
+        const updatedRecentLabels = [...labels, ...recentLabels]
           .filter((label, index, self) => self.indexOf(label) === index)
-          .slice(0, 20)
-        setRecentLabels(updatedRecentLabels)
+          .slice(0, 20);
+        setRecentLabels(updatedRecentLabels);
       }
       
       // Create the comment via API endpoint if provided
-      if (clipComment.trim()) {
+      if (comment.trim()) {
         const commentPayload = {
           clip_id: clipId,
           user_id: user.id,
-          content: clipComment,
+          content: comment,
           role_visibility: 'both'
         }
         await fetch('/api/comments/create', {
@@ -407,8 +418,8 @@ function AnalyzeVideoPage({ user }: { user: any }) {
       }
       
       // Save labels as a special comment if any exist
-      if (clipLabels.length > 0) {
-        const labelsString = `LABELS: ${clipLabels.join(', ')}`
+      if (labels.length > 0) {
+        const labelsString = `LABELS: ${labels.join(', ')}`;
         const labelsPayload = {
           clip_id: clipId,
           content: labelsString,
@@ -431,19 +442,20 @@ function AnalyzeVideoPage({ user }: { user: any }) {
         id: clipId,
         startTime: recordingStart,
         endTime: Math.floor(endTime),
-        title: clipTitle.trim() || `Clip at ${formatTime(recordingStart)}`,
-        comment: clipComment,
-        labels: [...clipLabels]
-      }
-      setClipMarkers([...clipMarkers, newClip])
+        title: title.trim() || `Clip at ${formatTime(recordingStart)}`,
+        comment: comment,
+        labels: [...labels]
+      };
+      setClipMarkers(prev => [...prev, newClip].sort((a,b) => b.startTime - a.startTime)); // Keep sorted
       
-      // Reset form
-      setClipTitle('')
-      setClipComment('')
-      setClipLabels([])
-      setShowClipForm(false)
-      setRecordingStart(null)
-      setClipDuration(0)
+      // Reset form related state - some are now internal to sidebar, parent resets what it owns
+      // setClipTitle(''); // Internal to sidebar
+      // setClipComment(''); // Internal to sidebar
+      // setClipLabels([]); // Internal to sidebar
+      setShowClipForm(false); // Or rather, switch tab
+      setSidebarTab('clips'); // Switch to clips tab after saving
+      setRecordingStart(null);
+      setClipDuration(0);
       
       setNotification({
         message: 'Clip saved successfully!',
@@ -460,36 +472,29 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     } finally {
       setIsSavingClip(false)
     }
-  }
+  }, [selectedVideo, recordingStart, user, recentLabels, formatTime]);
   
-  const cancelClipCreation = () => {
-    setShowClipForm(false)
-    setRecordingStart(null)
-    setClipTitle('')
-    setClipComment('')
-    setClipLabels([])
+  const cancelClipCreation = useCallback(() => {
+    // setShowClipForm(false); // Switch tab instead
+    setSidebarTab('clips');
+    setRecordingStart(null);
+    // Clip form fields (title, comment, labels) are reset internally by AnalysisSidebar
     
     // Resume video playback when canceling clip creation
     if (playerRef.current) {
-      playerRef.current.playVideo()
+      playerRef.current.playVideo();
     }
-  }
+  }, [/* playerRef is stable, setSidebarTab */]);
   
-  const formatTime = (seconds: number) => {
-    const minutes = Math.floor(seconds / 60)
-    const remainingSeconds = Math.floor(seconds % 60)
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`
-  }
-  
-  const playClip = (clip: ClipMarker) => {
-    if (!playerRef.current) return
+  const playClip = useCallback((clip: ClipMarker) => {
+    if (!playerRef.current) return;
     
-    playerRef.current.seekTo(clip.startTime, true)
-    playerRef.current.playVideo()
+    playerRef.current.seekTo(clip.startTime, true);
+    playerRef.current.playVideo();
     
     // Optional: We could set up code to pause at the end time
     // by checking current time in the interval
-  }
+  }, []);
 
   useEffect(() => {
     let timer: NodeJS.Timeout | null = null;
@@ -602,224 +607,60 @@ function AnalyzeVideoPage({ user }: { user: any }) {
 
         {/* Right Sidebar: Video selection, Clips or Counters */}
         {sidebarVisible && (
-          <div className="w-[350px] bg-gray-900 text-white flex flex-col border-l border-gray-800 overflow-y-auto h-full">
-            {/* Video selection dropdown at the top */}
-            <div className="p-4 border-b border-gray-800">
-              <label htmlFor="video-select" className="block mb-1 text-sm font-medium">Select a video</label>
-              <select
-                id="video-select"
-                className="w-full border rounded px-3 py-1 text-sm bg-gray-800 border-gray-700 text-white"
-                value={selectedVideo?.id || ''}
-                onChange={handleVideoSelect}
-              >
-                <option value="">-- Select a video --</option>
-                {videos.map(video => (
-                  <option key={video.id} value={video.id}>{video.title}</option>
-                ))}
-              </select>
-            </div>
-            <div className="p-4 border-b border-gray-800 font-bold text-lg flex items-center">
-              {sidebarTab === 'clips' ? 'Clips' : sidebarTab === 'counters' ? 'Counters' : sidebarTab === 'timers' ? 'Timers' : 'Create Clip'}
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {sidebarTab === 'clips' ? (
-                <Fragment>
-                  {loadingClips && <div className="p-4 text-gray-400">Loading clips...</div>}
-                  {!loadingClips && clipMarkers.length === 0 && (
-                    <div className="p-4 text-gray-400">No clips created yet.</div>
-                  )}
-                  {[...clipMarkers]
-                    .sort((a, b) => b.startTime - a.startTime)
-                    .map((clip, index) => {
-                      const isActive = currentTime >= clip.startTime && currentTime < clip.endTime;
-                      return (
-                        <div key={clip.id || index} className={`p-4 border-b border-gray-800 hover:bg-gray-800 cursor-pointer ${isActive ? 'bg-green-800 border-l-4 border-green-400' : ''}`}>
-                          <div className="font-semibold">{clip.title}</div>
-                          <div className="text-xs text-gray-400">{formatTime(clip.startTime)} - {formatTime(clip.endTime)} (Duration: {formatTime(clip.endTime - clip.startTime)})</div>
-                          {clip.labels && clip.labels.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {clip.labels.map(label => (
-                                <span key={label} className="px-2 py-0.5 text-xs rounded bg-blue-900 text-blue-100">{label}</span>
-                              ))}
-                            </div>
-                          )}
-                          {clip.comment && (
-                            <div className="mt-2 p-2 rounded text-sm bg-gray-950 text-gray-200">{clip.comment}</div>
-                          )}
-                          <button
-                            onClick={() => playClip(clip)}
-                            className="mt-2 px-3 py-1 rounded text-xs bg-gray-700 hover:bg-gray-600"
-                          >
-                            Play
-                          </button>
-                        </div>
-                      );
-                    })}
-                </Fragment>
-              ) : sidebarTab === 'counters' ? (
-                <Fragment>
-                  <CountersSection
-                    userId={user?.id}
-                    videoId={selectedVideo?.id}
-                    formatTime={formatTime}
-                    onShowConfirmModal={(config) => {
-                      setConfirmModalConfig(config);
-                      setShowConfirmModal(true);
-                    }}
-                    onShowAddPlayerForm={(counterId, onConfirm) => {
-                      setSelectedCounterId(counterId);
-                      setSelectedTimerId(null);
-                      setOnConfirmAddPlayerForModal(onConfirm);
-                      setShowAddPlayerForm(true);
-                    }}
-                    currentTime={currentTime}
-                    playerState={playerState}
-                    onSeekTo={(time) => {
-                      if (playerRef.current) {
-                        playerRef.current.seekTo(time, true);
-                        playerRef.current.playVideo();
-                      }
-                    }}
-                  />
-                </Fragment>
-              ) : sidebarTab === 'timers' ? (
-                <Fragment>
-                  <TimersSection 
-                    userId={user?.id}
-                    videoId={selectedVideo?.id}
-                    formatTime={formatTime}
-                    onShowConfirmModal={(config) => {
-                      setConfirmModalConfig(config);
-                            setShowConfirmModal(true);
-                          }}
-                    onShowAddPlayerForm={(timerId) => {
-                      setSelectedTimerId(timerId);
-                      setSelectedCounterId(null);
-                      // We don't set a callback here since timer player handling is done within TimersSection
-                      setOnConfirmAddPlayerForModal(null);
-                      setShowAddPlayerForm(true);
-                    }}
-                  />
-                </Fragment>
-              ) : (
-                <Fragment>
-                  {/* Show start/end buttons and status, only show form after ending the clip */}
-                  {!isRecording && recordingStart === null && (
-                    <div className="flex flex-col items-center justify-center p-6">
-                      <button
-                        onClick={handleStartRecording}
-                        className={`px-6 py-3 rounded-full font-medium text-lg transition-colors ${isDarkMode ? 'bg-red-700 hover:bg-red-600 text-white' : 'bg-red-600 hover:bg-red-500 text-white'}`}
-                      >
-                        Start Clip
-                      </button>
-                    </div>
-                  )}
-                  {isRecording && (
-                    <div className="flex flex-col items-center justify-center p-6">
-                      <div className="flex items-center mb-4">
-                        <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse mr-2"></div>
-                        <span>Recording from {recordingStart !== null ? formatTime(recordingStart) : '0:00'}</span>
-                        <span className="ml-4 text-sm font-mono text-blue-400">{formatTime(recordingElapsed)}</span>
-                      </div>
-                      <button
-                        onClick={handleStopRecording}
-                        className={`px-6 py-3 rounded-full font-medium text-lg transition-colors ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'}`}
-                      >
-                        End Clip
-                      </button>
-                    </div>
-                  )}
-                  {/* Only show the Save Clip form after recording has ended (recordingStart !== null && !isRecording) */}
-                  {recordingStart !== null && !isRecording && (
-                    <div className={`p-3 rounded border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-300'}`}>
-                      <h3 className="text-lg font-medium mb-3">Save Clip</h3>
-                      <div className="space-y-3">
-                        <div>
-                          <label htmlFor="clip-title" className="block mb-1 text-sm font-medium">
-                            Clip Title (optional)
-                          </label>
-                          <input
-                            id="clip-title"
-                            type="text"
-                            value={clipTitle}
-                            onChange={(e) => setClipTitle(e.target.value)}
-                            className={`w-full border rounded px-3 py-2 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
-                            placeholder="Enter a descriptive title (optional)"
-                          />
-                        </div>
-                        {clipDuration > 0 && (
-                          <div className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Clip duration: {formatTime(clipDuration)}</div>
-                        )}
-                        <div>
-                          <label htmlFor="clip-comment" className="block mb-1 text-sm font-medium">Coach's Comment</label>
-                          <textarea
-                            id="clip-comment"
-                            value={clipComment}
-                            onChange={(e) => setClipComment(e.target.value)}
-                            className={`w-full border rounded px-3 py-2 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
-                            rows={3}
-                            placeholder="Add your analysis of this clip"
-                          ></textarea>
-                        </div>
-                        <div>
-                          <label className="block mb-1 text-sm font-medium">Labels/Tags (optional)</label>
-                          <div className="mb-2">
-                            <input
-                              type="text"
-                              value={newLabel}
-                              onChange={(e) => setNewLabel(e.target.value)}
-                              onKeyPress={(e) => e.key === 'Enter' && addLabel(newLabel)}
-                              className={`w-full border rounded px-3 py-2 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}
-                              placeholder="Add labels (e.g., attack, defense, player name)"
-                            />
-                            <button
-                              onClick={() => addLabel(newLabel)}
-                              className={`mt-2 w-full px-3 py-2 rounded transition-colors ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'}`}
-                            >Add</button>
-                          </div>
-                          {/* Recent tags as buttons */}
-                          <div className="flex flex-wrap gap-2 mb-2">
-                            {recentLabels.slice(0, 10).map(label => (
-                              <button
-                                key={label}
-                                onClick={() => addLabel(label)}
-                                className={`text-xs px-2 py-1 rounded transition-colors ${clipLabels.includes(label) ? isDarkMode ? 'bg-blue-800 text-white' : 'bg-blue-200 text-blue-800' : isDarkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-800'} hover:opacity-80`}
-                              >{label}</button>
-                            ))}
-                          </div>
-                          {clipLabels.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mb-2">
-                              {clipLabels.map(label => (
-                                <div key={label} className={`flex items-center space-x-1 px-2 py-1 rounded text-sm ${isDarkMode ? 'bg-blue-900 text-blue-100' : 'bg-blue-100 text-blue-800'}`}>
-                                  <span>{label}</span>
-                                  <button onClick={() => removeLabel(label)} className="hover:text-red-500">×</button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex space-x-3">
-                          <button
-                            onClick={handleSaveClip}
-                            disabled={isSavingClip}
-                            className={`px-4 py-2 rounded font-medium transition-colors ${isDarkMode ? 'bg-blue-700 hover:bg-blue-600 text-white' : 'bg-blue-600 hover:bg-blue-500 text-white'} ${isSavingClip ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          >{isSavingClip ? 'Saving...' : 'Save Clip'}</button>
-                          <button
-                            onClick={() => {
-                              setSidebarTab('clips');
-                              cancelClipCreation();
-                            }}
-                            disabled={isSavingClip}
-                            className={`px-4 py-2 rounded font-medium transition-colors ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'} ${isSavingClip ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          >Cancel</button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </Fragment>
-              )}
-            </div>
-          </div>
+          <AnalysisSidebar
+            user={user}
+            videos={videos}
+            selectedVideo={selectedVideo}
+            onVideoSelect={(videoId) => {
+              const video = videos.find(v => v.id === videoId);
+              setSelectedVideo(video || null);
+              if (video) {
+                setIsRecording(false);
+                setRecordingStart(null);
+              }
+            }}
+            sidebarTab={sidebarTab!}
+            playerRef={playerRef}
+            currentTime={currentTime}
+            playerState={playerState}
+            onSeekToPlayer={(time) => {
+              if (playerRef.current) {
+                playerRef.current.seekTo(time, true);
+                playerRef.current.playVideo(); // Usually want to play after seeking to a counter event
+              }
+            }}
+            clipMarkers={clipMarkers}
+            loadingClips={loadingClips}
+            onPlayClip={playClip} // Pass the memoized playClip
+            isRecording={isRecording}
+            recordingStart={recordingStart}
+            recordingElapsed={recordingElapsed}
+            clipDuration={clipDuration}
+            onStartRecording={handleStartRecording} // Pass memoized handler
+            onStopRecording={handleStopRecording} // Pass memoized handler
+            onSaveClip={handleSaveClip} // Pass memoized handler
+            onCancelClipCreation={cancelClipCreation} // Pass memoized handler
+            isSavingClip={isSavingClip}
+            recentLabels={recentLabels}
+            onShowConfirmModal={(config) => {
+              setConfirmModalConfig(config);
+              setShowConfirmModal(true);
+            }}
+            onShowAddPlayerFormForCounters={(counterId, onConfirm) => {
+              setSelectedCounterId(counterId);
+              setSelectedTimerId(null);
+              setOnConfirmAddPlayerForModal(() => onConfirm); // Correctly wrap onConfirm
+              setShowAddPlayerForm(true);
+            }}
+            onShowAddPlayerFormForTimers={(timerId) => {
+              setSelectedTimerId(timerId);
+              setSelectedCounterId(null);
+              setOnConfirmAddPlayerForModal(null); // Timer section handles its own player add confirmation
+              setShowAddPlayerForm(true);
+            }}
+            formatTime={formatTime} // Pass memoized formatTime
+            onSetSidebarTab={setSidebarTab} // Pass setSidebarTab
+          />
         )}
 
         {/* Far Right Sidebar for navigation */}
@@ -905,7 +746,7 @@ function AnalyzeVideoPage({ user }: { user: any }) {
               type="text"
               value={addPlayerName}
               onChange={e => setAddPlayerName(e.target.value)}
-              onKeyPress={e => {
+              onKeyDown={e => {
                 if (e.key === 'Enter') {
                   if (selectedCounterId && onConfirmAddPlayerForModal && addPlayerName.trim()) {
                     onConfirmAddPlayerForModal(addPlayerName.trim());
