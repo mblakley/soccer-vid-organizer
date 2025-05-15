@@ -6,6 +6,8 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { useRouter } from 'next/router'
 import { toast } from 'react-toastify'
 import ClipPlayer from '@/components/ClipPlayer'
+import CounterFactory from '@/components/counters/CounterFactory'
+import { CountTracker, CounterType } from '@/components/counters/CounterInterfaces'
 
 // Add import for YouTube types
 // The types are automatically included from @types/youtube
@@ -37,16 +39,7 @@ interface ClipMarker {
   labels: string[];
 }
 
-type CounterType = 'standard' | 'resettable' | 'player-based';
-interface CountTracker {
-  id: string;
-  name: string;
-  count: number;
-  timestamps: number[];
-  type: CounterType;
-  players?: string[]; // Array of player names for player-based counters
-  playerCounts?: Record<string, { count: number, timestamps: number[] }>; // Tracking counts per player
-}
+// Now using imported CounterType and CountTracker from '@/components/counters/CounterInterfaces'
 
 // Types for player timers
 interface TimerSession {
@@ -1659,135 +1652,34 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                     <div className="p-4 text-gray-400">No counters yet. Add one below.</div>
                   )}
                   {counters.map(counter => (
-                    <div
+                    <CounterFactory
                       key={counter.id}
-                      className="relative p-4 border-b border-gray-800 hover:bg-gray-800 cursor-pointer group flex flex-col justify-between min-h-[120px]"
-                      onClick={counter.type !== 'player-based' ? () => incrementCounter(counter.id) : undefined}
-                    >
-                      {/* Name and Remove X in a row at the top */}
-                      <div className="flex items-center justify-between w-full mb-2">
-                        <span className="font-semibold text-center w-full pr-6">{counter.name}</span>
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            setConfirmModalConfig({
-                              title: 'Remove Counter',
-                              message: `Are you sure you want to remove the counter "${counter.name}"? This action cannot be undone.`,
-                              onConfirm: () => removeCounter(counter.id)
-                            });
-                            setShowConfirmModal(true);
-                          }}
-                          className="ml-2 w-6 h-6 flex items-center justify-center rounded-full text-xs bg-red-700 hover:bg-red-800 text-white opacity-80 group-hover:opacity-100 transition-opacity"
-                          title="Remove counter"
-                        >
-                          ×
-                        </button>
-                      </div>
-                      
-                      {/* Show appropriate content based on counter type */}
-                      {counter.type === 'player-based' ? (
-                        <div className="flex-1 flex flex-col items-center justify-center w-full">
-                          <div className="text-2xl font-bold mb-2">Total: {counter.count}</div>
-                          <div className="w-full grid grid-cols-3 gap-2">
-                            {counter.players?.map(player => (
-                              <button
-                                key={player}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  incrementCounter(counter.id, player);
-                                }}
-                                className="px-1 py-1 bg-blue-800 hover:bg-blue-700 rounded text-center"
-                              >
-                                <div className="text-xs truncate">{player}</div>
-                                <div className="text-lg font-bold">{counter.playerCounts?.[player]?.count || 0}</div>
-                              </button>
-                            ))}
-                          </div>
-                          
-                          {/* Add Player button */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedCounterId(counter.id);
-                              setAddPlayerName('');
-                              setShowAddPlayerForm(true);
-                            }}
-                            className="mt-3 px-2 py-1 bg-green-700 hover:bg-green-600 rounded text-center flex items-center justify-center text-sm"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                            </svg>
-                            Add Player
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex-1 flex items-center justify-center">
-                          <span className="text-6xl font-extrabold text-center select-none pointer-events-none">{counter.count}</span>
-                        </div>
-                      )}
-                      
-                      {/* Reset button for resettable counters */}
-                      {counter.type === 'resettable' && (
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            resetCounter(counter.id);
-                          }}
-                          className="mt-2 px-3 py-1 rounded bg-yellow-700 hover:bg-yellow-600 text-white text-xs w-full"
-                        >
-                          Reset
-                        </button>
-                      )}
-                      
-                      {/* Timestamps */}
-                      {counter.type !== 'player-based' && counter.timestamps.length > 0 && (
-                        <div className="mt-2 text-xs text-gray-400 w-full text-center">
-                          {counter.timestamps.map((time, i) => (
-                            <button
-                              key={i}
-                              onClick={e => {
-                                e.stopPropagation();
-                                if (playerRef.current) {
-                                  playerRef.current.seekTo(time, true)
-                                  playerRef.current.playVideo()
-                                }
-                              }}
-                              className="mr-1 px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700"
-                            >
-                              {formatTime(time)}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      
-                      {/* Player timestamps for player-based counters */}
-                      {counter.type === 'player-based' && counter.players && (
-                        <div className="mt-2">
-                          <select
-                            className="w-full px-3 py-1 rounded bg-gray-800 border border-gray-700 text-white text-xs"
-                            onChange={(e) => {
-                              const player = e.target.value;
-                              if (player && counter.playerCounts?.[player]?.timestamps.length) {
-                                const time = counter.playerCounts[player].timestamps[0];
-                                if (playerRef.current) {
-                                  playerRef.current.seekTo(time, true);
-                                  playerRef.current.playVideo();
-                                }
-                              }
-                            }}
-                          >
-                            <option value="">View player timestamps...</option>
-                            {counter.players.map(player => 
-                              counter.playerCounts?.[player]?.timestamps.length ? (
-                                <option key={player} value={player}>
-                                  {player} ({counter.playerCounts[player].timestamps.length} timestamps)
-                                </option>
-                              ) : null
-                            )}
-                          </select>
-                        </div>
-                      )}
-                    </div>
+                      counter={counter}
+                      onIncrement={incrementCounter}
+                      onRemove={(counterId) => {
+                        setConfirmModalConfig({
+                          title: 'Remove Counter',
+                          message: `Are you sure you want to remove the counter "${counter.name}"? This action cannot be undone.`,
+                          onConfirm: () => removeCounter(counterId)
+                        });
+                        setShowConfirmModal(true);
+                      }}
+                      onReset={resetCounter}
+                      onAddPlayer={(counterId) => {
+                        setSelectedCounterId(counterId);
+                        setAddPlayerName('');
+                        setShowAddPlayerForm(true);
+                      }}
+                      formatTime={formatTime}
+                      onSeekTo={(time) => {
+                        if (playerRef.current) {
+                          playerRef.current.seekTo(time, true);
+                          playerRef.current.playVideo();
+                        }
+                      }}
+                      currentTime={currentTime}
+                      playerState={playerState}
+                    />
                   ))}
                   {/* Add Counter Form */}
                   {showCounterForm ? (
