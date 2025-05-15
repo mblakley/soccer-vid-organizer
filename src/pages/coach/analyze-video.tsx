@@ -8,6 +8,8 @@ import { toast } from 'react-toastify'
 import ClipPlayer from '@/components/ClipPlayer'
 import CounterFactory from '@/components/counters/CounterFactory'
 import { CountTracker, CounterType } from '@/components/counters/CounterInterfaces'
+import TimerFactory from '@/components/timers/TimerFactory'
+import { PlayerTimer, TimerSession } from '@/components/timers/TimerInterfaces'
 
 // Add import for YouTube types
 // The types are automatically included from @types/youtube
@@ -40,31 +42,7 @@ interface ClipMarker {
 }
 
 // Now using imported CounterType and CountTracker from '@/components/counters/CounterInterfaces'
-
-// Types for player timers
-interface TimerSession {
-  startTime: number;
-  endTime: number | null;
-  duration: number;
-}
-
-interface PlayerTimer {
-  id: string;
-  name: string;
-  startTime: number | null;
-  endTime: number | null;
-  duration: number;
-  active: boolean;
-  type?: 'standard' | 'player-based';
-  players?: string[];
-  playerTimes?: Record<string, {
-    duration: number;
-    active: boolean;
-    startTime: number | null;
-    sessions: TimerSession[];
-  }>;
-  sessions: TimerSession[];
-}
+// Now using imported PlayerTimer and TimerSession from '@/components/timers/TimerInterfaces'
 
 function AnalyzeVideoPage({ user }: { user: any }) {
   const router = useRouter()
@@ -1766,188 +1744,42 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                     <div className="p-4 text-gray-400">No timers yet. Add one below.</div>
                   )}
                   {playerTimers.map(timer => (
-                    <div
+                    <TimerFactory
                       key={timer.id}
-                      className="relative p-4 border-b border-gray-800 hover:bg-gray-800 flex flex-col justify-between min-h-[120px]"
-                    >
-                      {/* Name and Remove X in a row at the top */}
-                      <div className="flex items-center justify-between w-full mb-2">
-                        <span className="font-semibold text-center w-full pr-6">{timer.name}</span>
-                        <button
-                          onClick={() => {
-                            setConfirmModalConfig({
-                              title: 'Remove Timer',
-                              message: `Are you sure you want to remove the timer "${timer.name}"? This action cannot be undone.`,
-                              onConfirm: () => removeTimer(timer.id)
-                            });
-                            setShowConfirmModal(true);
-                          }}
-                          className="ml-2 w-6 h-6 flex items-center justify-center rounded-full text-xs bg-red-700 hover:bg-red-800 text-white opacity-80 hover:opacity-100 transition-opacity"
-                          title="Remove timer"
-                        >
-                          ×
-                        </button>
-                      </div>
-                      
-                      {/* Different content based on timer type */}
-                      {timer.type === 'player-based' ? (
-                        <div className="flex-1 flex flex-col justify-center w-full">
-                          <div className="w-full grid grid-cols-3 gap-2 mt-2">
-                            {timer.players?.map(player => {
-                              const playerTime = timer.playerTimes?.[player];
-                              const isActive = playerTime?.active || false;
-                              const duration = playerTime?.duration || 0;
-                              const currentSessionTime = isActive && playerTime?.startTime && playerRef.current
-                                ? playerRef.current.getCurrentTime() - playerTime.startTime 
-                                : 0;
-                              const totalTime = isActive ? duration + currentSessionTime : duration;
-                              
-                              return (
-                                <button
-                                  key={player}
-                                  onClick={() => togglePlayerTimer(timer.id, player)}
-                                  className={`px-1 py-1 ${isActive ? 'bg-green-800 hover:bg-green-700' : 'bg-blue-800 hover:bg-blue-700'} rounded text-center`}
-                                >
-                                  <div className="text-xs truncate flex items-center justify-center">
-                                    {player}
-                                    {isActive && (
-                                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse ml-1"></div>
-                                    )}
-                                  </div>
-                                  <div className="text-lg font-bold">
-                                    {formatTime(totalTime)}
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                          
-                          {/* Add Player button */}
-                          <div className="mt-3 flex justify-center">
-                            <button
-                              onClick={(e) => {
-                                setSelectedTimerId(timer.id);
-                                setSelectedCounterId(null);
-                                setAddPlayerName('');
-                                setShowAddPlayerForm(true);
-                              }}
-                              className="px-2 py-1 bg-green-700 hover:bg-green-600 rounded text-center flex items-center justify-center text-sm"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-1">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                              </svg>
-                              Add Player
-                            </button>
-                          </div>
-
-                          {/* Sessions view */}
-                          {timer.players && timer.players.length > 0 && (
-                            <div className="mt-3">
-                              <select 
-                                className="w-full px-3 py-1 rounded bg-gray-800 border border-gray-700 text-white text-xs"
-                                onChange={(e) => {
-                                  const selectedPlayer = e.target.value;
-                                  if (!selectedPlayer) {
-                                    setSelectedPlayerForSessions(null);
-                                    return;
-                                  }
-                                  
-                                  setSelectedPlayerForSessions({
-                                    timerId: timer.id,
-                                    playerName: selectedPlayer
-                                  });
-                                }}
-                                value={selectedPlayerForSessions?.timerId === timer.id ? selectedPlayerForSessions?.playerName : ""}
-                              >
-                                <option value="">View player sessions...</option>
-                                {timer.players.map(player => (
-                                  <option key={player} value={player}>
-                                    {player} ({timer.playerTimes?.[player]?.sessions.length || 0} sessions)
-                                  </option>
-                                ))}
-                              </select>
-                              
-                              {/* Display sessions for selected player */}
-                              {selectedPlayerForSessions?.timerId === timer.id && selectedPlayerForSessions?.playerName && (
-                                <div className="mt-2 max-h-28 overflow-y-auto text-xs">
-                                  <div className="text-xs text-gray-400 mb-1">Sessions for {selectedPlayerForSessions.playerName}:</div>
-                                  {timer.playerTimes?.[selectedPlayerForSessions.playerName]?.sessions.map((session, index) => (
-                                    <div key={index} className="flex justify-between py-1 border-b border-gray-700">
-                                      <span>{formatTime(session.startTime)}-{session.endTime ? formatTime(session.endTime) : 'Active'}</span>
-                                      <span>{formatTime(session.duration)}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <>
-                          {/* Timer status and duration for standard timers */}
-                          <div className="flex-1 flex flex-col items-center justify-center">
-                            <div className="text-lg">
-                              {timer.active ? (
-                                <span className="text-green-500 flex items-center">
-                                  <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse mr-2"></div>
-                                  Running
-                                </span>
-                              ) : (
-                                <span>Stopped</span>
-                              )}
-                            </div>
-                            <div className="text-4xl font-bold mt-2">
-                              {formatTime(timer.duration)}
-                            </div>
-                            {timer.active && timer.startTime !== null && (
-                              <div className="text-sm text-blue-400 mt-1">
-                                Current session: {formatTime(playerRef.current ? playerRef.current.getCurrentTime() - timer.startTime : 0)}
-                              </div>
-                            )}
-                          </div>
-                          
-                          {/* Timer controls for standard timers */}
-                          <div className="flex space-x-2 mt-2">
-                            {!timer.active ? (
-                              <button
-                                onClick={() => startTimer(timer.id)}
-                                className="flex-1 px-3 py-2 rounded bg-green-700 hover:bg-green-600 text-white"
-                              >
-                                Start
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => stopTimer(timer.id)}
-                                className="flex-1 px-3 py-2 rounded bg-yellow-700 hover:bg-yellow-600 text-white"
-                              >
-                                Stop
-                              </button>
-                            )}
-                            <button
-                              onClick={() => resetTimer(timer.id)}
-                              className="flex-1 px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 text-white"
-                            >
-                              Reset
-                            </button>
-                          </div>
-
-                          {/* Session list for standard timers */}
-                          {timer.sessions.length > 0 && (
-                            <div className="mt-3">
-                              <div className="text-xs text-gray-400 mb-1">Sessions:</div>
-                              <div className="max-h-28 overflow-y-auto text-xs">
-                                {timer.sessions.map((session, index) => (
-                                  <div key={index} className="flex justify-between py-1 border-b border-gray-700">
-                                    <span>{formatTime(session.startTime)}-{session.endTime ? formatTime(session.endTime) : 'Active'}</span>
-                                    <span>{formatTime(session.duration)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
+                      timer={timer}
+                      onStart={startTimer}
+                      onStop={stopTimer}
+                      onReset={resetTimer}
+                      onRemove={(timerId) => {
+                        setConfirmModalConfig({
+                          title: 'Remove Timer',
+                          message: `Are you sure you want to remove the timer "${timer.name}"? This action cannot be undone.`,
+                          onConfirm: () => removeTimer(timerId)
+                        });
+                        setShowConfirmModal(true);
+                      }}
+                      onAddPlayer={(timerId) => {
+                        setSelectedTimerId(timerId);
+                        setSelectedCounterId(null);
+                        setAddPlayerName('');
+                        setShowAddPlayerForm(true);
+                      }}
+                      onTogglePlayerTimer={togglePlayerTimer}
+                      formatTime={formatTime}
+                      getCurrentTime={() => playerRef.current ? playerRef.current.getCurrentTime() : 0}
+                      onSelectPlayerForSessions={(timerId, playerName) => {
+                        if (!playerName) {
+                          setSelectedPlayerForSessions(null);
+                          return;
+                        }
+                        
+                        setSelectedPlayerForSessions({
+                          timerId,
+                          playerName
+                        });
+                      }}
+                      selectedPlayerForSessions={selectedPlayerForSessions}
+                    />
                   ))}
                   
                   {/* Add Timer Form */}
