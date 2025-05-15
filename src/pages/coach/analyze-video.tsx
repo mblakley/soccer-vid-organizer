@@ -8,8 +8,9 @@ import { toast } from 'react-toastify'
 import ClipPlayer from '@/components/ClipPlayer'
 import CounterFactory from '@/components/counters/CounterFactory'
 import { CountTracker, CounterType } from '@/components/counters/CounterInterfaces'
-import TimerFactory from '@/components/timers/TimerFactory'
+import TimersSection from '@/components/timers/TimersSection'
 import { PlayerTimer, TimerSession } from '@/components/timers/TimerInterfaces'
+import CountersSection from '@/components/counters/CountersSection'
 
 // Add import for YouTube types
 // The types are automatically included from @types/youtube
@@ -100,15 +101,6 @@ function AnalyzeVideoPage({ user }: { user: any }) {
 
   // State to show/hide the right sidebar
   const [sidebarVisible, setSidebarVisible] = useState(true)
-
-  // For player timers
-  const [playerTimers, setPlayerTimers] = useState<PlayerTimer[]>([])
-  const [newTimerName, setNewTimerName] = useState('')
-  const [showTimerForm, setShowTimerForm] = useState(false)
-  const [newTimerType, setNewTimerType] = useState<'standard' | 'player-based'>('standard')
-  const [newTimerPlayers, setNewTimerPlayers] = useState<string[]>([])
-  const [newTimerPlayerName, setNewTimerPlayerName] = useState('')
-  const [selectedPlayerForSessions, setSelectedPlayerForSessions] = useState<{timerId: string, playerName: string} | null>(null)
 
   // Add new state for confirmation modal
   const [showConfirmModal, setShowConfirmModal] = useState(false)
@@ -501,73 +493,11 @@ function AnalyzeVideoPage({ user }: { user: any }) {
       }
     };
 
-    const fetchTimersForVideo = async () => {
-      try {
-        // Ensure selectedVideo and its id are available
-        if (!selectedVideo?.id) {
-          console.warn("fetchTimersForVideo called without selectedVideo.id, clearing timers.");
-          setPlayerTimers([]); // Clear existing timers if no video is selected or id is missing
-          return;
-        }
-
-        // Fetch timers for the specific video
-        const { data: timersData, error: timersError } = await supabase
-          .from('timers')
-          .select('*')
-          .eq('video_id', selectedVideo.id) // Filter by video_id
-          .order('created_at', { ascending: false });
-
-        if (timersError) throw timersError;
-
-        // For each timer, fetch its events
-        const timersWithEvents = await Promise.all(
-          (timersData || []).map(async (timer) => {
-            const { data: events, error: eventsError } = await supabase
-              .from('timer_events')
-              .select('*')
-              .eq('timer_id', timer.id)
-              .order('start_time', { ascending: true });
-
-            if (eventsError) throw eventsError;
-
-            // Calculate total duration from sessions
-            const totalDurationFromSessions = (events || []).reduce((acc, session) => acc + (session.duration || 0), 0);
-
-            const mappedTimer: PlayerTimer = {
-              id: timer.id,
-              name: timer.name,
-              startTime: null,
-              endTime: null,
-              duration: totalDurationFromSessions, // Use sum of session durations
-              active: false,
-              type: timer.type,
-              sessions: events.map(e => ({
-                startTime: e.start_time,
-                endTime: e.end_time,
-                duration: e.duration || 0
-              }))
-            };
-
-            // If it's a player-based timer, initialize player data
-            if (timer.type === 'player-based') {
-              mappedTimer.players = [];
-              mappedTimer.playerTimes = {};
-            }
-
-            return mappedTimer;
-          })
-        );
-
-        setPlayerTimers(timersWithEvents);
-      } catch (error) {
-        console.error('Error fetching timers:', error);
-        toast.error('Failed to load timers');
-      }
-    };
+    // Timer fetching is now handled by the useTimers hook
     
     fetchClipsForVideo();
     fetchCountersForVideo();
-    fetchTimersForVideo();
+    // Timer fetching is now handled by the useTimers hook
   }, [selectedVideo]);
   
   // Function to fetch comments for clips
@@ -1105,224 +1035,15 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   }
 
   // Timer functions
-  const handleAddTimer = () => {
-    setShowTimerForm(true)
-  }
+    // Timer functions moved to useTimers hook
   
-  const saveTimer = async () => {
-    if (!newTimerName.trim()) {
-      setNotification({
-        message: 'Please enter a name for the timer',
-        type: 'error'
-      })
-      return
-    }
-    
-    // For player-based timers, validate that we have players
-    if (newTimerType === 'player-based' && newTimerPlayers.length === 0) {
-      setNotification({
-        message: 'Please add at least one player for a player-based timer',
-        type: 'error'
-      })
-      return
-    }
-    
-    try {
-      // Create timer in database
-      const { data: timerData, error: timerError } = await supabase
-        .from('timers')
-        .insert({
-          name: newTimerName,
-          type: newTimerType,
-          video_id: selectedVideo?.id, // Use the database video ID instead of YouTube video ID
-          created_by: user?.id       // Added created_by field
-        })
-        .select()
-        .single()
-
-      if (timerError) throw timerError
-
-      const newTimer: PlayerTimer = {
-        id: timerData.id,
-        name: newTimerName,
-        startTime: null,
-        endTime: null,
-        duration: 0,
-        active: false,
-        type: newTimerType,
-        sessions: []
-      }
-      
-      // Add player-specific data if it's a player-based timer
-      if (newTimerType === 'player-based') {
-        newTimer.players = [...newTimerPlayers]
-        newTimer.playerTimes = {}
-        
-        // Initialize times for each player
-        newTimerPlayers.forEach(player => {
-          newTimer.playerTimes![player] = {
-            duration: 0,
-            active: false,
-            startTime: null,
-            sessions: []
-          }
-        })
-      }
-      
-      setPlayerTimers([...playerTimers, newTimer])
-      setNewTimerName('')
-      setNewTimerType('standard')
-      setNewTimerPlayers([])
-      setNewTimerPlayerName('')
-      setShowTimerForm(false)
-      setNotification({
-        message: `Timer "${newTimerName}" added!`,
-        type: 'success'
-      })
-      setTimeout(() => setNotification(null), 3000)
-    } catch (error) {
-      console.error('Error creating timer:', error)
-      toast.error('Failed to create timer')
-    }
-  }
+    // saveTimer moved to useTimers hook
   
-  // Add player to timer form
-  const addPlayerToTimerForm = (player: string) => {
-    if (!player.trim()) return;
-    
-    if (!newTimerPlayers.includes(player.trim())) {
-      setNewTimerPlayers([...newTimerPlayers, player.trim()]);
-    }
-    
-    setNewTimerPlayerName('');
-  }
+    // Player timer form functions moved to useTimers hook
   
-  // Remove player from timer form
-  const removePlayerFromTimerForm = (player: string) => {
-    setNewTimerPlayers(newTimerPlayers.filter(p => p !== player));
-  }
-  
-  // Toggle individual player timer
-  const togglePlayerTimer = (timerId: string, playerName: string) => {
-    if (!playerRef.current) return;
-    const currentTime = playerRef.current.getCurrentTime();
-    
-    setPlayerTimers(prevTimers =>
-      prevTimers.map(timer => {
-        if (timer.id !== timerId || !timer.playerTimes || !timer.players?.includes(playerName)) 
-          return timer;
-        
-        const playerTime = timer.playerTimes[playerName];
-        
-        if (playerTime.active) {
-          // Stop the timer for this player
-          const sessionDuration = playerTime.startTime !== null
-            ? currentTime - playerTime.startTime
-            : 0;
-            
-          // Update the most recent session
-          const updatedSessions = [...playerTime.sessions];
-          if (updatedSessions.length > 0) {
-            const lastSession = updatedSessions[updatedSessions.length - 1];
-            updatedSessions[updatedSessions.length - 1] = {
-              ...lastSession,
-              endTime: currentTime,
-              duration: sessionDuration
-            };
-          }
-          
-          return {
-            ...timer,
-            playerTimes: {
-              ...timer.playerTimes,
-              [playerName]: {
-                ...playerTime,
-                duration: playerTime.duration + sessionDuration,
-                active: false,
-                startTime: null,
-                sessions: updatedSessions
-              }
-            }
-          };
-        } else {
-          // Start the timer for this player
-          const newSession: TimerSession = {
-            startTime: currentTime,
-            endTime: null,
-            duration: 0
-          };
-          
-          return {
-            ...timer,
-            playerTimes: {
-              ...timer.playerTimes,
-              [playerName]: {
-                ...playerTime,
-                active: true,
-                startTime: currentTime,
-                sessions: [...playerTime.sessions, newSession]
-              }
-            }
-          };
-        }
-      })
-    );
-  };
+    // Toggle player timer function moved to useTimers hook
 
-  // Add player to existing player-based timer
-  const addPlayerToTimer = (timerId: string, playerName: string) => {
-    if (!playerName.trim()) return;
-    
-    setPlayerTimers(prevTimers =>
-      prevTimers.map(timer => {
-        if (timer.id !== timerId || timer.type !== 'player-based') return timer;
-        
-        // Check if player already exists
-        if (timer.players?.includes(playerName.trim())) {
-          return timer;
-        }
-        
-        // Add player to the timer
-        const updatedPlayers = [...(timer.players || []), playerName.trim()];
-        const updatedPlayerTimes = { ...(timer.playerTimes || {}) };
-        
-        // Initialize time for the new player
-        updatedPlayerTimes[playerName.trim()] = {
-          duration: 0,
-          active: false,
-          startTime: null,
-          sessions: []
-        };
-        
-        return {
-          ...timer,
-          players: updatedPlayers,
-          playerTimes: updatedPlayerTimes
-        };
-      })
-    );
-  };
-
-  // Real-time tracking for active timers
-  useEffect(() => {
-    let timerInterval: NodeJS.Timeout | null = null;
-    
-    // Only start the interval if there are active timers and player is ready
-    const hasActiveTimers = playerTimers.some(timer => timer.active);
-    
-    if (hasActiveTimers && playerRef.current) {
-      timerInterval = setInterval(() => {
-        // Force the component to re-render to update the active timer display
-        setCurrentTime(prev => prev + 0.2);  // Just trigger a re-render every 200ms
-      }, 200);
-    }
-    
-    return () => {
-      if (timerInterval) {
-        clearInterval(timerInterval);
-      }
-    };
-  }, [playerTimers]);
+    // Timer player functions moved to useTimers hook
 
   const addPlayerToCounter = (counterId: string, playerName: string) => {
     if (!playerName.trim()) return;
@@ -1355,162 +1076,7 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     );
   };
 
-  const startTimer = async (timerId: string) => {
-    if (!playerRef.current) return
-    const currentTime = playerRef.current.getCurrentTime()
-    
-    try {
-      // Create timer event
-      const { data: eventData, error: eventError } = await supabase
-        .from('timer_events')
-        .insert({
-          timer_id: timerId,
-          start_time: currentTime,
-          end_time: null,
-          duration: null,
-          team_member_id: null // We'll add player tracking later
-        })
-        .select()
-        .single()
-
-      if (eventError) throw eventError
-
-      // Update local state
-      setPlayerTimers(prevTimers =>
-        prevTimers.map(timer => {
-          if (timer.id !== timerId) return timer
-          
-          // Create a new session when starting the timer
-          const newSession: TimerSession = {
-            startTime: currentTime,
-            endTime: null,
-            duration: 0
-          }
-          
-          return {
-            ...timer,
-            startTime: currentTime,
-            active: true,
-            sessions: [...timer.sessions, newSession]
-          }
-        })
-      )
-    } catch (error) {
-      console.error('Error starting timer:', error)
-      toast.error('Failed to start timer')
-    }
-  }
-  
-  const stopTimer = async (timerId: string) => {
-    if (!playerRef.current) return
-    const currentTime = playerRef.current.getCurrentTime()
-    
-    try {
-      // Get the most recent timer event for this timer
-      const { data: events, error: eventsError } = await supabase
-        .from('timer_events')
-        .select('*')
-        .eq('timer_id', timerId)
-        .is('end_time', null)
-        .order('start_time', { ascending: false })
-        .limit(1)
-        .single()
-
-      if (eventsError) throw eventsError
-
-      if (events) {
-        // Update the timer event
-        const { error: updateError } = await supabase
-          .from('timer_events')
-          .update({
-            end_time: currentTime,
-            duration: currentTime - events.start_time
-          })
-          .eq('id', events.id)
-
-        if (updateError) throw updateError
-      }
-
-      // Update local state
-      setPlayerTimers(prevTimers =>
-        prevTimers.map(timer => {
-          if (timer.id !== timerId) return timer
-          
-          // Calculate duration only if timer was active and had a start time
-          if (timer.active && timer.startTime !== null) {
-            const sessionDuration = currentTime - timer.startTime
-            
-            // Update the most recent session
-            const updatedSessions = [...timer.sessions]
-            if (updatedSessions.length > 0) {
-              const lastSession = updatedSessions[updatedSessions.length - 1]
-              updatedSessions[updatedSessions.length - 1] = {
-                ...lastSession,
-                endTime: currentTime,
-                duration: sessionDuration
-              }
-            }
-            
-            return {
-              ...timer,
-              duration: timer.duration + sessionDuration,
-              active: false,
-              startTime: null,
-              sessions: updatedSessions
-            }
-          }
-          
-          return timer
-        })
-      )
-    } catch (error) {
-      console.error('Error stopping timer:', error)
-      toast.error('Failed to stop timer')
-    }
-  }
-  
-  const removeTimer = async (timerId: string) => {
-    try {
-      // First delete all timer events
-      const { error: eventsError } = await supabase
-        .from('timer_events')
-        .delete()
-        .eq('timer_id', timerId)
-
-      if (eventsError) throw eventsError
-
-      // Then delete the timer
-      const { error: timerError } = await supabase
-        .from('timers')
-        .delete()
-        .eq('id', timerId)
-
-      if (timerError) throw timerError
-
-      // Update local state
-      setPlayerTimers(prevTimers => 
-        prevTimers.filter(timer => timer.id !== timerId)
-      )
-    } catch (error) {
-      console.error('Error removing timer:', error)
-      toast.error('Failed to remove timer')
-    }
-  }
-  
-  const resetTimer = (timerId: string) => {
-    setPlayerTimers(prevTimers =>
-      prevTimers.map(timer => {
-        if (timer.id !== timerId) return timer
-        return {
-          ...timer,
-          startTime: null,
-          endTime: null,
-          duration: 0,
-          active: false
-        }
-      })
-    )
-  }
+    // All timer functions moved to useTimers hook
 
   return (
     <div className="flex flex-col h-screen bg-gray-900">
@@ -1626,239 +1192,46 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                 </Fragment>
               ) : sidebarTab === 'counters' ? (
                 <Fragment>
-                  {counters.length === 0 && (
-                    <div className="p-4 text-gray-400">No counters yet. Add one below.</div>
-                  )}
-                  {counters.map(counter => (
-                    <CounterFactory
-                      key={counter.id}
-                      counter={counter}
-                      onIncrement={incrementCounter}
-                      onRemove={(counterId) => {
-                        setConfirmModalConfig({
-                          title: 'Remove Counter',
-                          message: `Are you sure you want to remove the counter "${counter.name}"? This action cannot be undone.`,
-                          onConfirm: () => removeCounter(counterId)
-                        });
-                        setShowConfirmModal(true);
-                      }}
-                      onReset={resetCounter}
-                      onAddPlayer={(counterId) => {
-                        setSelectedCounterId(counterId);
-                        setAddPlayerName('');
-                        setShowAddPlayerForm(true);
-                      }}
-                      formatTime={formatTime}
-                      onSeekTo={(time) => {
-                        if (playerRef.current) {
-                          playerRef.current.seekTo(time, true);
-                          playerRef.current.playVideo();
-                        }
-                      }}
-                      currentTime={currentTime}
-                      playerState={playerState}
-                    />
-                  ))}
-                  {/* Add Counter Form */}
-                  {showCounterForm ? (
-                    <div className="p-4 border-t border-gray-800">
-                      <input
-                        type="text"
-                        value={newCounterName}
-                        onChange={e => setNewCounterName(e.target.value)}
-                        placeholder="Counter name"
-                        className="w-full mb-2 px-3 py-2 rounded bg-gray-800 border border-gray-700 text-white"
-                      />
-                      <select
-                        value={newCounterType}
-                        onChange={e => setNewCounterType(e.target.value as CounterType)}
-                        className="w-full mb-2 px-3 py-2 rounded bg-gray-800 border border-gray-700 text-white"
-                      >
-                        <option value="standard">Standard (accumulates)</option>
-                        <option value="resettable">Resettable (for streaks)</option>
-                        <option value="player-based">Player-based (per player)</option>
-                      </select>
-                      
-                      {/* Player input fields (only shown for player-based counters) */}
-                      {newCounterType === 'player-based' && (
-                        <div className="mb-3 border border-gray-700 rounded p-2">
-                          <label className="text-sm text-gray-400 mb-1 block">Add Players:</label>
-                          <div className="flex mb-2">
-                            <input
-                              type="text"
-                              value={newPlayerName}
-                              onChange={e => setNewPlayerName(e.target.value)}
-                              onKeyPress={e => e.key === 'Enter' && addPlayer(newPlayerName)}
-                              placeholder="Player name"
-                              className="flex-1 px-3 py-2 rounded-l bg-gray-800 border border-gray-700 text-white"
-                            />
-                            <button
-                              onClick={() => addPlayer(newPlayerName)}
-                              className="px-3 py-2 rounded-r bg-blue-700 hover:bg-blue-600 text-white"
-                            >
-                              Add
-                            </button>
-                          </div>
-                          {newCounterPlayers.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              {newCounterPlayers.map(player => (
-                                <div key={player} className="flex items-center space-x-1 px-2 py-1 rounded text-sm bg-blue-900 text-blue-100">
-                                  <span>{player}</span>
-                                  <button onClick={() => removePlayer(player)} className="hover:text-red-500">×</button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={saveCounter}
-                          className="flex-1 px-3 py-2 rounded bg-green-700 hover:bg-green-600 text-white"
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={() => setShowCounterForm(false)}
-                          className="flex-1 px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 text-white"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-4 border-t border-gray-800">
-                      <button
-                        onClick={handleAddCounter}
-                        className="w-full px-3 py-2 rounded bg-blue-700 hover:bg-blue-600 text-white"
-                      >
-                        Add Counter
-                      </button>
-                    </div>
-                  )}
+                  <CountersSection
+                    userId={user?.id}
+                    videoId={selectedVideo?.id}
+                    formatTime={formatTime}
+                    onShowConfirmModal={(config) => {
+                      setConfirmModalConfig(config);
+                      setShowConfirmModal(true);
+                    }}
+                    onShowAddPlayerForm={(counterId) => {
+                      setSelectedCounterId(counterId);
+                      setAddPlayerName('');
+                      setShowAddPlayerForm(true);
+                    }}
+                    currentTime={currentTime}
+                    playerState={playerState}
+                    onSeekTo={(time) => {
+                      if (playerRef.current) {
+                        playerRef.current.seekTo(time, true);
+                        playerRef.current.playVideo();
+                      }
+                    }}
+                  />
                 </Fragment>
               ) : sidebarTab === 'timers' ? (
                 <Fragment>
-                  {playerTimers.length === 0 && (
-                    <div className="p-4 text-gray-400">No timers yet. Add one below.</div>
-                  )}
-                  {playerTimers.map(timer => (
-                    <TimerFactory
-                      key={timer.id}
-                      timer={timer}
-                      onStart={startTimer}
-                      onStop={stopTimer}
-                      onReset={resetTimer}
-                      onRemove={(timerId) => {
-                        setConfirmModalConfig({
-                          title: 'Remove Timer',
-                          message: `Are you sure you want to remove the timer "${timer.name}"? This action cannot be undone.`,
-                          onConfirm: () => removeTimer(timerId)
-                        });
-                        setShowConfirmModal(true);
-                      }}
-                      onAddPlayer={(timerId) => {
-                        setSelectedTimerId(timerId);
-                        setSelectedCounterId(null);
-                        setAddPlayerName('');
-                        setShowAddPlayerForm(true);
-                      }}
-                      onTogglePlayerTimer={togglePlayerTimer}
-                      formatTime={formatTime}
-                      getCurrentTime={() => playerRef.current ? playerRef.current.getCurrentTime() : 0}
-                      onSelectPlayerForSessions={(timerId, playerName) => {
-                        if (!playerName) {
-                          setSelectedPlayerForSessions(null);
-                          return;
-                        }
-                        
-                        setSelectedPlayerForSessions({
-                          timerId,
-                          playerName
-                        });
-                      }}
-                      selectedPlayerForSessions={selectedPlayerForSessions}
-                    />
-                  ))}
-                  
-                  {/* Add Timer Form */}
-                  {showTimerForm ? (
-                    <div className="p-4 border-t border-gray-800">
-                      <input
-                        type="text"
-                        value={newTimerName}
-                        onChange={e => setNewTimerName(e.target.value)}
-                        placeholder="Timer name (e.g. player name)"
-                        className="w-full mb-2 px-3 py-2 rounded bg-gray-800 border border-gray-700 text-white"
-                      />
-                      <select
-                        value={newTimerType}
-                        onChange={e => setNewTimerType(e.target.value as 'standard' | 'player-based')}
-                        className="w-full mb-2 px-3 py-2 rounded bg-gray-800 border border-gray-700 text-white"
-                      >
-                        <option value="standard">Standard (accumulates)</option>
-                        <option value="player-based">Player-based (per player)</option>
-                      </select>
-                      
-                      {/* Player input fields (only shown for player-based timers) */}
-                      {newTimerType === 'player-based' && (
-                        <div className="mb-3 border border-gray-700 rounded p-2">
-                          <label className="text-sm text-gray-400 mb-1 block">Add Players:</label>
-                          <div className="flex mb-2">
-                            <input
-                              type="text"
-                              value={newTimerPlayerName}
-                              onChange={e => setNewTimerPlayerName(e.target.value)}
-                              onKeyPress={e => e.key === 'Enter' && addPlayerToTimerForm(newTimerPlayerName)}
-                              placeholder="Player name"
-                              className="flex-1 px-3 py-2 rounded-l bg-gray-800 border border-gray-700 text-white"
-                            />
-                            <button
-                              onClick={() => addPlayerToTimerForm(newTimerPlayerName)}
-                              className="px-3 py-2 rounded-r bg-blue-700 hover:bg-blue-600 text-white"
-                            >
-                              Add
-                            </button>
-                          </div>
-                          {newTimerPlayers.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              {newTimerPlayers.map(player => (
-                                <div key={player} className="flex items-center space-x-1 px-2 py-1 rounded text-sm bg-blue-900 text-blue-100">
-                                  <span>{player}</span>
-                                  <button onClick={() => removePlayerFromTimerForm(player)} className="hover:text-red-500">×</button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={saveTimer}
-                          className="flex-1 px-3 py-2 rounded bg-green-700 hover:bg-green-600 text-white"
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={() => setShowTimerForm(false)}
-                          className="flex-1 px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 text-white"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-4 border-t border-gray-800">
-                      <button
-                        onClick={handleAddTimer}
-                        className="w-full px-3 py-2 rounded bg-blue-700 hover:bg-blue-600 text-white"
-                      >
-                        Add Timer
-                      </button>
-                    </div>
-                  )}
+                  <TimersSection 
+                    userId={user?.id}
+                    videoId={selectedVideo?.id}
+                    formatTime={formatTime}
+                    onShowConfirmModal={(config) => {
+                      setConfirmModalConfig(config);
+                            setShowConfirmModal(true);
+                          }}
+                    onShowAddPlayerForm={(timerId) => {
+                      setSelectedTimerId(timerId);
+                                setSelectedCounterId(null);
+                                setAddPlayerName('');
+                                setShowAddPlayerForm(true);
+                              }}
+                  />
                 </Fragment>
               ) : (
                 <Fragment>
@@ -2068,9 +1441,8 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                 if (e.key === 'Enter') {
                   if (selectedCounterId) {
                     addPlayerToCounter(selectedCounterId, addPlayerName);
-                  } else if (selectedTimerId) {
-                    addPlayerToTimer(selectedTimerId, addPlayerName);
                   }
+                  // Timer player handling is done in TimersSection
                   setShowAddPlayerForm(false);
                   setAddPlayerName('');
                 }
@@ -2084,9 +1456,8 @@ function AnalyzeVideoPage({ user }: { user: any }) {
                 onClick={() => {
                   if (selectedCounterId) {
                     addPlayerToCounter(selectedCounterId, addPlayerName);
-                  } else if (selectedTimerId) {
-                    addPlayerToTimer(selectedTimerId, addPlayerName);
                   }
+                  // Timer player handling is done in TimersSection
                   setShowAddPlayerForm(false);
                   setAddPlayerName('');
                 }}
