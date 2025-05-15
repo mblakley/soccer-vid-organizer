@@ -276,7 +276,7 @@ export default function ClipPlayer({ videoId, start, end, source = 'youtube', ur
   }
   
   // Shared state for direct video sources
-  const directUrl = (url as any) || (props as any).url;
+  const directUrl = url;
   const videoRef = useRef<HTMLVideoElement>(null);
 
   // Seek to start time on load or when clip changes

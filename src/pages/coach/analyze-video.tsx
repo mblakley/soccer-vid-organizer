@@ -478,10 +478,18 @@ function AnalyzeVideoPage({ user }: { user: any }) {
 
     const fetchCountersForVideo = async () => {
       try {
-        // Fetch all counters
+        // Ensure selectedVideo and its id are available
+        if (!selectedVideo?.id) {
+          console.warn("fetchCountersForVideo called without selectedVideo.id, clearing counters.");
+          setCounters([]); // Clear existing counters if no video is selected or id is missing
+          return;
+        }
+
+        // Fetch counters for the specific video
         const { data: countersData, error: countersError } = await supabase
           .from('counters')
           .select('*')
+          .eq('video_id', selectedVideo.id) // Filter by video_id
           .order('created_at', { ascending: false });
 
         if (countersError) throw countersError;
@@ -694,6 +702,14 @@ function AnalyzeVideoPage({ user }: { user: any }) {
       })
       return
     }
+
+    if (!selectedVideo) {
+      setNotification({
+        message: 'Please select a video before saving a counter.',
+        type: 'error'
+      });
+      return;
+    }
     
     // For player-based counters, validate that we have players
     if (newCounterType === 'player-based' && newCounterPlayers.length === 0) {
@@ -711,7 +727,9 @@ function AnalyzeVideoPage({ user }: { user: any }) {
         .insert({
           name: newCounterName,
           type: newCounterType,
-          count: 0
+          count: 0,
+          video_id: selectedVideo?.id,
+          created_by: user?.id
         })
         .select()
         .single()
