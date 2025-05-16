@@ -66,8 +66,16 @@ export interface FilmReviewSessionClip {
   clip_id: string; // UUID of the original clip
   display_order: number;
   comment?: string;
-  // Potentially include basic clip info here if needed directly, like start/end times
-  // Or fetch clip details separately using clip_id
+  clip?: {
+    id: string;
+    title: string;
+    video_id: string;
+    start_time: number;
+    end_time: number;
+    thumbnail_url?: string;
+    created_by?: string;
+    created_at?: string;
+  };
 }
 
 export interface FilmReviewSession {

@@ -105,34 +105,8 @@ function FilmReviewSessionPageContent() {
     console.log('Player state changed:', state)
     if (state === 'playing') {
       setIsPlaying(true)
-      
-      // Set a timeout to forcefully pause at the end time when playing starts
-      const currentClip = session?.clips[currentClipIndex]
-      if (currentClip && playerRef.current) {
-        const currentVideoTime = playerRef.current.getCurrentTime()
-        const timeUntilEnd = currentClip.clip.end_time - currentVideoTime
-        
-        if (timeUntilEnd > 0) {
-          // Clear any existing timeout
-          if (endTimeTimeout.current) {
-            clearTimeout(endTimeTimeout.current)
-          }
-          
-          console.log(`Setting timeout to stop video after ${timeUntilEnd} seconds from current time`)
-          endTimeTimeout.current = setTimeout(() => {
-            console.log('Timeout triggered, stopping video')
-            playerRef.current?.pauseVideo()
-            setIsPlaying(false)
-          }, timeUntilEnd * 1000 + 100) // Add a small buffer
-        }
-      }
     } else if (state === 'paused' || state === 'ended') {
       setIsPlaying(false)
-      // Clear timeout when paused or ended
-      if (endTimeTimeout.current) {
-        clearTimeout(endTimeTimeout.current)
-        endTimeTimeout.current = null
-      }
     }
   }
 
@@ -159,63 +133,137 @@ function FilmReviewSessionPageContent() {
   const handleTimeUpdate = (time: number) => {
     setCurrentTime(time)
     
-    // Check if we've reached the end time of the current clip
-    const currentClip = session?.clips[currentClipIndex]
-    if (currentClip && time >= currentClip.clip.end_time) {
-      console.log(`Force stopping video at ${time}, end time is ${currentClip.clip.end_time}`)
-      playerRef.current?.pauseVideo()
-      setIsPlaying(false)
-    }
-  }
-
-  const handleClipSelect = (index: number) => {
-    // Clear any existing interval and timeout
-    if (timeCheckInterval.current) {
-      clearInterval(timeCheckInterval.current)
-      timeCheckInterval.current = null
-    }
-    
-    if (endTimeTimeout.current) {
-      clearTimeout(endTimeTimeout.current)
-      endTimeTimeout.current = null
-    }
-
-    setCurrentClipIndex(index)
-    setIsPlaying(false)
-
-    // Wait for the player to be ready before seeking
-    const checkPlayerReady = setInterval(() => {
-      if (playerRef.current) {
-        clearInterval(checkPlayerReady)
-        const clip = session?.clips[index]
-        if (clip) {
-          console.log(`Starting clip at ${clip.clip.start_time}, will end at ${clip.clip.end_time}`)
-          playerRef.current.seekTo(clip.clip.start_time)
-          
-          // Set a timeout to forcefully pause at the end time
-          const duration = clip.clip.end_time - clip.clip.start_time
-          if (duration > 0) {
-            console.log(`Setting timeout to stop video after ${duration} seconds`)
-            endTimeTimeout.current = setTimeout(() => {
-              console.log('Timeout triggered, stopping video')
-              playerRef.current?.pauseVideo()
-              setIsPlaying(false)
-            }, duration * 1000 + 100) // Add a small buffer to ensure we catch it
+    // Log time updates from parent component
+    const currentClip = session?.clips[currentClipIndex];
+    if (currentClip?.clip?.end_time) {
+      const remaining = currentClip.clip.end_time - time;
+      
+      // Log more frequently as we approach the end
+      if (remaining < 5) {
+        console.log(`PARENT TIME: ${time.toFixed(2)}/${currentClip.clip.end_time.toFixed(2)}s, Remaining: ${remaining.toFixed(2)}s, Plays: ${isPlaying}`);
+      }
+      
+      // Backup end time check to handle cases where VideoPlayer component fails
+      if (time >= currentClip.clip.end_time) {
+        console.log(`🔴 PARENT: End time reached at ${time.toFixed(2)}s, end time is ${currentClip.clip.end_time.toFixed(2)}s`);
+        
+        // Force pause from parent component
+        if (playerRef.current && isPlaying) {
+          console.log("PARENT: Forcing pause from parent component");
+          try {
+            // First try regular pause
+            playerRef.current.pauseVideo();
+            
+            // If that doesn't work, try emergency force pause
+            setTimeout(() => {
+              if (isPlaying) {
+                console.log("PARENT: First pause attempt failed, using emergency force pause");
+                try {
+                  playerRef.current?.forcePause();
+                } catch (e) {
+                  console.error("Error using force pause:", e);
+                }
+              }
+            }, 100);
+          } catch (e) {
+            console.error("Error pausing from parent component:", e);
+            
+            // Try emergency force pause as fallback
+            try {
+              playerRef.current?.forcePause();
+            } catch (forcePauseError) {
+              console.error("Error using force pause:", forcePauseError);
+            }
           }
+          setIsPlaying(false);
         }
       }
-    }, 100)
+    }
   }
 
-  // Clean up interval and timeout on unmount
+  // Add a useEffect to check periodically if we're past the end time
+  useEffect(() => {
+    // Only run if we're playing and have a current clip
+    if (!isPlaying || !session?.clips || !session.clips[currentClipIndex]) return;
+    
+    const clipEndTime = session.clips[currentClipIndex].clip?.end_time;
+    if (!clipEndTime) return;
+    
+    console.log(`Setting up parent end time check for ${clipEndTime}s`);
+    
+    // Check every 500ms if we need to force stop
+    const forceStopInterval = setInterval(() => {
+      if (!playerRef.current || !isPlaying) return;
+      
+      try {
+        const currentTime = playerRef.current.getCurrentTime();
+        if (currentTime >= clipEndTime) {
+          console.log(`⚠️ PARENT INTERVAL: Forcing stop at ${currentTime}s (end: ${clipEndTime}s)`);
+          playerRef.current.forcePause();
+          setIsPlaying(false);
+        }
+      } catch (e) {
+        console.error("Error in parent force stop interval:", e);
+      }
+    }, 500);
+    
+    return () => clearInterval(forceStopInterval);
+  }, [isPlaying, session?.clips, currentClipIndex]);
+
+  const handleClipSelect = (index: number) => {
+    console.log(`Selecting clip at index ${index}`);
+    
+    // First, make sure any existing video is paused
+    if (playerRef.current) {
+      try {
+        playerRef.current.pauseVideo();
+      } catch (e) {
+        console.error("Error pausing video during clip selection:", e);
+      }
+    }
+    
+    // If it's the same clip, just restart it
+    if (index === currentClipIndex) {
+      console.log(`Restarting same clip at index ${index}`);
+      const clip = session?.clips[index];
+      if (clip?.clip?.start_time !== undefined && playerRef.current) {
+        try {
+          setTimeout(() => {
+            // First seek to the start time
+            playerRef.current?.seekTo(clip.clip!.start_time);
+            console.log(`Seeked to start time: ${clip.clip!.start_time}s`);
+            
+            // Wait a moment after seeking before playing
+            setTimeout(() => {
+              try {
+                // Play the video
+                playerRef.current?.playVideo();
+                setIsPlaying(true);
+                console.log(`Started playing clip from beginning`);
+              } catch (playError) {
+                console.error("Error playing video after restart:", playError);
+              }
+            }, 100);
+          }, 100);
+        } catch (e) {
+          console.error("Error seeking to start time:", e);
+        }
+      }
+      return;
+    }
+    
+    // Update the state with the new index
+    setCurrentClipIndex(index);
+    setIsPlaying(false);
+    
+    // The player will reinitialize with the new clip settings because of the key property
+    console.log(`Switched to clip index ${index}`);
+  }
+
+  // Clean up on unmount
   useEffect(() => {
     return () => {
-      if (timeCheckInterval.current) {
-        clearInterval(timeCheckInterval.current)
-      }
-      if (endTimeTimeout.current) {
-        clearTimeout(endTimeTimeout.current)
-      }
+      // No need for complex cleanup logic
     }
   }, [])
 
@@ -252,26 +300,36 @@ function FilmReviewSessionPageContent() {
       <div className="flex flex-1 overflow-hidden w-full h-full">
         {/* Video Area */}
         <div className="flex-1 min-w-0 bg-black flex items-center justify-center relative h-full">
-          {currentClip ? (
-            <div className="h-full flex items-center justify-center w-full max-w-full overflow-hidden">
-              <VideoPlayer
-                ref={playerRef}
-                video={{
-                  id: currentClip.clip.id,
-                  video_id: currentClip.clip.video_id,
-                  title: currentClip.clip.title,
-                  source: determineVideoSource(currentClip.clip.video_id),
-                  start_time: currentClip.clip.start_time,
-                  end_time: currentClip.clip.end_time
-                }}
-                onStateChange={handlePlayerStateChange}
-                onTimeUpdate={handleTimeUpdate}
-                onError={handlePlayerError}
-                className="aspect-video bg-black w-full max-w-full"
-              />
+          {!session?.clips || session.clips.length === 0 ? (
+            <div className="flex justify-center items-center h-full">
+              <div className="text-center p-8">
+                <div className="text-gray-400 text-lg mb-4">No clips available in this session</div>
+                <div className="text-gray-500 text-sm">This session doesn't contain any video clips.</div>
+              </div>
             </div>
           ) : (
-            <div className="text-gray-400 text-lg">No clips available</div>
+            <div className="h-full flex items-center justify-center w-full max-w-full overflow-hidden">
+              {session.clips[currentClipIndex]?.clip ? (
+                <VideoPlayer
+                  ref={playerRef}
+                  key={`clip-${session.clips[currentClipIndex].id}`}
+                  video={{
+                    id: session.clips[currentClipIndex].clip.id,
+                    video_id: session.clips[currentClipIndex].clip.video_id,
+                    title: session.clips[currentClipIndex].clip.title || '',
+                    source: determineVideoSource(session.clips[currentClipIndex].clip.video_id),
+                    start_time: session.clips[currentClipIndex].clip.start_time,
+                    end_time: session.clips[currentClipIndex].clip.end_time
+                  }}
+                  onStateChange={handlePlayerStateChange}
+                  onTimeUpdate={handleTimeUpdate}
+                  onError={handlePlayerError}
+                  className="aspect-video bg-black w-full max-w-full"
+                />
+              ) : (
+                <div className="text-gray-400 text-lg">Selected clip not available</div>
+              )}
+            </div>
           )}
         </div>
 
@@ -293,18 +351,18 @@ function FilmReviewSessionPageContent() {
               >
                 <div className="flex items-start space-x-3">
                   <div className="w-16 h-12 bg-gray-600 rounded overflow-hidden flex-shrink-0">
-                    {clip.clip.thumbnail_url && (
+                    {clip.clip?.thumbnail_url && (
                       <img
                         src={clip.clip.thumbnail_url}
-                        alt={clip.clip.title}
+                        alt={clip.clip?.title || 'Video thumbnail'}
                         className="w-full h-full object-cover"
                       />
                     )}
                   </div>
                   <div className="flex-grow">
-                    <h3 className="font-medium text-gray-200">{clip.clip.title}</h3>
+                    <h3 className="font-medium text-gray-200">{clip.clip?.title || 'Untitled clip'}</h3>
                     <div className="text-sm text-gray-400">
-                      {formatTime(clip.clip.start_time)} - {formatTime(clip.clip.end_time)}
+                      {formatTime(clip.clip?.start_time || 0)} - {formatTime(clip.clip?.end_time || 0)}
                     </div>
                     {clip.comment && (
                       <div className="mt-1 flex items-start">

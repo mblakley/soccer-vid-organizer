@@ -25,6 +25,7 @@ interface Video {
 export interface VideoPlayerControls {
   playVideo: () => void;
   pauseVideo: () => void;
+  forcePause: () => void;
   seekTo: (seconds: number, allowSeekAhead?: boolean) => void;
   getCurrentTime: () => number;
   getPlayerState: () => number | string; // YouTube uses number, Veo string
@@ -49,49 +50,170 @@ const VideoPlayer = forwardRef<VideoPlayerControls, VideoPlayerProps>(
     const playerContainerRef = useRef<HTMLDivElement>(null)
     const playerRef = useRef<any>(null) // Stores the actual player instance (YT, Veo, FB)
     const intervalRef = useRef<NodeJS.Timeout | null>(null)
+    const endCheckIntervalRef = useRef<NodeJS.Timeout | null>(null)
     const videoIdRef = useRef<string | null>(null) // Keep track of the current video ID to prevent unnecessary reinitializations
     const [currentPlayerState, setCurrentPlayerState] = useState<'playing' | 'paused'>('paused');
     // Add a flag to track if the player is ready
     const [isPlayerReady, setIsPlayerReady] = useState(false);
+    const isMonitoringEndTime = useRef(false);
     const [isTransitioning, setIsTransitioning] = useState(false);
     const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
     const startTimeRef = useRef<number | null>(null);
     const durationRef = useRef<number>(0);
 
-    // Helper function to check if we've reached the end time
-    const checkEndTime = (currentTime: number) => {
-      if (video?.end_time !== undefined && currentTime >= video.end_time) {
-        console.log('Reached end time:', currentTime, 'end time:', video.end_time);
-        playerRef.current?.pauseVideo();
-        setCurrentPlayerState('paused');
-        onStateChange?.('paused');
-        onPause?.();
-        onEnd?.();
-        return true;
+    // Clear end time monitoring interval
+    const stopEndTimeMonitoring = () => {
+      if (endCheckIntervalRef.current) {
+        clearInterval(endCheckIntervalRef.current);
+        endCheckIntervalRef.current = null;
       }
-      return false;
+      isMonitoringEndTime.current = false;
     };
-
-    // Helper function to start the timer
-    const startTimer = () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
+    
+    // Start monitoring for end time
+    const startEndTimeMonitoring = () => {
+      // Don't start if we don't have a valid end time
+      if (!video?.end_time) return;
       
-      intervalRef.current = setInterval(() => {
-        if (startTimeRef.current && currentPlayerState === 'playing') {
-          const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
-          const remaining = Math.max(0, durationRef.current - elapsed);
-          setSecondsLeft(remaining);
+      // Clear any existing monitoring first
+      stopEndTimeMonitoring();
+      
+      // Log that we're starting end time monitoring
+      console.log(`Starting end time monitoring. Will stop at ${video.end_time.toFixed(2)}s`);
+      
+      // Set a flag to indicate we're actively monitoring
+      isMonitoringEndTime.current = true;
+      
+      // Create an interval that checks the video time every 20ms
+      endCheckIntervalRef.current = setInterval(() => {
+        // Skip if player isn't ready or no reference
+        if (!playerRef.current || !isPlayerReady) return;
+        
+        try {
+          // Get the current video time directly from the player
+          let currentTime = 0;
           
-          if (remaining <= 0) {
-            setIsTransitioning(true);
-            onEnd?.();
-            playerRef.current?.pauseVideo();
-            setCurrentPlayerState('paused');
+          try {
+            currentTime = playerRef.current.getCurrentTime();
+          } catch (e) {
+            console.error("Error getting time:", e);
+            return;
           }
+          
+          // Get player state for more accurate detection
+          let playerState = -1;
+          try {
+            if (video.source === 'youtube') {
+              playerState = playerRef.current.getPlayerState();
+            }
+          } catch (e) {}
+          
+          // If YouTube player and not playing/buffering, skip (states: 1=playing, 3=buffering)
+          if (video.source === 'youtube' && playerState !== 1 && playerState !== 3) {
+            return;
+          }
+          
+          // DEBUG: Log frequently to see what's happening
+          if (video.end_time) {
+            const timeRemaining = video.end_time - currentTime;
+            
+            // Always log the time at regular intervals for debugging
+            console.log(`TIME-CHECK: ${currentTime.toFixed(2)}/${video.end_time.toFixed(2)}s, Remaining: ${timeRemaining.toFixed(2)}s`);
+            
+            if (timeRemaining < 3) {
+              console.log(`MONITOR: Time=${currentTime.toFixed(2)}, End=${video.end_time.toFixed(2)}s, Remaining=${timeRemaining.toFixed(2)}s, State=${playerState}`);
+            }
+          }
+          
+          // Check if we've reached the end time - use a small buffer to catch it slightly before
+          if (video.end_time !== undefined && currentTime >= video.end_time - 0.1) {
+            console.log(`🚨 END TIME REACHED: Video at ${currentTime.toFixed(2)}s, end time is ${video.end_time.toFixed(2)}s`);
+            
+            // FORCEFULLY pause the video - use multiple approaches
+            try {
+              console.log("Attempting to pause video...");
+              
+              // Try both direct YouTube API call and our wrapped method
+              if (video.source === 'youtube') {
+                // Force direct API call to avoid any potential wrapping issues
+                try {
+                  const iframe = playerContainerRef.current?.querySelector('iframe');
+                  if (iframe && iframe.contentWindow) {
+                    console.log("Sending direct postMessage pause command to YouTube iframe");
+                    try {
+                      iframe.contentWindow.postMessage(JSON.stringify({
+                        event: 'command',
+                        func: 'pauseVideo'
+                      }), '*');
+                    } catch (postError) {
+                      console.error("Error sending postMessage:", postError);
+                    }
+                  }
+                } catch (e) {
+                  console.error("Error with direct iframe pause:", e);
+                }
+                
+                // As a last resort, try to pause using direct DOM manipulation
+                try {
+                  const videoElement = playerContainerRef.current?.querySelector('video');
+                  if (videoElement) {
+                    console.log("Found direct video element, pausing directly");
+                    videoElement.pause();
+                  }
+                } catch (vidError) {
+                  console.error("Error pausing direct video element:", vidError);
+                }
+              }
+              
+              // Try the standard pauseVideo method
+              playerRef.current.pauseVideo();
+              console.log("Called pauseVideo()");
+              
+              // Force an update to our state
+              setCurrentPlayerState('paused');
+              onStateChange?.('paused');
+              onPause?.();
+              onEnd?.();
+              
+              // Double-check that it paused
+              setTimeout(() => {
+                try {
+                  // Check if we're still playing
+                  const state = playerRef.current.getPlayerState();
+                  const newTime = playerRef.current.getCurrentTime();
+                  console.log(`After pause: State=${state}, Time=${newTime.toFixed(2)}s`);
+                  
+                  // If still playing (state=1 for YouTube), force another pause
+                  if (state === 1 || newTime > video.end_time!) {
+                    console.log("🚨 Still playing after pause attempt! Forcing another pause...");
+                    playerRef.current.pauseVideo();
+                    
+                    // As a last resort, try to seek back to end time and pause again
+                    setTimeout(() => {
+                      console.log("Final pause attempt with seek");
+                      if (video.end_time) {
+                        playerRef.current.seekTo(video.end_time - 0.1);
+                        playerRef.current.pauseVideo();
+                      }
+                    }, 100);
+                  }
+                } catch (e) {
+                  console.error("Error in pause verification:", e);
+                }
+              }, 200);
+            } catch (e) {
+              console.error("Error while trying to pause:", e);
+            }
+            
+            // Stop monitoring
+            console.log("Stopping end time monitoring");
+            stopEndTimeMonitoring();
+            return;
+          }
+        } catch (err) {
+          console.error('Error during end time monitoring:', err);
         }
-      }, 100);
+      }, 20); // Even more frequent checks - every 20ms
     };
 
     // Reset state when video changes
@@ -108,43 +230,64 @@ const VideoPlayer = forwardRef<VideoPlayerControls, VideoPlayerProps>(
       }
     }, [video?.id, video?.start_time, video?.end_time]);
 
+    // This effect ensures cleanup of intervals when component unmounts or video changes
+    useEffect(() => {
+      return () => {
+        stopEndTimeMonitoring();
+        
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+      };
+    }, [video?.id]);
+
     useImperativeHandle(ref, () => ({
       playVideo: () => {
-        console.log("playVideo called, player ready:", isPlayerReady, "player ref:", !!playerRef.current);
-        if (!playerRef.current || !isPlayerReady) return;
+        console.log("playVideo called, player ready:", isPlayerReady);
+        if (!playerRef.current || !isPlayerReady) {
+          console.log("Cannot play - player not ready");
+          return;
+        }
         
         try {
           if (video?.source === 'youtube' && playerRef.current.playVideo) {
-            // Check current player state before playing
-            const playerState = playerRef.current.getPlayerState();
-            console.log("YouTube player state before play:", playerState);
-            
-            // If the video is already playing or buffering, don't try to play again
-            if (playerState !== 1 && playerState !== 3) { // 1=playing, 3=buffering
-              // If we have start_time, seek to it first
-              if (video.start_time !== undefined) {
+            // If we have start_time, seek to it first
+            if (video.start_time !== undefined) {
+              console.log(`Seeking to start time: ${video.start_time.toFixed(2)}s`);
+              try {
                 playerRef.current.seekTo(video.start_time, true);
+              } catch (seekError) {
+                console.error("Error seeking to start time:", seekError);
               }
-              playerRef.current.playVideo();
-              startTimeRef.current = Date.now();
-              startTimer();
-              
-              setTimeout(() => {
-                const newState = playerRef.current.getPlayerState();
-                if (newState === 1) { // Playing
-                  setCurrentPlayerState('playing');
-                  onStateChange?.('playing');
-                  onPlay?.();
-                }
-              }, 100);
             }
+            
+            // Play the video
+            try {
+              playerRef.current.playVideo();
+            } catch (playError) {
+              console.error("Error playing video:", playError);
+            }
+            
+            // Start end time monitoring when we play
+            startEndTimeMonitoring();
           } else if ((video?.source === 'veo' || video?.source === 'facebook') && playerRef.current.playVideo) {
             if (video.start_time !== undefined) {
-              playerRef.current.seekTo(video.start_time);
+              try {
+                playerRef.current.seekTo(video.start_time);
+              } catch (seekError) {
+                console.error("Error seeking to start time:", seekError);
+              }
             }
-            playerRef.current.playVideo();
-            startTimeRef.current = Date.now();
-            startTimer();
+            
+            try {
+              playerRef.current.playVideo();
+            } catch (playError) {
+              console.error("Error playing video:", playError);
+            }
+            
+            // Start end time monitoring for non-YouTube players too
+            startEndTimeMonitoring();
           }
         } catch (err) {
           console.error("Error playing video:", err);
@@ -152,6 +295,9 @@ const VideoPlayer = forwardRef<VideoPlayerControls, VideoPlayerProps>(
       },
       pauseVideo: () => {
         if (!playerRef.current || !isPlayerReady) return;
+        
+        // Stop monitoring when manually paused
+        stopEndTimeMonitoring();
         
         try {
           if (video?.source === 'youtube' && playerRef.current.pauseVideo) {
@@ -163,14 +309,71 @@ const VideoPlayer = forwardRef<VideoPlayerControls, VideoPlayerProps>(
           console.error("Error pausing video:", err);
         }
       },
+      forcePause: () => {
+        console.log("EMERGENCY FORCE PAUSE CALLED");
+        
+        // Try every method we have to pause the video
+        try {
+          // 1. Standard method
+          playerRef.current?.pauseVideo();
+          
+          // 2. Direct YouTube API
+          if (video?.source === 'youtube') {
+            // Try postMessage
+            try {
+              const iframe = playerContainerRef.current?.querySelector('iframe');
+              if (iframe && iframe.contentWindow) {
+                iframe.contentWindow.postMessage(JSON.stringify({
+                  event: 'command',
+                  func: 'pauseVideo'
+                }), '*');
+              }
+            } catch (e) {}
+            
+            // Try direct player state change
+            try {
+              // For YouTube, directly set player state
+              if (typeof playerRef.current?.setPlaybackRate === 'function') {
+                playerRef.current.setPlaybackRate(0);
+              }
+            } catch (e) {}
+          }
+          
+          // 3. Try HTML5 video element
+          try {
+            const videoElement = playerContainerRef.current?.querySelector('video');
+            if (videoElement) {
+              videoElement.pause();
+            }
+          } catch (e) {}
+          
+          // 4. Set all relevant state
+          setCurrentPlayerState('paused');
+          onStateChange?.('paused');
+          onPause?.();
+          
+        } catch (e) {
+          console.error("Error in forcePause:", e);
+        }
+      },
       seekTo: (seconds: number, allowSeekAhead?: boolean) => {
         if (!playerRef.current || !isPlayerReady) return;
         
         try {
           if (video?.source === 'youtube' && playerRef.current.seekTo) {
             playerRef.current.seekTo(seconds, allowSeekAhead);
+            
+            // If we're playing and seek happens, restart monitoring
+            if (currentPlayerState === 'playing') {
+              startEndTimeMonitoring();
+            }
           } else if ((video?.source === 'veo' || video?.source === 'facebook') && playerRef.current.seekTo) {
             playerRef.current.seekTo(seconds);
+            
+            // Same for non-YouTube players
+            if (currentPlayerState === 'playing') {
+              startEndTimeMonitoring();
+            }
           }
         } catch (err) {
           console.error("Error seeking video:", err);
@@ -205,7 +408,7 @@ const VideoPlayer = forwardRef<VideoPlayerControls, VideoPlayerProps>(
         }
         return video?.source === 'youtube' ? -1 : 'unknown'; // YT default state, string for others
       },
-    }), [video?.source, isPlayerReady, video?.start_time, video?.end_time]);
+    }), [video?.source, isPlayerReady, video?.start_time, video?.end_time, currentPlayerState, onStateChange, onPause, onEnd]);
 
     useEffect(() => {
       // Cleanup on component unmount or when video changes
@@ -249,6 +452,16 @@ const VideoPlayer = forwardRef<VideoPlayerControls, VideoPlayerProps>(
     useEffect(() => {
       console.log("Video effect triggered", video?.id);
       
+      // If no video is provided, clear the player
+      if (!video) {
+        console.log("No video provided, clearing player");
+        setIsPlayerReady(false);
+        if (playerContainerRef.current) {
+          playerContainerRef.current.innerHTML = '';
+        }
+        return;
+      }
+      
       // Skip reinitialization if we're already initialized for this video
       if (isPlayerReady && playerRef.current && video?.id === videoIdRef.current) {
         console.log("Player already initialized for this video, skipping");
@@ -257,11 +470,6 @@ const VideoPlayer = forwardRef<VideoPlayerControls, VideoPlayerProps>(
       
       setIsPlayerReady(false);
       
-      if (!video) {
-        if (playerContainerRef.current) playerContainerRef.current.innerHTML = ''; // Clear player if no video
-        return;
-      }
-
       // Store current video ID to track changes
       videoIdRef.current = video.id;
 
@@ -320,24 +528,46 @@ const VideoPlayer = forwardRef<VideoPlayerControls, VideoPlayerProps>(
                     onReady: () => {
                       console.log("YouTube player ready");
                       setIsPlayerReady(true);
-                      onPlayerReady?.();
                       
-                      // If we have start_time, seek to it
-                      if (video.start_time !== undefined) {
-                        playerRef.current.seekTo(video.start_time, true);
+                      // If we have start_time, seek to it ONLY after player is ready
+                      if (video?.start_time !== undefined) {
+                        console.log(`Seeking to initial start time: ${video.start_time}`);
+                        try {
+                          playerRef.current.seekTo(video.start_time, true);
+                        } catch (e) {
+                          console.error("Error seeking to start time:", e);
+                        }
                       }
                       
+                      onPlayerReady?.();
+                      
+                      // Force setup of end time monitoring immediately
+                      if (video?.end_time) {
+                        console.log(`Player ready - setting up immediate end time check for ${video.end_time}s`);
+                        startEndTimeMonitoring();
+                        
+                        // One-time check of player state and time for debugging
+                        setTimeout(() => {
+                          try {
+                            if (playerRef.current) {
+                              const state = playerRef.current.getPlayerState();
+                              const time = playerRef.current.getCurrentTime();
+                              console.log(`Initial player state: ${state}, time: ${time}s`);
+                              console.log(`Monitoring active: ${isMonitoringEndTime.current}, End time: ${video.end_time}s`);
+                            }
+                          } catch (e) {
+                            console.error("Error checking initial state:", e);
+                          }
+                        }, 500);
+                      }
+                      
+                      // Set up time update interval for general updates
                       intervalRef.current = setInterval(() => {
                         if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
                           try {
                             const time = playerRef.current.getCurrentTime();
+                            console.log(`TIME-UPDATE: ${time.toFixed(2)}s`);
                             onTimeUpdate?.(time);
-                            
-                            // Check if we've reached the end time
-                            if (checkEndTime(time)) {
-                              clearInterval(intervalRef.current!);
-                              intervalRef.current = null;
-                            }
                           } catch (err) {
                             console.error("Error in time update interval:", err);
                           }
@@ -359,15 +589,24 @@ const VideoPlayer = forwardRef<VideoPlayerControls, VideoPlayerProps>(
                         case YTPlayerState.PLAYING:
                           newPlayerState = 'playing';
                           onPlay?.();
+                          
+                          // When the video starts playing, start end time monitoring
+                          if (video?.end_time) {
+                            startEndTimeMonitoring();
+                          }
                           break;
                         case YTPlayerState.PAUSED:
                           newPlayerState = 'paused';
                           onPause?.();
+                          // Stop monitoring when manually paused
+                          stopEndTimeMonitoring();
                           break;
                         case YTPlayerState.ENDED:
                           newPlayerState = 'ended';
                           onPause?.();
                           onEnd?.();
+                          // Stop monitoring when video ends naturally
+                          stopEndTimeMonitoring();
                           break;
                         case YTPlayerState.BUFFERING:
                           newPlayerState = 'buffering';
@@ -436,14 +675,6 @@ const VideoPlayer = forwardRef<VideoPlayerControls, VideoPlayerProps>(
             htmlVideoElement.ontimeupdate = () => {
               const currentTime = htmlVideoElement.currentTime;
               onTimeUpdate?.(currentTime);
-              
-              // Check if we've reached the end time
-              if (checkEndTime(currentTime)) {
-                if (intervalRef.current) {
-                  clearInterval(intervalRef.current);
-                  intervalRef.current = null;
-                }
-              }
             };
             htmlVideoElement.onplay = () => {
               setCurrentPlayerState('playing');
