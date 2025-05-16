@@ -5,18 +5,12 @@ import Link from 'next/link'
 import { useTheme } from '@/contexts/ThemeContext'
 import { useTeam } from '@/contexts/TeamContext'
 
-type Team = {
-  id: string
-  name: string
-}
-
 export default function UserBanner({ email, roles }: { email: string; roles: string[] }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
-  const [teams, setTeams] = useState<Team[]>([])
   const { isDarkMode, toggleTheme } = useTheme()
-  const { selectedTeamId, setSelectedTeamId } = useTeam()
+  const { selectedTeamId, setSelectedTeamId, userTeams, isLoadingUser, currentUser } = useTeam()
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -26,49 +20,6 @@ export default function UserBanner({ email, roles }: { email: string; roles: str
     }
     fetchProfile()
   }, [])
-
-  useEffect(() => {
-    const fetchTeams = async () => {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-
-      // Get user's team memberships
-      const { data: memberships, error: membershipsError } = await supabase
-        .from('team_members')
-        .select('team_id')
-        .eq('user_id', user.id)
-      
-      if (membershipsError) {
-        console.error('Error fetching team memberships:', membershipsError)
-        return
-      }
-
-      // Fetch team details, excluding System club teams
-      const { data: teamsData, error: teamsError } = await supabase
-        .from('teams')
-        .select('id, name')
-        .neq('club_affiliation', 'System')
-        .order('name')
-      
-      if (teamsError) {
-        console.error('Error fetching teams:', teamsError)
-        return
-      }
-      
-      setTeams(teamsData || [])
-
-      // If user is only in one team (excluding System club teams), set it as selected
-      const nonSystemTeamMemberships = memberships?.filter(m => 
-        teamsData?.some(t => t.id === m.team_id)
-      ) || []
-      
-      if (nonSystemTeamMemberships.length === 1) {
-        setSelectedTeamId(nonSystemTeamMemberships[0].team_id)
-      }
-    }
-    fetchTeams()
-  }, [setSelectedTeamId])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -92,8 +43,10 @@ export default function UserBanner({ email, roles }: { email: string; roles: str
   return (
     <div className="flex items-center justify-end relative">
       <div className="mr-4">
-        {teams.length > 0 && (
-          teams.length > 1 ? (
+        {isLoadingUser ? (
+          <div className={`px-3 py-1 text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Loading teams...</div>
+        ) : userTeams.length > 0 && (
+          userTeams.length > 1 ? (
             <select
               value={selectedTeamId || 'all'}
               onChange={handleTeamChange}
@@ -104,17 +57,15 @@ export default function UserBanner({ email, roles }: { email: string; roles: str
               } border focus:outline-none focus:ring-2 focus:ring-blue-500`}
             >
               <option value="all">All Teams</option>
-              {teams.map(team => (
+              {userTeams.map(team => (
                 <option key={team.id} value={team.id}>
                   {team.name}
                 </option>
               ))}
             </select>
           ) : (
-            <div className={`px-3 py-1 text-sm ${
-              isDarkMode ? 'text-gray-200' : 'text-gray-700'
-            }`}>
-              {teams[0]?.name}
+            <div className={`px-3 py-1 text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+              {userTeams[0]?.name}
             </div>
           )
         )}
@@ -132,7 +83,12 @@ export default function UserBanner({ email, roles }: { email: string; roles: str
       {open && (
         <div className={`absolute top-12 right-0 w-56 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-800'} border rounded shadow-md z-10`}>
           <div className={`px-4 py-2 text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>{email}</div>
-          <div className={`px-4 py-1 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Roles: {roles.join(', ') || 'None'}</div>
+          <div className={`px-4 py-1 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Global Roles: {roles.join(', ') || 'None'}</div>
+          {selectedTeamId && userTeams.find(t => t.id === selectedTeamId) && (
+            <div className={`px-4 py-1 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+              {userTeams.find(t => t.id === selectedTeamId)?.name} Roles: {userTeams.find(t => t.id === selectedTeamId)?.roles.join(', ') || 'None'}
+            </div>
+          )}
           <hr className={`my-1 ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`} />
           <Link 
             href="/profile"
@@ -140,12 +96,12 @@ export default function UserBanner({ email, roles }: { email: string; roles: str
           >
             Profile
           </Link>
-          {roles.includes('admin') && (
+          {currentUser?.isAdmin && (
             <Link 
-              href="/admin/roles"
+              href="/admin"
               className={`block px-4 py-2 text-sm ${isDarkMode ? 'text-gray-200 hover:bg-gray-700' : 'text-gray-700 hover:bg-gray-100'}`}
             >
-              Manage Roles
+              Admin Dashboard
             </Link>
           )}
           <button

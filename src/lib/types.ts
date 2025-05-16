@@ -59,4 +59,46 @@ export function getUserTeams(claims: JWTCustomClaims | undefined): { id: string,
 
 export function isTeamCoach(claims: JWTCustomClaims | undefined, teamId: string): boolean {
   return hasTeamRole(claims, teamId, 'coach');
+}
+
+export interface FilmReviewSessionClip {
+  id: string; // UUID
+  clip_id: string; // UUID of the original clip
+  display_order: number;
+  comment?: string;
+  // Potentially include basic clip info here if needed directly, like start/end times
+  // Or fetch clip details separately using clip_id
+}
+
+export interface FilmReviewSession {
+  id: string; // UUID
+  title: string;
+  description?: string;
+  tags?: string[];
+  creator_user_id: string; // UUID
+  team_id: string; // UUID
+  is_private: boolean;
+  created_at: string; // ISO date string
+  updated_at: string; // ISO date string
+  // For the list page, we might not load clips immediately
+  // For the detail page, we would include:
+  // clips?: FilmReviewSessionClip[]; 
+}
+
+// You might also want a type for a session that includes its clips
+export interface FilmReviewSessionWithClips extends FilmReviewSession {
+  clips: FilmReviewSessionClip[];
+  // We would also likely want user details for the creator
+  // creator?: User; // Assuming you have a User type
+}
+
+// Represents a clip from the general video library
+export interface LibraryClip {
+  id: string;
+  title: string;
+  video_id: string;
+  start_time: number;
+  end_time: number;
+  created_by: string | null;
+  created_at: string;
 } 

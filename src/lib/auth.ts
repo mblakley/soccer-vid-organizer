@@ -9,9 +9,9 @@ export interface User {
   teamRoles?: TeamRolesMap;
 }
 
-export interface CustomJwtPayload extends JwtPayload {
-  is_admin?: boolean | null;
-  team_roles?: TeamRolesMap | null;
+interface CustomJwtPayload extends JwtPayload {
+  is_admin?: boolean;
+  team_roles?: TeamRolesMap;
 }
 
 /**
