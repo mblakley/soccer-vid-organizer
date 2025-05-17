@@ -49,8 +49,8 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
    Create a `.env.local` file in the root directory with the following variables:
    ```
    NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-anon-key>
-   SUPABASE_SERVICE_ROLE_KEY=<your-service-role-key>
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-local-anon-key>
+   SUPABASE_SERVICE_ROLE_KEY=<your-local-service-role-key>
    ```
 
    For production, create a `.env.push` file to use when pushing schema changes:
@@ -137,3 +137,42 @@ The application can be deployed on Vercel, the platform from the creators of Nex
 ## License
 
 This project is [GPLv3 licensed](LICENSE).
+
+## Switching Between Local and Cloud Supabase
+
+To easily switch your app between a local Supabase instance and a cloud Supabase project, use environment variable files:
+
+- `.env.local` — for local development (local Supabase)
+- `.env.cloud` — for cloud/production (cloud Supabase)
+
+**Example .env.local:**
+```
+NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-local-anon-key>
+SUPABASE_SERVICE_ROLE_KEY=<your-local-service-role-key>
+```
+
+**Example .env.cloud:**
+```
+NEXT_PUBLIC_SUPABASE_URL=https://your-cloud-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-cloud-anon-key>
+SUPABASE_SERVICE_ROLE_KEY=<your-cloud-service-role-key>
+```
+
+### How to Switch
+
+- To use local Supabase: copy `.env.local` to `.env` (`cp .env.local .env`)
+- To use cloud Supabase: copy `.env.cloud` to `.env` (`cp .env.cloud .env`)
+- Restart your dev server after switching.
+
+### Automation
+
+Add these scripts to your `package.json`:
+```json
+"scripts": {
+  "use:local": "cp .env.local .env",
+  "use:cloud": "cp .env.cloud .env"
+}
+```
+
+Now you can run `npm run use:local` or `npm run use:cloud` to switch environments quickly.

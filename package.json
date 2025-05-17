@@ -8,11 +8,15 @@
     "start": "next start",
     "lint": "next lint",
     "push-db": "dotenv -e .env.push -- supabase db push --include-all",
-    "reset-db": "dotenv -e .env.push -- supabase db reset"
+    "reset-db": "dotenv -e .env.push -- supabase db reset",
+    "use:local": "cp .env.local .env",
+    "use:cloud": "cp .env.cloud .env"
   },
   "dependencies": {
+    "@headlessui/react": "^2.2.3",
     "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@supabase/ssr": "^0.6.1",
+    "@tanstack/react-table": "^8.21.3",
     "client-only": "^0.0.1",
     "date-fns": "^4.1.0",
     "jose": "^6.0.11",

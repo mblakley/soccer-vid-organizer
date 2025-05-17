@@ -28,12 +28,11 @@ const allNavItems: NavItem[] = [
   { id: 'home', path: '/', label: 'Home', icon: Home, global: true },
   {
     id: 'players',
-    label: 'Players',
+    label: 'Player',
     icon: Users,
     isCategory: true,
     teamRequired: true,
     children: [
-      { id: 'team-roster', path: '/team/roster', label: 'Roster', icon: Users, teamRequired: true, requiredRoles: ['coach', 'manager'] },
       { id: 'player-stats', path: '/team/players/stats', label: 'Stats', icon: BarChart3, teamRequired: true, requiredRoles: ['coach', 'manager', 'player'] },
     ]
   },
@@ -69,12 +68,13 @@ const allNavItems: NavItem[] = [
   },
   {
     id: 'teams',
-    label: 'Team',
+    label: 'Teams',
     icon: ShieldCheck,
     isCategory: true,
     teamRequired: true,
     children: [
       { id: 'team-dashboard', path: '/team/dashboard', label: 'Dashboard', icon: BarChart3, teamRequired: true, requiredRoles: ['coach', 'manager'] },
+      { id: 'team-roster', path: '/team/roster', label: 'Roster', icon: Users, teamRequired: true, requiredRoles: ['coach', 'manager'] },
     ]
   },
   {
@@ -88,6 +88,7 @@ const allNavItems: NavItem[] = [
       { id: 'admin-overview', path: '/admin', label: 'Overview', icon: Settings, adminOnly: true, global: true },
       { id: 'admin-users', path: '/admin/users', label: 'Manage Users', icon: Users, adminOnly: true, global: true },
       { id: 'admin-teams', path: '/admin/teams', label: 'Manage Teams', icon: ShieldCheck, adminOnly: true, global: true },
+      { id: 'admin-team-members', path: '/admin/team-members', label: 'Team Members', icon: Users, adminOnly: true, global: true },
     ]
   },
 ];

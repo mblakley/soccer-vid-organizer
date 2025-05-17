@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabaseClient'
 import RequestRoleForm from '@/components/RequestRoleForm'
 import { withAuth } from '@/components/auth'
 import { getCurrentUser } from '@/lib/auth'
