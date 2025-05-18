@@ -28,7 +28,16 @@ export default function UserBanner({ email, roles }: { email: string; roles: str
 
   const handleTeamChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value
-    setSelectedTeamId(value === 'all' ? null : value)
+    const newTeamId = value === 'all' ? null : value
+    
+    // Save selected team ID to localStorage for persistence
+    if (newTeamId) {
+      localStorage.setItem('current_team_id', newTeamId)
+    } else {
+      localStorage.removeItem('current_team_id')
+    }
+    
+    setSelectedTeamId(newTeamId)
   }
 
   const initials = email

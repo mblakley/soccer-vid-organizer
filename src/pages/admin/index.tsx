@@ -33,14 +33,24 @@ function AdminDashboard() {
         // Fetch team member stats
         const { data: teamMembers, error: membersError } = await supabase
           .from('team_members')
-          .select('id, is_active')
+          .select('id, is_active, user_id')
           .eq('is_active', true)
 
         if (teamsError) throw teamsError
         if (membersError) throw membersError
 
+        // Create a set of user IDs that are associated with team members
+        const teamMemberUserIds = new Set(teamMembers?.map(member => member.user_id) || [])
+
         setStats({
-          totalUsers: users.length,
+          totalUsers: users.filter((u: any) => {
+            // Include user if:
+            // 1. Not a temp user OR
+            // 2. Is a temp user but is associated with a team member
+            return !u.email?.startsWith('temp_') || 
+                   !u.email?.endsWith('@placeholder.com') || 
+                   teamMemberUserIds.has(u.id)
+          }).length,
           adminUsers: users.filter((u: any) => u.is_admin).length,
           disabledUsers: users.filter((u: any) => u.user_metadata?.disabled).length,
           totalTeams: teams?.length || 0,
@@ -59,9 +69,7 @@ function AdminDashboard() {
   if (loading) return <div className="p-8">Loading...</div>
 
   return (
-    <div className="p-8">
-      <h1 className="text-2xl font-bold mb-6">Admin Dashboard</h1>
-      
+    <div className="p-8">      
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         <div className={`p-4 rounded-lg shadow ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
           <h3 className="text-lg font-semibold mb-2">Total Users</h3>
@@ -99,18 +107,6 @@ function AdminDashboard() {
           <h2 className="text-xl font-semibold mb-2">User Management</h2>
           <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
             Manage user accounts, disable/enable users, and remove users from the system.
-          </p>
-        </Link>
-
-        <Link 
-          href="/admin/roles" 
-          className={`p-6 rounded-lg shadow hover:shadow-lg transition-shadow ${
-            isDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-white hover:bg-gray-50'
-          }`}
-        >
-          <h2 className="text-xl font-semibold mb-2">Role Management</h2>
-          <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-            Manage admin roles and permissions for users.
           </p>
         </Link>
 

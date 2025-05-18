@@ -41,16 +41,30 @@ const allNavItems: NavItem[] = [
     label: 'Videos',
     icon: VideoIcon,
     isCategory: true,
-    teamRequired: true,
+    global: true,
     children: [
-      { id: 'video-library', path: '/team/videos', label: 'Video Library', icon: VideoIcon, teamRequired: true, requiredRoles: ['coach', 'manager', 'player'] },
-      { id: 'coach-analyze', path: '/coach/analyze', label: 'Analyze Video', icon: FolderKanban, teamRequired: true, requiredRoles: ['coach'] },
+      { 
+        id: 'video-library', 
+        path: '/videos', 
+        label: 'Video Library', 
+        icon: VideoIcon, 
+        global: true,
+        requiredRoles: ['coach', 'manager', 'player', 'parent'] 
+      },
+      { 
+        id: 'analyze-video', 
+        path: '/videos/analyze', 
+        label: 'Analyze Video', 
+        icon: FolderKanban, 
+        teamRequired: true, 
+        requiredRoles: ['coach'] 
+      },
       { 
         id: 'film-review',
         path: '/videos/reviews',
         label: 'Film Review',
         icon: Film,
-        teamRequired: true, 
+        global: true,
         requiredRoles: ['coach', 'manager', 'player', 'parent'] 
       },
     ]
@@ -99,18 +113,47 @@ interface AppSidebarProps {
 }
 
 const isNavItemVisible = (item: NavItem, currentUser: any, selectedTeamId: string | null, selectedTeamRoles: TeamRole[] | null): boolean => {
-  if (item.adminOnly && !currentUser?.isAdmin) return false;
-  if (!item.adminOnly && item.global) {
-    if (item.teamRequired && !selectedTeamId) return false;
+  // Admin pages are always visible to admins, regardless of team selection
+  if (item.adminOnly) {
+    return currentUser?.isAdmin || false;
+  }
+  
+  // If the item is global and doesn't require a team, it's always visible
+  if (!item.adminOnly && item.global && !item.teamRequired) {
     return true;
   }
+
+  // If no team is selected (All Teams view)
+  if (!selectedTeamId) {
+    // For team-required items, check if user has the required roles in ALL teams
+    if (item.teamRequired) {
+      if (!item.requiredRoles || item.requiredRoles.length === 0) return true;
+      
+      // Check if user has the required roles in ALL teams
+      const teamRoles = currentUser?.teamRoles as Record<string, { roles: TeamRole[] }> || {};
+      const teams = Object.values(teamRoles);
+      
+      // If user has no teams, don't show team-required items
+      if (teams.length === 0) return false;
+      
+      // Check if user has the required roles in ALL teams
+      const hasRequiredRolesInAllTeams = teams.every(team => 
+        item.requiredRoles?.some(requiredRole => team.roles.includes(requiredRole))
+      );
+      return hasRequiredRolesInAllTeams;
+    }
+    return false;
+  }
+
+  // For specific team selection
   if (item.teamRequired) {
     if (!selectedTeamId) return false;
     if (!item.requiredRoles || item.requiredRoles.length === 0) return true;
     if (!selectedTeamRoles) return false;
     return item.requiredRoles.some(role => selectedTeamRoles.includes(role));
   }
-  return item.adminOnly && currentUser?.isAdmin;
+
+  return false;
 };
 
 const AppSidebar: React.FC<AppSidebarProps> = ({ isOpen, onClose }) => {

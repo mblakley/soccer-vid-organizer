@@ -19,24 +19,26 @@ interface CustomJwtPayload extends JwtPayload {
  */
 export async function getCurrentUser(): Promise<User | null> {
   try {
+    console.log('[Auth] Getting current user...');
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     if (sessionError) {
-      console.error('Error getting session:', sessionError);
+      console.error('[Auth] Error getting session:', sessionError);
       return null;
     }
     if (!session) {
-      console.log('No session found');
+      console.log('[Auth] No session found');
       return null;
     }
 
     // Get the JWT claims
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError) {
-      console.error('Error getting user:', userError);
+      console.error('[Auth] Error getting user:', userError);
       return null;
     }
 
     if (!user || !session) {
+      console.log('[Auth] No user or session found');
       return null;
     }
     
@@ -46,22 +48,21 @@ export async function getCurrentUser(): Promise<User | null> {
     
     try {
       const jwt = jwtDecode<CustomJwtPayload>(session.access_token);
-      console.log('Raw JWT claims:', jwt);
       isAdmin = jwt.is_admin || false;
       teamRoles = jwt.team_roles || {};
-      console.log('Decoded values:', { isAdmin, teamRoles });
     } catch (error) {
-      console.error("Error decoding JWT:", error);
+      console.error("[Auth] Error decoding JWT:", error);
     }
     
-    return {
+    const userData = {
       id: user.id,
       email: user.email || undefined,
       isAdmin,
       teamRoles
     };
+    return userData;
   } catch (error) {
-    console.error('Error in getCurrentUser:', error);
+    console.error('[Auth] Error in getCurrentUser:', error);
     return null;
   }
 }
@@ -69,30 +70,39 @@ export async function getCurrentUser(): Promise<User | null> {
 /**
  * Redirects the user to the appropriate page based on their role
  */
-export function getRedirectPath(user: User | null): string {
-  console.log('Getting redirect path for user:', user);
+export function getRedirectPath(user: User | null, queryParams?: Record<string, string>): string {
+  console.log('[Auth] Getting redirect path for user:', user);
+  console.log('[Auth] Query params:', queryParams);
   
   if (!user) {
-    console.log('No user, redirecting to login');
+    console.log('[Auth] No user, redirecting to login');
     return '/login';
   }
 
-  // If user is an admin, redirect to admin dashboard
-  if (user.isAdmin) {
-    console.log('User is admin, redirecting to admin dashboard');
-    return '/admin';
-  }
+  // Build query string if there are any params
+  const queryString = queryParams 
+    ? '?' + Object.entries(queryParams)
+        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+        .join('&')
+    : '';
+  console.log('[Auth] Built query string:', queryString);
 
-  // If user has team roles, redirect to team dashboard
+  // If user has team roles, redirect to root
   const teamRoles = user.teamRoles || {};
   if (Object.keys(teamRoles).length > 0) {
-    console.log('User has team roles:', teamRoles);
-    return '/team/dashboard';
+    console.log('[Auth] User has team roles:', teamRoles);
+    return `/${queryString}`;
+  }
+
+  // If user is an admin but has no team roles, redirect to admin dashboard
+  if (user.isAdmin) {
+    console.log('[Auth] User is admin with no team roles, redirecting to admin dashboard');
+    return `/admin${queryString}`;
   }
 
   // If user has no roles, redirect to role request page
-  console.log('User has no roles, redirecting to role request page');
-  return '/role-request';
+  console.log('[Auth] User has no roles, redirecting to role request page');
+  return `/role-request${queryString}`;
 }
 
 /**

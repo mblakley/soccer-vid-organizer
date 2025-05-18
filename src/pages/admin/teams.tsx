@@ -5,8 +5,19 @@ import { useTheme } from '@/contexts/ThemeContext'
 import ThemeToggle from '@/components/ThemeToggle'
 import { withAdminAuth } from '@/components/auth'
 import { User } from '@supabase/supabase-js'
-import { Pencil, Eye } from 'lucide-react'
+import { Pencil, Eye, ArrowLeft } from 'lucide-react'
 import { toast } from 'react-toastify'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import {
+  createColumnHelper,
+  flexRender,
+  getCoreRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+  SortingState,
+} from '@tanstack/react-table'
 
 interface AuthUser {
   id: string
@@ -43,7 +54,10 @@ interface TeamMember {
   user_name?: string
 }
 
+const columnHelper = createColumnHelper<Team>()
+
 function TeamsPage() {
+  const router = useRouter()
   const [newTeam, setNewTeam] = useState({
     name: '',
     club_affiliation: '',
@@ -61,6 +75,69 @@ function TeamsPage() {
   const [editingTeamId, setEditingTeamId] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [sorting, setSorting] = useState<SortingState>([])
+  const [showTeamModal, setShowTeamModal] = useState(false)
+
+  const columns = [
+    columnHelper.accessor('name', {
+      header: 'Name',
+      cell: info => info.getValue(),
+    }),
+    columnHelper.accessor('club_affiliation', {
+      header: 'Club Affiliation',
+      cell: info => info.getValue() || '-',
+    }),
+    columnHelper.accessor('season', {
+      header: 'Season',
+      cell: info => info.getValue() || '-',
+    }),
+    columnHelper.accessor('age_group', {
+      header: 'Age Group',
+      cell: info => info.getValue() || '-',
+    }),
+    columnHelper.accessor('gender', {
+      header: 'Gender',
+      cell: info => info.getValue() || '-',
+    }),
+    columnHelper.accessor('created_at', {
+      header: 'Created',
+      cell: info => info.getValue() ? new Date(info.getValue()!).toLocaleDateString() : '-',
+    }),
+    columnHelper.display({
+      id: 'actions',
+      header: 'Actions',
+      cell: props => (
+        <div className="flex gap-2">
+          <button
+            onClick={() => handleEditClick(props.row.original)}
+            className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-200 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+            title="Edit Team"
+          >
+            <Pencil size={20} />
+          </button>
+          <button
+            onClick={() => router.push(`/admin/team-members?teamId=${props.row.original.id}`)}
+            className="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-200 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+            title="View Team Members"
+          >
+            <Eye size={20} />
+          </button>
+        </div>
+      ),
+    }),
+  ]
+
+  const table = useReactTable({
+    data: teams,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    onSortingChange: setSorting,
+    state: {
+      sorting,
+    },
+  })
 
   useEffect(() => {
     fetchTeams()
@@ -181,12 +258,11 @@ function TeamsPage() {
       gender: teamToEdit.gender || '',
       additional_info: teamToEdit.additional_info || {}
     });
-    // Scroll to form if desired (optional)
-    // window.scrollTo({ top: 0, behavior: 'smooth' });
+    setShowTeamModal(true);
   };
 
-  // Handle canceling an edit
-  const handleCancelEdit = () => {
+  // Handle opening the create team modal
+  const handleCreateClick = () => {
     setEditingTeamId(null);
     setNewTeam({
       name: '',
@@ -196,6 +272,14 @@ function TeamsPage() {
       gender: '',
       additional_info: {}
     });
+    setShowTeamModal(true);
+  };
+
+  // Handle closing the team modal
+  const handleCloseTeamModal = () => {
+    setShowTeamModal(false);
+    setEditingTeamId(null);
+    setFormError(null);
   };
 
   const handleSaveTeam = async (e: React.FormEvent) => {
@@ -255,103 +339,35 @@ function TeamsPage() {
           <ThemeToggle />
         </div>
 
-        {/* Create Team Form */}
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold mb-4">
-            {editingTeamId ? `Edit Team: ${teams.find(t => t.id === editingTeamId)?.name || ''}` : 'Create New Team'}
-          </h2>
-          {formError && (
-            <div className={`mb-4 p-3 text-sm rounded ${isDarkMode ? 'bg-red-800 text-red-200' : 'bg-red-100 text-red-700'}`} role="alert">
-              {formError}
-            </div>
-          )}
-          <form onSubmit={handleSaveTeam} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Team Name</label>
-              <input
-                type="text"
-                value={newTeam.name}
-                onChange={(e) => setNewTeam({ ...newTeam, name: e.target.value })}
-                className={`w-full p-2 rounded border ${
-                  isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
-                }`}
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Club Affiliation</label>
-              <input
-                type="text"
-                value={newTeam.club_affiliation}
-                onChange={(e) => setNewTeam({ ...newTeam, club_affiliation: e.target.value })}
-                className={`w-full p-2 rounded border ${
-                  isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
-                }`}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Season</label>
-              <input
-                type="text"
-                value={newTeam.season}
-                onChange={(e) => setNewTeam({ ...newTeam, season: e.target.value })}
-                className={`w-full p-2 rounded border ${
-                  isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
-                }`}
-                placeholder="e.g., 2024 Spring"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Age Group</label>
-              <input
-                type="text"
-                value={newTeam.age_group}
-                onChange={(e) => setNewTeam({ ...newTeam, age_group: e.target.value })}
-                className={`w-full p-2 rounded border ${
-                  isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
-                }`}
-                placeholder="e.g., U12, U14, etc."
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Gender</label>
-              <select
-                value={newTeam.gender}
-                onChange={(e) => setNewTeam({ ...newTeam, gender: e.target.value })}
-                className={`w-full p-2 rounded border ${
-                  isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
-                }`}
-              >
-                <option value="">Not Specified</option>
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-                <option value="Co-ed">Co-ed</option>
-                <option value="Other">Other</option>
-              </select>
-            </div>
-            <div className="flex space-x-2">
-              <button
-                type="submit"
-                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-              >
-                {editingTeamId ? 'Update Team' : 'Create Team'}
-              </button>
-              {editingTeamId && (
-                <button
-                  type="button"
-                  onClick={handleCancelEdit}
-                  className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
-                >
-                  Cancel
-                </button>
-              )}
-            </div>
-          </form>
+        <div className="mb-6">
+          <Link 
+            href="/admin" 
+            className={`inline-flex items-center px-4 py-2 rounded-md ${
+              isDarkMode 
+                ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' 
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Dashboard
+          </Link>
         </div>
 
         {/* Teams List */}
-        <div className="mt-8">
-          <h2 className="text-2xl font-bold mb-4">All Teams</h2>
+        <div className="mb-8">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold">All Teams</h2>
+            <button
+              onClick={handleCreateClick}
+              className={`px-4 py-2 rounded-md ${
+                isDarkMode
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'bg-blue-500 text-white hover:bg-blue-600'
+              }`}
+            >
+              Create New Team
+            </button>
+          </div>
           {pageError && (
             <div className={`mb-4 p-3 text-sm rounded ${isDarkMode ? 'bg-red-800 text-red-200' : 'bg-red-100 text-red-700'}`} role="alert">
               {pageError}
@@ -365,109 +381,207 @@ function TeamsPage() {
             <div className="overflow-x-auto">
               <table className={`min-w-full divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'}`}>
                 <thead className={isDarkMode ? 'bg-gray-800' : 'bg-gray-50'}>
-                  <tr>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Name</th>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Club Affiliation</th>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Season</th>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Age Group</th>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Gender</th>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Created</th>
-                    <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Actions</th>
-                  </tr>
+                  {table.getHeaderGroups().map(headerGroup => (
+                    <tr key={headerGroup.id}>
+                      {headerGroup.headers.map(header => (
+                        <th
+                          key={header.id}
+                          className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${
+                            isDarkMode ? 'text-gray-300' : 'text-gray-500'
+                          }`}
+                        >
+                          {header.isPlaceholder ? null : (
+                            <div
+                              {...{
+                                className: header.column.getCanSort()
+                                  ? 'cursor-pointer select-none'
+                                  : '',
+                                onClick: header.column.getToggleSortingHandler(),
+                              }}
+                            >
+                              {flexRender(
+                                header.column.columnDef.header,
+                                header.getContext()
+                              )}
+                              {{
+                                asc: ' 🔼',
+                                desc: ' 🔽',
+                              }[header.column.getIsSorted() as string] ?? null}
+                            </div>
+                          )}
+                        </th>
+                      ))}
+                    </tr>
+                  ))}
                 </thead>
                 <tbody className={`divide-y ${isDarkMode ? 'divide-gray-700 bg-gray-900' : 'divide-gray-200 bg-white'}`}>
-                  {teams.map((team) => (
-                    <tr 
-                      key={team.id}
-                    >
-                      <td 
-                        className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}
-                      >
-                        {team.name}
-                      </td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>{team.club_affiliation || '-'}</td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>{team.season || '-'}</td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>{team.age_group || '-'}</td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>{team.gender || '-'}</td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
-                        {team.created_at ? new Date(team.created_at).toLocaleDateString() : '-'}
-                      </td>
-                      <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-500'} space-x-2`}>
-                        <button
-                          onClick={() => handleEditClick(team)}
-                          className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-200 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
-                          title="Edit Team"
+                  {table.getRowModel().rows.map(row => (
+                    <tr key={row.id}>
+                      {row.getVisibleCells().map(cell => (
+                        <td
+                          key={cell.id}
+                          className={`px-6 py-4 whitespace-nowrap text-sm ${
+                            isDarkMode ? 'text-gray-300' : 'text-gray-500'
+                          }`}
                         >
-                          <Pencil size={20} />
-                        </button>
-                        <button
-                          onClick={() => handleTeamClick(team)}
-                          className="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-200 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
-                          title="View Team Members"
-                        >
-                          <Eye size={20} />
-                        </button>
-                      </td>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
+
+          <div className="mt-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                className={`px-3 py-1 rounded ${
+                  isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'
+                }`}
+                onClick={() => table.setPageIndex(0)}
+                disabled={!table.getCanPreviousPage()}
+              >
+                {'<<'}
+              </button>
+              <button
+                className={`px-3 py-1 rounded ${
+                  isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'
+                }`}
+                onClick={() => table.previousPage()}
+                disabled={!table.getCanPreviousPage()}
+              >
+                {'<'}
+              </button>
+              <button
+                className={`px-3 py-1 rounded ${
+                  isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'
+                }`}
+                onClick={() => table.nextPage()}
+                disabled={!table.getCanNextPage()}
+              >
+                {'>'}
+              </button>
+              <button
+                className={`px-3 py-1 rounded ${
+                  isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'
+                }`}
+                onClick={() => table.setPageIndex(table.getPageCount() - 1)}
+                disabled={!table.getCanNextPage()}
+              >
+                {'>>'}
+              </button>
+            </div>
+            <span className="text-sm text-gray-700 dark:text-gray-300">
+              Page {table.getState().pagination.pageIndex + 1} of{' '}
+              {table.getPageCount()}
+            </span>
+          </div>
         </div>
 
-        {/* Team Members Modal */}
-        {selectedTeam && (
+        {/* Team Form Modal */}
+        {showTeamModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
             <div className={`${isDarkMode ? 'bg-gray-800' : 'bg-white'} rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto`}>
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-bold">{selectedTeam.name} - Team Members</h3>
+                <h3 className="text-xl font-bold">
+                  {editingTeamId ? `Edit Team: ${teams.find(t => t.id === editingTeamId)?.name || ''}` : 'Create New Team'}
+                </h3>
                 <button
-                  onClick={() => setSelectedTeam(null)}
+                  onClick={handleCloseTeamModal}
                   className="text-gray-500 hover:text-gray-700"
                 >
                   ✕
                 </button>
               </div>
 
-              {loadingMembers ? (
-                <div className="flex justify-center py-4">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                </div>
-              ) : teamMembers.length === 0 ? (
-                <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>No team members found</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className={`min-w-full divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'}`}>
-                    <thead className={isDarkMode ? 'bg-gray-700' : 'bg-gray-50'}>
-                      <tr>
-                        <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Name</th>
-                        <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Email</th>
-                        <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Roles</th>
-                        <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>Joined</th>
-                      </tr>
-                    </thead>
-                    <tbody className={`divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'}`}>
-                      {teamMembers.map((member) => (
-                        <tr key={member.id} className={isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-50'}>
-                          <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
-                            {member.user_name}
-                          </td>
-                          <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
-                            {member.user_email}
-                          </td>
-                          <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
-                            {member.roles.join(', ')}
-                          </td>
-                          <td className={`px-6 py-4 whitespace-nowrap text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
-                            {new Date(member.joined_date).toLocaleDateString()}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              {formError && (
+                <div className={`mb-4 p-3 text-sm rounded ${isDarkMode ? 'bg-red-800 text-red-200' : 'bg-red-100 text-red-700'}`} role="alert">
+                  {formError}
                 </div>
               )}
+
+              <form onSubmit={handleSaveTeam} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Team Name</label>
+                  <input
+                    type="text"
+                    value={newTeam.name}
+                    onChange={(e) => setNewTeam({ ...newTeam, name: e.target.value })}
+                    className={`w-full p-2 rounded border ${
+                      isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
+                    }`}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Club Affiliation</label>
+                  <input
+                    type="text"
+                    value={newTeam.club_affiliation}
+                    onChange={(e) => setNewTeam({ ...newTeam, club_affiliation: e.target.value })}
+                    className={`w-full p-2 rounded border ${
+                      isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
+                    }`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Season</label>
+                  <input
+                    type="text"
+                    value={newTeam.season}
+                    onChange={(e) => setNewTeam({ ...newTeam, season: e.target.value })}
+                    className={`w-full p-2 rounded border ${
+                      isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
+                    }`}
+                    placeholder="e.g., 2024 Spring"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Age Group</label>
+                  <input
+                    type="text"
+                    value={newTeam.age_group}
+                    onChange={(e) => setNewTeam({ ...newTeam, age_group: e.target.value })}
+                    className={`w-full p-2 rounded border ${
+                      isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
+                    }`}
+                    placeholder="e.g., U12, U14, etc."
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Gender</label>
+                  <select
+                    value={newTeam.gender}
+                    onChange={(e) => setNewTeam({ ...newTeam, gender: e.target.value })}
+                    className={`w-full p-2 rounded border ${
+                      isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
+                    }`}
+                  >
+                    <option value="">Not Specified</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Co-ed">Co-ed</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div className="flex space-x-2">
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  >
+                    {editingTeamId ? 'Update Team' : 'Create Team'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCloseTeamModal}
+                    className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
@@ -476,4 +590,4 @@ function TeamsPage() {
   )
 }
 
-export default withAdminAuth(TeamsPage)
+export default withAdminAuth(TeamsPage, 'Team Management')

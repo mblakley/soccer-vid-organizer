@@ -2,14 +2,38 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Create custom types
-CREATE TYPE team_member_role AS ENUM ('player', 'coach', 'manager', 'parent', 'analyst');
-CREATE TYPE game_status AS ENUM ('scheduled', 'in_progress', 'completed', 'cancelled');
-CREATE TYPE attendance_status AS ENUM ('Available', 'Unavailable', 'Injured', 'Partial', 'Unknown');
-CREATE TYPE video_type AS ENUM ('full_game', 'highlights', 'analysis', 'other');
-CREATE TYPE counter_type AS ENUM ('standard', 'resettable', 'player-based');
-CREATE TYPE timer_type AS ENUM ('standard', 'player-based');
-CREATE TYPE comment_visibility AS ENUM ('coach', 'player', 'both');
-CREATE TYPE gender_type AS ENUM ('male', 'female', 'unknown');
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'team_member_role') THEN
+        CREATE TYPE team_member_role AS ENUM ('player', 'coach', 'manager', 'parent', 'analyst');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'game_status') THEN
+        CREATE TYPE game_status AS ENUM ('scheduled', 'in_progress', 'completed', 'cancelled');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'attendance_status') THEN
+        CREATE TYPE attendance_status AS ENUM ('Available', 'Unavailable', 'Injured', 'Partial', 'Unknown');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'video_type') THEN
+        CREATE TYPE video_type AS ENUM ('full_game', 'highlights', 'analysis', 'other');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'counter_type') THEN
+        CREATE TYPE counter_type AS ENUM ('standard', 'resettable', 'player-based');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'timer_type') THEN
+        CREATE TYPE timer_type AS ENUM ('standard', 'player-based');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'comment_visibility') THEN
+        CREATE TYPE comment_visibility AS ENUM ('coach', 'player', 'both');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'gender_type') THEN
+        CREATE TYPE gender_type AS ENUM ('male', 'female', 'unknown');
+    END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION get_team_member_roles()
+RETURNS text[] AS $$
+  SELECT enum_range(NULL::team_member_role)::text[];
+$$ LANGUAGE sql STABLE;
 
 -- Create tables
 CREATE TABLE IF NOT EXISTS teams (
@@ -368,13 +392,143 @@ $$;
 -- Grant execute permission to supabase_auth_admin
 GRANT EXECUTE ON FUNCTION public.jwt_custom_claims(jsonb) TO supabase_auth_admin;
 
+-- Create table to track placeholder users that need cleanup
+CREATE TABLE IF NOT EXISTS placeholder_users_cleanup (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  placeholder_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  real_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT now(),
+  cleaned_at TIMESTAMP,
+  is_cleaned BOOLEAN DEFAULT FALSE
+);
+
+ALTER TABLE placeholder_users_cleanup DISABLE ROW LEVEL SECURITY;
+GRANT ALL ON placeholder_users_cleanup TO authenticated;
+
+-- Create function to track user_id changes in team_members
+CREATE OR REPLACE FUNCTION track_user_id_change()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- If the user_id has changed
+  IF OLD.user_id != NEW.user_id THEN
+    -- Check if the old user_id is for a placeholder user (email with placeholder.com)
+    DECLARE
+      old_user_email TEXT;
+    BEGIN
+      SELECT email INTO old_user_email FROM auth.users WHERE id = OLD.user_id;
+      
+      IF old_user_email LIKE 'temp_%@placeholder.com' THEN
+        -- Add record to cleanup table
+        INSERT INTO placeholder_users_cleanup 
+          (placeholder_user_id, real_user_id)
+        VALUES 
+          (OLD.user_id, NEW.user_id);
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      -- Log error but continue
+      RAISE WARNING 'Error checking old user email: %', SQLERRM;
+    END;
+  END IF;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Drop trigger if it exists before creating it
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_trigger 
+    WHERE tgname = 'team_member_user_id_change'
+  ) THEN
+    DROP TRIGGER team_member_user_id_change ON team_members;
+  END IF;
+END $$;
+
+-- Create trigger on team_members table
+CREATE TRIGGER team_member_user_id_change
+AFTER UPDATE OF user_id ON team_members
+FOR EACH ROW
+EXECUTE FUNCTION track_user_id_change();
+
+-- Create function to handle new user login and cleanup
+CREATE OR REPLACE FUNCTION handle_user_login()
+RETURNS TRIGGER AS $$
+DECLARE
+  placeholder_ids UUID[];
+BEGIN
+  -- Check if this is the first login (last_sign_in_at was null before)
+  IF OLD.last_sign_in_at IS NULL AND NEW.last_sign_in_at IS NOT NULL THEN
+    -- Insert default user role if it doesn't exist
+    INSERT INTO user_roles (user_id, is_admin)
+    VALUES (NEW.id, false)
+    ON CONFLICT (user_id) DO NOTHING;
+  END IF;
+
+  -- Find placeholder users ready for cleanup where real user has logged in
+  SELECT array_agg(placeholder_user_id) INTO placeholder_ids
+  FROM placeholder_users_cleanup
+  WHERE real_user_id = NEW.id
+    AND is_cleaned = FALSE;
+    
+  -- If we have placeholder users to clean up
+  IF placeholder_ids IS NOT NULL AND array_length(placeholder_ids, 1) > 0 THEN
+    -- Mark as cleaned
+    UPDATE placeholder_users_cleanup
+    SET is_cleaned = TRUE,
+        cleaned_at = now()
+    WHERE placeholder_user_id = ANY(placeholder_ids);
+    
+    -- Delete the placeholder users from auth.users
+    -- Note: This requires auth admin privileges
+    FOR i IN 1..array_length(placeholder_ids, 1) LOOP
+      BEGIN
+        PERFORM supabase_functions.http(
+          'POST',
+          'http://auth:9999/admin/users/' || placeholder_ids[i],
+          ARRAY[
+            ARRAY['Authorization', 'Bearer ' || current_setting('request.jwt.claim.service_role', TRUE)],
+            ARRAY['Content-Type', 'application/json']
+          ],
+          '{"should_soft_delete": false}'::jsonb
+        );
+      EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'Failed to delete placeholder user %: %', placeholder_ids[i], SQLERRM;
+      END;
+    END LOOP;
+  END IF;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Drop triggers if they exist before creating new one
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_trigger 
+    WHERE tgname = 'user_login_handler'
+  ) THEN
+    DROP TRIGGER user_login_cleanup_placeholders ON auth.users;
+  END IF;
+END $$;
+
+-- Create single trigger on auth.users table for login events
+CREATE TRIGGER user_login_handler
+AFTER UPDATE OF last_sign_in_at ON auth.users
+FOR EACH ROW
+WHEN (OLD.last_sign_in_at IS NULL AND NEW.last_sign_in_at IS NOT NULL)
+EXECUTE FUNCTION handle_user_login();
+
 -- Insert default "pending" team
 INSERT INTO teams (id, name, club_affiliation, season, age_group, gender)
-VALUES (
+SELECT 
     '00000000-0000-0000-0000-000000000000',
     'Pending',
     'System',
     '2025',
     'All',
     'Unknown'
+WHERE NOT EXISTS (
+    SELECT 1 FROM teams WHERE id = '00000000-0000-0000-0000-000000000000'
 );

@@ -46,18 +46,40 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       throw new Error(`Failed to fetch users: ${usersError.message}`)
     }
 
-    // Combine user data with their admin status
-    const usersWithRoles = users.users.map(user => {
-      const userRole = roleData?.find(r => r.user_id === user.id)
-      return {
-        id: user.id,
-        email: user.email,
-        is_admin: userRole?.is_admin || false,
-        created_at: user.created_at,
-        last_sign_in_at: user.last_sign_in_at,
-        user_metadata: user.user_metadata
-      }
-    })
+    // Fetch team members to check for associations
+    const { data: teamMembers, error: teamMembersError } = await supabaseAdmin
+      .from('team_members')
+      .select('user_id')
+      .eq('is_active', true)
+
+    if (teamMembersError) {
+      throw new Error(`Failed to fetch team members: ${teamMembersError.message}`)
+    }
+
+    // Create a set of user IDs that are associated with team members
+    const teamMemberUserIds = new Set(teamMembers?.map(member => member.user_id) || [])
+
+    // Combine user data with their admin status and filter out unassociated temp users
+    const usersWithRoles = users.users
+      .filter(user => {
+        // Include user if:
+        // 1. Not a temp user OR
+        // 2. Is a temp user but is associated with a team member
+        return !user.email?.startsWith('temp_') || 
+               !user.email?.endsWith('@placeholder.com') || 
+               teamMemberUserIds.has(user.id)
+      })
+      .map(user => {
+        const userRole = roleData?.find(r => r.user_id === user.id)
+        return {
+          id: user.id,
+          email: user.email,
+          is_admin: userRole?.is_admin || false,
+          created_at: user.created_at,
+          last_sign_in_at: user.last_sign_in_at,
+          user_metadata: user.user_metadata
+        }
+      })
 
     res.status(200).json(usersWithRoles)
   } catch (error: any) {

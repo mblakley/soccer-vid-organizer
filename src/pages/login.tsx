@@ -16,58 +16,107 @@ export default function LoginPage() {
 
   const handleLogin = async () => {
     try {
+      console.log("[Login] Starting login process")
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) {
+        console.error("[Login] Login error:", error)
         setError(error.message)
         return
       }
       
+      // Pass the team_id from URL if it exists
+      const teamId = router.query.team_id as string
+      console.log("[Login] URL team_id parameter for redirect:", teamId)
+      const queryParams = teamId ? { team_id: teamId } : undefined
+      console.log("[Login] Query params for redirect:", queryParams)
+      
       const userData = await getCurrentUser()
-      const redirectPath = getRedirectPath(userData)
+      console.log("[Login] User data after login:", userData)
+      const redirectPath = getRedirectPath(userData, queryParams)
+      console.log("[Login] Redirecting to after login:", redirectPath)
       router.push(redirectPath)
     } catch (error: any) {
+      console.error("[Login] Error during login:", error)
       setError(error.message || 'An error occurred during login')
     }
   }
 
   const handleGoogleLogin = async () => {
-    console.log("Starting Google login...")
+    console.log("[Login] Starting Google login...")
+    // Get team_id from URL if it exists
+    const teamId = router.query.team_id as string
+    console.log("[Login] Preserving team_id for Google login:", teamId)
+    
+    // Build the full redirect URL with team_id
+    const redirectUrl = new URL('/login', window.location.origin)
+    if (teamId) {
+      redirectUrl.searchParams.set('team_id', teamId)
+    }
+    console.log("[Login] Full redirect URL:", redirectUrl.toString())
+    
+    // Store the team_id in sessionStorage as a backup
+    if (teamId) {
+      sessionStorage.setItem('pending_team_id', teamId)
+      console.log("[Login] Stored team_id in sessionStorage:", teamId)
+    }
+    
     const { data, error } = await supabase.auth.signInWithOAuth({ 
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/login`
+        redirectTo: redirectUrl.toString(),
+        queryParams: teamId ? { team_id: teamId } : undefined
       }
     })
     
     if (error) {
-      console.error("Google login error:", error)
+      console.error("[Login] Google login error:", error)
       setError(error.message)
     } else {
-      console.log("Google OAuth initiated, waiting for redirect back")
+      console.log("[Login] Google OAuth initiated, waiting for redirect back")
     }
   }
 
   useEffect(() => {
-    console.log("Login page loaded, checking session...")
+    console.log("[Login] Login page loaded, checking session...")
     const handleAuthRedirect = async () => {
       setError(''); // Clear error on auth check
       const { data: sessionData } = await supabase.auth.getSession()
       const session = sessionData.session
       
+      // Get team_id from URL query if it exists (for later use in redirect)
+      const teamId = router.query.team_id as string
+      console.log("[Login] URL team_id parameter:", teamId)
+      
+      // Check sessionStorage for pending team_id
+      const pendingTeamId = sessionStorage.getItem('pending_team_id')
+      console.log("[Login] Pending team_id from sessionStorage:", pendingTeamId)
+      
+      // Use either URL team_id or pending team_id
+      const finalTeamId = teamId || pendingTeamId
+      if (finalTeamId) {
+        console.log("[Login] Using final team_id:", finalTeamId)
+        // Clear the pending team_id
+        sessionStorage.removeItem('pending_team_id')
+      }
+      
       if (session) {
-        console.log("Found session after redirect:", session)
+        console.log("[Login] Found session after redirect:", session)
         try {
           const userData = await getCurrentUser()
-          console.log("User data:", userData)
+          console.log("[Login] User data:", userData)
+          
+          // Don't pass team_id in query params, let TeamContext handle it
           const redirectPath = getRedirectPath(userData)
-          router.push(redirectPath)
+          console.log("[Login] Redirecting to:", redirectPath)
+          
+          // Use replace instead of push to avoid adding to browser history
+          router.replace(redirectPath)
         } catch (error: any) {
-          console.error("Error processing session:", error)
-          // toast.error('An error occurred. Please try again.');
+          console.error("[Login] Error processing session:", error)
           setError(error.message || 'An error occurred while processing your session. Please try logging in again.');
         }
       } else {
-        console.log("No session found - user needs to log in")
+        console.log("[Login] No session found - user needs to log in")
       }
     }
 
