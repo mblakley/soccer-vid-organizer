@@ -42,6 +42,7 @@ const allNavItems: NavItem[] = [
     icon: VideoIcon,
     isCategory: true,
     global: true,
+    requiredRoles: ['coach', 'manager', 'player', 'parent'],
     children: [
       { 
         id: 'video-library', 
@@ -119,8 +120,19 @@ const isNavItemVisible = (item: NavItem, currentUser: any, selectedTeamId: strin
   }
   
   // If the item is global and doesn't require a team, it's always visible
-  if (!item.adminOnly && item.global && !item.teamRequired) {
+  if (!item.adminOnly && item.global && !item.teamRequired && !item.requiredRoles) {
     return true;
+  }
+
+  // Check if user has any roles at all
+  const teamRoles = currentUser?.teamRoles as Record<string, { roles: TeamRole[] }> || {};
+  const hasAnyRoles = Object.values(teamRoles).some((team: any) => 
+    team.roles && Array.isArray(team.roles) && team.roles.length > 0
+  );
+  
+  // If user has no roles and the item requires roles, don't show it
+  if (!hasAnyRoles && (item.requiredRoles || item.teamRequired)) {
+    return false;
   }
 
   // If no team is selected (All Teams view)
@@ -130,7 +142,6 @@ const isNavItemVisible = (item: NavItem, currentUser: any, selectedTeamId: strin
       if (!item.requiredRoles || item.requiredRoles.length === 0) return true;
       
       // Check if user has the required roles in ALL teams
-      const teamRoles = currentUser?.teamRoles as Record<string, { roles: TeamRole[] }> || {};
       const teams = Object.values(teamRoles);
       
       // If user has no teams, don't show team-required items
@@ -206,14 +217,14 @@ const AppSidebar: React.FC<AppSidebarProps> = ({ isOpen, onClose }) => {
       }
 
       return (
-        <Link href={item.path!} key={item.id} legacyBehavior>
-          <a
-            onClick={onClose}
-            className={`flex items-center space-x-3 p-2 rounded-md cursor-pointer text-sm ${isDarkMode ? 'hover:bg-gray-700 hover:text-white' : 'hover:bg-gray-100 hover:text-gray-900'} ${isSubmenu ? 'ml-4' : ''}`}
-          >
-            {item.icon && <item.icon size={18} className="flex-shrink-0" />}
-            <span>{item.label}</span>
-          </a>
+        <Link 
+          href={item.path!} 
+          key={item.id}
+          onClick={onClose}
+          className={`flex items-center space-x-3 p-2 rounded-md cursor-pointer text-sm ${isDarkMode ? 'hover:bg-gray-700 hover:text-white' : 'hover:bg-gray-100 hover:text-gray-900'} ${isSubmenu ? 'ml-4' : ''}`}
+        >
+          {item.icon && <item.icon size={18} className="flex-shrink-0" />}
+          <span>{item.label}</span>
         </Link>
       );
     }).filter(Boolean);

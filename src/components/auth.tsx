@@ -7,6 +7,7 @@ import AppLayout from './AppLayout'
 type TeamRoleRequirement = {
   teamId: string | 'any';
   roles: TeamRole[];
+  requireRole?: boolean; // If false, allows access even without roles
 }
 
 /**
@@ -36,8 +37,8 @@ export function withAuth(
             return
           }
           
-          // If team roles are specified, check permissions
-          if (teamRole) {
+          // If team roles are specified and required, check permissions
+          if (teamRole && teamRole.requireRole !== false) {
             let hasAccess = false
             
             // Check team-specific roles

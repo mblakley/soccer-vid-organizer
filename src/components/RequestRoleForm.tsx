@@ -1,29 +1,84 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTheme } from '@/contexts/ThemeContext'
 import { supabase } from '@/lib/supabaseClient'
 
-const ALL_ROLES = [
-  { value: 'coach', label: 'Coach' },
-  { value: 'player', label: 'Player' },
-  { value: 'parent', label: 'Parent' },
-]
+interface RequestRoleFormProps {
+  userRoles?: string[];
+  pendingRoles?: string[];
+  teamId?: string;
+  teamName?: string;
+  onSubmissionComplete?: () => void;
+}
 
-export default function RequestRoleForm({ userRoles = [], pendingRoles = [] }: { userRoles?: string[]; pendingRoles?: string[] }) {
+// Define incompatible role pairs
+const INCOMPATIBLE_ROLES: Record<string, string[]> = {
+  'parent': ['player'],
+  'player': ['parent']
+}
+
+export default function RequestRoleForm({ userRoles = [], pendingRoles = [], teamId, teamName, onSubmissionComplete }: RequestRoleFormProps) {
   const [requestedRole, setRequestedRole] = useState('')
+  const [playerName, setPlayerName] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [availableRoles, setAvailableRoles] = useState<{ value: string, label: string }[]>([])
   const { isDarkMode } = useTheme()
 
-  // Exclude roles the user already has (active or pending)
+  useEffect(() => {
+    const fetchRoles = async () => {
+      try {
+        const { data, error } = await supabase
+          .rpc('get_team_member_roles')
+
+        if (error) {
+          console.error('Error fetching roles:', error)
+          return
+        }
+
+        if (data) {
+          // Convert role values to proper format with labels
+          const formattedRoles = data.map((role: string) => ({
+            value: role,
+            label: role.charAt(0).toUpperCase() + role.slice(1)
+          }))
+          setAvailableRoles(formattedRoles)
+        }
+      } catch (error) {
+        console.error('Error in fetchRoles:', error)
+      }
+    }
+
+    fetchRoles()
+  }, [])
+
+  // Get roles that are unavailable due to existing assignments or pending requests
   const unavailableRoles = new Set([...(userRoles || []), ...(pendingRoles || [])])
-  const availableRoles = ALL_ROLES.filter(r => !unavailableRoles.has(r.value))
+
+  // Get roles that are incompatible with current roles
+  const incompatibleRoles = new Set<string>()
+  for (const existingRole of userRoles) {
+    const incompatible = INCOMPATIBLE_ROLES[existingRole] || []
+    incompatible.forEach(role => incompatibleRoles.add(role))
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
     if (!requestedRole) {
       setError('Please select a role to request')
+      return
+    }
+
+    // Prevent submitting incompatible roles
+    if (incompatibleRoles.has(requestedRole)) {
+      setError('This role is incompatible with your current roles')
+      return
+    }
+    
+    // Validate player name is provided for parent role
+    if (requestedRole === 'parent' && !playerName.trim()) {
+      setError('Please enter your player\'s name')
       return
     }
     
@@ -39,13 +94,23 @@ export default function RequestRoleForm({ userRoles = [], pendingRoles = [] }: {
         return
       }
 
+      const requestBody: any = { requestedRole }
+      if (teamId) {
+        requestBody.teamId = teamId
+      }
+      
+      // Include player name for parent role requests
+      if (requestedRole === 'parent') {
+        requestBody.playerName = playerName.trim()
+      }
+
       const response = await fetch('/api/request-role', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${sessionData.session.access_token}`
         },
-        body: JSON.stringify({ requestedRole })
+        body: JSON.stringify(requestBody)
       })
       
       const data = await response.json()
@@ -55,6 +120,12 @@ export default function RequestRoleForm({ userRoles = [], pendingRoles = [] }: {
       } else {
         setMessage(data.message || 'Role request submitted successfully')
         setRequestedRole('')
+        setPlayerName('')
+        
+        // Call the onSubmissionComplete callback if provided
+        if (onSubmissionComplete) {
+          onSubmissionComplete()
+        }
       }
     } catch (err: any) {
       setError(err.message || 'An error occurred while submitting your request')
@@ -62,10 +133,21 @@ export default function RequestRoleForm({ userRoles = [], pendingRoles = [] }: {
       setIsSubmitting(false)
     }
   }
+
+  const handleRoleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const role = e.target.value
+    setRequestedRole(role)
+    // Clear player name if not selecting parent role
+    if (role !== 'parent') {
+      setPlayerName('')
+    }
+  }
   
   return (
     <div className={`p-4 border rounded-lg ${isDarkMode ? 'bg-gray-800 text-white border-gray-700' : 'bg-white text-gray-900 border-gray-200'} shadow-sm max-w-md`}>
-      <h2 className="text-xl font-semibold mb-4">Request a Role</h2>
+      <h2 className="text-xl font-semibold mb-4">
+        {teamId ? `Request a Role for ${teamName || 'Team'}` : 'Request a Role'}
+      </h2>
       
       {message && (
         <div className={`${isDarkMode ? 'bg-green-900 border-green-800 text-green-200' : 'bg-green-100 border-green-400 text-green-700'} px-4 py-3 rounded mb-4 border`}>
@@ -91,31 +173,61 @@ export default function RequestRoleForm({ userRoles = [], pendingRoles = [] }: {
                 : 'bg-white border-gray-300 text-gray-700'
             } leading-tight focus:outline-none focus:shadow-outline`}
             value={requestedRole}
-            onChange={(e) => setRequestedRole(e.target.value)}
-            disabled={isSubmitting || availableRoles.length === 0}
+            onChange={handleRoleChange}
+            disabled={isSubmitting}
           >
             <option value="">-- Select a role --</option>
-            {availableRoles.map(r => (
-              <option key={r.value} value={r.value}>{r.label}</option>
-            ))}
+            {availableRoles
+              .filter(role => !unavailableRoles.has(role.value))
+              .map(role => (
+                <option 
+                  key={role.value} 
+                  value={role.value}
+                  disabled={incompatibleRoles.has(role.value)}
+                  className={incompatibleRoles.has(role.value) ? 'text-gray-400' : ''}
+                >
+                  {role.label}
+                  {incompatibleRoles.has(role.value) && ' (Incompatible with current role)'}
+                </option>
+              ))}
           </select>
           <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mt-1`}>
             After requesting a role, an administrator will need to approve it.
           </p>
         </div>
         
-        <div className="flex items-center justify-between">
+        {requestedRole === 'parent' && (
+          <div className="mb-4">
+            <label className={`block ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-sm font-bold mb-2`}>
+              Player's Name
+            </label>
+            <input
+              type="text"
+              className={`shadow appearance-none border rounded w-full py-2 px-3 ${
+                isDarkMode 
+                  ? 'bg-gray-700 border-gray-600 text-white' 
+                  : 'bg-white border-gray-300 text-gray-700'
+              } leading-tight focus:outline-none focus:shadow-outline`}
+              placeholder="Enter your player's name"
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              disabled={isSubmitting}
+            />
+            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mt-1`}>
+              This helps us link you to the correct player.
+            </p>
+          </div>
+        )}
+        
+        <div>
           <button
-            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
             type="submit"
-            disabled={isSubmitting || availableRoles.length === 0}
+            disabled={isSubmitting || !requestedRole || incompatibleRoles.has(requestedRole) || (requestedRole === 'parent' && !playerName.trim())}
           >
             {isSubmitting ? 'Submitting...' : 'Request Role'}
           </button>
         </div>
-        {availableRoles.length === 0 && (
-          <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mt-2`}>You have already requested or been assigned all available roles.</p>
-        )}
       </form>
     </div>
   )

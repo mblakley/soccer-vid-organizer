@@ -2,21 +2,37 @@
 import { useEffect, useState } from 'react'
 import RequestRoleForm from '@/components/RequestRoleForm'
 import { withAuth } from '@/components/auth'
-import { getCurrentUser } from '@/lib/auth'
+import { getCurrentUser, refreshUserSession } from '@/lib/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 
 function ProfilePage() {
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [selectedTeam, setSelectedTeam] = useState<{ id: string, name: string } | null>(null)
   const { isDarkMode, toggleTheme } = useTheme()
 
   useEffect(() => {
     const loadUser = async () => {
       try {
-        const userData = await getCurrentUser()
-        setUser(userData)
+        setLoading(true)
+        
+        // First refresh the token to get latest claims
+        setRefreshing(true)
+        console.log('[Profile] Refreshing user session...')
+        const refreshedUser = await refreshUserSession()
+        setRefreshing(false)
+        
+        if (refreshedUser) {
+          console.log('[Profile] Session refreshed successfully')
+          setUser(refreshedUser)
+        } else {
+          console.log('[Profile] Token refresh failed, falling back to getCurrentUser')
+          const userData = await getCurrentUser()
+          setUser(userData)
+        }
       } catch (error) {
-        console.error('Error loading user:', error)
+        console.error('[Profile] Error loading user:', error)
       } finally {
         setLoading(false)
       }
@@ -36,6 +52,14 @@ function ProfilePage() {
     <div className="max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mt-8 mb-6">Your Profile</h1>
       
+      {refreshing && (
+        <div className={`mb-4 p-3 rounded-md text-sm ${
+          isDarkMode ? 'bg-blue-900 text-blue-200' : 'bg-blue-100 text-blue-800'
+        }`}>
+          Refreshing session to get your latest roles and permissions...
+        </div>
+      )}
+      
       <div className={`${isDarkMode ? 'bg-gray-800 text-white' : 'bg-white'} rounded-lg shadow-sm p-6 mb-8`}>
         <h2 className="text-xl font-semibold mb-4">Account Information</h2>
         <div className="grid gap-4">
@@ -51,60 +75,77 @@ function ProfilePage() {
       </div>
 
       {/* Roles Section - Updated Structure */}
-      {(hasAdminRole || hasTeamRoles) && (
-        <div className={`${isDarkMode ? 'bg-gray-800 text-white' : 'bg-white'} rounded-lg shadow-sm p-6 mb-8`}>
-          <h2 className="text-xl font-semibold mb-4">Your Roles</h2>
-          
-          {/* General Roles (Admin) */}
-          {hasAdminRole && (
-            <div className="mb-4">
-              <div className="flex flex-wrap gap-2">
-                <span 
-                  className={`px-2 py-1 ${isDarkMode ? 'bg-blue-900 text-blue-200' : 'bg-blue-100 text-blue-800'} rounded text-sm`}
-                >
-                  Admin
-                </span>
-              </div>
+      <div className={`${isDarkMode ? 'bg-gray-800 text-white' : 'bg-white'} rounded-lg shadow-sm p-6 mb-8`}>
+        <h2 className="text-xl font-semibold mb-4">Your Roles</h2>
+        
+        {/* General Roles (Admin) */}
+        {hasAdminRole && (
+          <div className="mb-4">
+            <div className="flex flex-wrap gap-2">
+              <span 
+                className={`px-2 py-1 ${isDarkMode ? 'bg-blue-900 text-blue-200' : 'bg-blue-100 text-blue-800'} rounded text-sm`}
+              >
+                Admin
+              </span>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Team Roles */}
-          {hasTeamRoles && Object.entries(user.teamRoles).map(([teamId, teamData]: [string, any]) => {
-            if (teamData.roles && teamData.roles.length > 0) {
-              const teamIdentifier = teamData.name || `Team ID: ${teamId.substring(0, 6)}...`;
-              return (
-                <div key={teamId} className="mb-4">
-                  <h3 className={`text-md font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-700'} mb-2`}>
-                    {teamIdentifier}
-                  </h3>
-                  <div className="flex flex-wrap gap-2">
-                    {teamData.roles.map((role: string) => (
-                      <span 
-                        key={`${teamId}-${role}`}
-                        className={`px-2 py-1 ${isDarkMode ? 'bg-green-900 text-green-200' : 'bg-green-100 text-green-800'} rounded text-sm`}
-                      >
-                        {role}
-                      </span>
-                    ))}
-                  </div>
+        {/* Team Roles */}
+        {hasTeamRoles && Object.entries(user.teamRoles).map(([teamId, teamData]: [string, any]) => {
+          const teamIdentifier = teamData.name || `Team ID: ${teamId.substring(0, 6)}...`;
+          
+          return (
+            <div key={teamId} className="mb-6 border-b border-gray-700 pb-4">
+              <div className="flex justify-between items-center mb-2">
+                <h3 className={`text-md font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                  {teamIdentifier}
+                </h3>
+                <button
+                  onClick={() => setSelectedTeam({ id: teamId, name: teamData.name })}
+                  className={`px-3 py-1 rounded text-sm ${
+                    isDarkMode 
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+                      : 'bg-blue-500 hover:bg-blue-600 text-white'
+                  }`}
+                >
+                  Request Role
+                </button>
+              </div>
+              
+              {/* Team roles */}
+              {teamData.roles && teamData.roles.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {teamData.roles.map((role: string) => (
+                    <span 
+                      key={`${teamId}-${role}`}
+                      className={`px-2 py-1 ${isDarkMode ? 'bg-green-900 text-green-200' : 'bg-green-100 text-green-800'} rounded text-sm`}
+                    >
+                      {role}
+                    </span>
+                  ))}
                 </div>
-              );
-            }
-            return null;
-          })}
+              )}
+            </div>
+          );
+        })}
 
-          {!hasAdminRole && !hasTeamRoles && (
-             <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} italic`}>No roles assigned</p>
-          )}
-        </div>
-      )}
+        {!hasAdminRole && !hasTeamRoles && (
+          <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} italic`}>No roles assigned</p>
+        )}
 
-      {!hasAdminRole && !hasTeamRoles && (
-         <div className={`${isDarkMode ? 'bg-gray-800 text-white' : 'bg-white'} rounded-lg shadow-sm p-6 mb-8`}>
-             <h2 className="text-xl font-semibold mb-4">Your Roles</h2>
-            <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} italic`}>No roles assigned</p>
-        </div>
-      )}
+        {/* Role Request Form - Only shown when a team is selected */}
+        {selectedTeam && (
+          <div className="mt-6">
+            <RequestRoleForm 
+              userRoles={user.teamRoles?.[selectedTeam.id]?.roles || []} 
+              pendingRoles={[]} // We'd need to fetch these from the backend
+              teamId={selectedTeam.id}
+              teamName={selectedTeam.name}
+            />
+          </div>
+        )}
+      </div>
       
       {/* Theme Preferences Section */}
       <div className={`${isDarkMode ? 'bg-gray-800 text-white' : 'bg-white'} rounded-lg shadow-sm p-6 mb-8`}>
@@ -129,12 +170,8 @@ function ProfilePage() {
           </button>
         </div>
       </div>
-      
-      <div className="mt-8">
-        <RequestRoleForm userRoles={user.roles || []} pendingRoles={user.pending_roles || []} />
-      </div>
     </div>
   )
 }
 
-export default withAuth(ProfilePage, undefined, 'Profile') 
+export default withAuth(ProfilePage) 

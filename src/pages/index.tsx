@@ -29,12 +29,33 @@ function HomePage({ user }: { user: any }) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [comments, setComments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [userRoles, setUserRoles] = useState<string[]>([])
+  const [hasNoRoles, setHasNoRoles] = useState(false)
   const { isDarkMode } = useTheme()
   const [navigationError, setNavigationError] = useState<string | null>(null);
   const [nextClipInfo, setNextClipInfo] = useState<any | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
+      // Fetch user roles to check if the user has any
+      const { data: teamMembersData, error: teamMembersError } = await supabase
+        .from('team_members')
+        .select('team_member_roles(role)')
+        .eq('user_id', user.id)
+        .eq('is_active', true);
+
+      if (!teamMembersError && teamMembersData) {
+        // Extract all roles from all team memberships
+        const roles = teamMembersData.flatMap(tm => 
+          tm.team_member_roles.map((r: any) => r.role)
+        );
+        
+        setUserRoles(roles);
+        setHasNoRoles(roles.length === 0);
+      } else {
+        setHasNoRoles(true);
+      }
+
       // Fetch clips with joined video URL
       const { data: clipsData, error: clipsError } = await supabase
         .from('clips')
@@ -72,7 +93,7 @@ function HomePage({ user }: { user: any }) {
     }
     
     fetchData()
-  }, [])
+  }, [user.id])
   
   const fetchVideoSources = async (videoIds: string[]) => {
     try {
@@ -179,168 +200,195 @@ function HomePage({ user }: { user: any }) {
 
   return (
     <div className="p-8 space-y-8">
-      {/* Recent Clips Section */}
-      <section>
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold">Recent Clips</h2>
+      {/* No Roles Banner - Show only if user has no roles */}
+      {hasNoRoles && (
+        <div className={`p-4 mb-6 border rounded-lg ${
+          isDarkMode 
+            ? 'bg-blue-900 border-blue-800 text-blue-100' 
+            : 'bg-blue-50 border-blue-200 text-blue-800'
+        } text-center`}>
+          <p className="mb-2">You don't have any team roles assigned yet.</p>
           <Link 
-            href="/clips" 
-            className="text-blue-600 hover:underline"
+            href="/role-request" 
+            className={`inline-block px-4 py-2 rounded font-medium ${
+              isDarkMode 
+                ? 'bg-blue-700 hover:bg-blue-600 text-white' 
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
+            }`}
           >
-            View All Clips
+            Request Team Role
           </Link>
         </div>
+      )}
 
-        {clips.length === 0 ? (
-          <p className="py-4">No clips available yet.</p>
-        ) : (
-          <div>
-            <h3 className="text-xl font-semibold mb-3">
-              {clips[currentIndex]?.title}
-              {clips[currentIndex]?.id && (
-                <span className="ml-3 text-xs text-gray-500">ID: {clips[currentIndex].id}</span>
-              )}
-            </h3>
-            <ClipPlayer 
-              videoId={clips[currentIndex]?.video_id} 
-              start={clips[currentIndex]?.start_time} 
-              end={clips[currentIndex]?.end_time} 
-              source={videoSources[clips[currentIndex]?.video_id] || 'youtube'}
-              url={clips[currentIndex]?.videos?.url}
-              onEnd={handleClipEnd}
-              nextClipInfo={nextClipInfo}
-              navigationError={navigationError === null ? undefined : navigationError}
-            />
-            {navigationError && (
-              <div className="text-red-700 bg-red-100 px-3 py-2 rounded mb-2 mt-2">
-                {navigationError}
+      {/* Only show content sections if user has roles */}
+      {!hasNoRoles && (
+        <>
+          {/* Recent Clips Section */}
+          <section>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold">Recent Clips</h2>
+              <Link 
+                href="/clips" 
+                className="text-blue-600 hover:underline"
+              >
+                View All Clips
+              </Link>
+            </div>
+
+            {clips.length === 0 ? (
+              <p className="py-4">No clips available yet.</p>
+            ) : (
+              <div>
+                <h3 className="text-xl font-semibold mb-3">
+                  {clips[currentIndex]?.title}
+                  {clips[currentIndex]?.id && (
+                    <span className="ml-3 text-xs text-gray-500">ID: {clips[currentIndex].id}</span>
+                  )}
+                </h3>
+                <ClipPlayer 
+                  videoId={clips[currentIndex]?.video_id} 
+                  start={clips[currentIndex]?.start_time} 
+                  end={clips[currentIndex]?.end_time} 
+                  source={videoSources[clips[currentIndex]?.video_id] || 'youtube'}
+                  url={clips[currentIndex]?.videos?.url}
+                  onEnd={handleClipEnd}
+                  nextClipInfo={nextClipInfo}
+                  navigationError={navigationError === null ? undefined : navigationError}
+                />
+                {navigationError && (
+                  <div className="text-red-700 bg-red-100 px-3 py-2 rounded mb-2 mt-2">
+                    {navigationError}
+                  </div>
+                )}
+                
+                <ul className="list-disc list-inside space-y-1 mt-3">
+                  {comments.filter(c => c.role_visibility === 'both' || c.role_visibility === user.role).map(c => (
+                    <li key={c.id}>{c.content}</li>
+                  ))}
+                </ul>
+                
+                <div className="space-x-2 mt-3">
+                  <button 
+                    className={`${isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} px-4 py-2 rounded transition-colors`} 
+                    onClick={() => setCurrentIndex(i => Math.max(0, i - 1))}
+                    disabled={currentIndex === 0}
+                  >
+                    Prev
+                  </button>
+                  <button 
+                    className={`${isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} px-4 py-2 rounded transition-colors`} 
+                    onClick={() => setCurrentIndex(i => Math.min(clips.length - 1, i + 1))}
+                    disabled={currentIndex === clips.length - 1}
+                  >
+                    Next
+                  </button>
+                </div>
               </div>
             )}
-            
-            <ul className="list-disc list-inside space-y-1 mt-3">
-              {comments.filter(c => c.role_visibility === 'both' || c.role_visibility === user.role).map(c => (
-                <li key={c.id}>{c.content}</li>
-              ))}
-            </ul>
-            
-            <div className="space-x-2 mt-3">
-              <button 
-                className={`${isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} px-4 py-2 rounded transition-colors`} 
-                onClick={() => setCurrentIndex(i => Math.max(0, i - 1))}
-                disabled={currentIndex === 0}
+          </section>
+
+          {/* Recent Videos Section */}
+          <section>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold">Recent Videos</h2>
+              <Link 
+                href="/videos" 
+                className="text-blue-600 hover:underline"
               >
-                Prev
-              </button>
-              <button 
-                className={`${isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} px-4 py-2 rounded transition-colors`} 
-                onClick={() => setCurrentIndex(i => Math.min(clips.length - 1, i + 1))}
-                disabled={currentIndex === clips.length - 1}
-              >
-                Next
-              </button>
+                View All Videos
+              </Link>
             </div>
-          </div>
-        )}
-      </section>
 
-      {/* Recent Videos Section */}
-      <section>
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold">Recent Videos</h2>
-          <Link 
-            href="/videos" 
-            className="text-blue-600 hover:underline"
-          >
-            View All Videos
-          </Link>
-        </div>
+            {videos.length === 0 ? (
+              <p className="py-4">No videos available yet.</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {videos.map(video => {
+                  const externalLink = getVideoUrl(video);
+                  const isSpecialVeo = video.source === 'veo' && video.url && video.url.startsWith('https://app.veo.co');
 
-        {videos.length === 0 ? (
-          <p className="py-4">No videos available yet.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {videos.map(video => {
-              const externalLink = getVideoUrl(video);
-              const isSpecialVeo = video.source === 'veo' && video.url && video.url.startsWith('https://app.veo.co');
-
-              return (
-                <div 
-                  key={video.id} 
-                  className={`border rounded overflow-hidden ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
-                >
-                  {video.source === 'facebook' ? (
-                    // Facebook specific rendering: Info and direct link
-                    <div className="p-3">
-                      <h3 className="font-semibold">{video.title}</h3>
-                      <div className="text-xs text-gray-500 mt-1">
-                        Source: Facebook
-                      </div>
-                      {externalLink ? (
-                        <div className="mt-2 text-sm">
-                          <a href={externalLink} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
-                            View on Facebook
+                  return (
+                    <div 
+                      key={video.id} 
+                      className={`border rounded overflow-hidden ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
+                    >
+                      {video.source === 'facebook' ? (
+                        // Facebook specific rendering: Info and direct link
+                        <div className="p-3">
+                          <h3 className="font-semibold">{video.title}</h3>
+                          <div className="text-xs text-gray-500 mt-1">
+                            Source: Facebook
+                          </div>
+                          {externalLink ? (
+                            <div className="mt-2 text-sm">
+                              <a href={externalLink} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                                View on Facebook
+                              </a>
+                            </div>
+                          ) : (
+                            <p className="mt-2 text-sm text-gray-400">Facebook URL not available</p>
+                          )}
+                        </div>
+                      ) : isSpecialVeo ? (
+                        // Veo "full video not available" specific rendering
+                        <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+                          <div className="font-semibold text-lg mb-1">{video.title}</div>
+                          <div className="text-gray-500 text-lg mb-2">Full video not available for direct playback.</div>
+                          <a href={`https://app.veo.co/matches/${video.video_id}/`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline mt-1">
+                            View Match on Veo
                           </a>
                         </div>
                       ) : (
-                        <p className="mt-2 text-sm text-gray-400">Facebook URL not available</p>
+                        // Default rendering for other videos (YouTube, Veo with MP4)
+                        <>
+                          <a href={externalLink || '#'} target="_blank" rel="noopener noreferrer" className="block">
+                            <div className="relative pb-[56.25%]">
+                              <img src={getThumbnailUrl(video)} alt={video.title} className="absolute inset-0 w-full h-full object-cover" />
+                              {video.duration != null && (
+                                <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white text-xs px-1 py-0.5 rounded">
+                                  {formatDuration(video.duration)}
+                                </div>
+                              )}
+                            </div>
+                          </a>
+                          <div className="p-3">
+                            <h3 className="font-semibold">{video.title}</h3>
+                            <div className="text-xs text-gray-500 mt-1">
+                              Source: {video.source ? video.source.charAt(0).toUpperCase() + video.source.slice(1) : 'Unknown'}
+                            </div>
+                            <div className="mt-2 text-sm flex flex-wrap gap-x-4 gap-y-1 items-center">
+                              {externalLink && (
+                                <a href={externalLink} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                                  Watch Externally
+                                </a>
+                              )}
+                              <Link href={`/analyze/${video.source}/${video.video_id}`} className="text-green-600 hover:underline">
+                                Analyze In-App
+                              </Link>
+                            </div>
+                          </div>
+                        </>
                       )}
                     </div>
-                  ) : isSpecialVeo ? (
-                    // Veo "full video not available" specific rendering
-                    <div className="flex flex-col items-center justify-center h-full p-6 text-center">
-                      <div className="font-semibold text-lg mb-1">{video.title}</div>
-                      <div className="text-gray-500 text-lg mb-2">Full video not available for direct playback.</div>
-                      <a href={`https://app.veo.co/matches/${video.video_id}/`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline mt-1">
-                        View Match on Veo
-                      </a>
-                    </div>
-                  ) : (
-                    // Default rendering for other videos (YouTube, Veo with MP4)
-                    <>
-                      <a href={externalLink || '#'} target="_blank" rel="noopener noreferrer" className="block">
-                        <div className="relative pb-[56.25%]">
-                          <img src={getThumbnailUrl(video)} alt={video.title} className="absolute inset-0 w-full h-full object-cover" />
-                          {video.duration != null && (
-                            <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white text-xs px-1 py-0.5 rounded">
-                              {formatDuration(video.duration)}
-                            </div>
-                          )}
-                        </div>
-                      </a>
-                      <div className="p-3">
-                        <h3 className="font-semibold">{video.title}</h3>
-                        <div className="text-xs text-gray-500 mt-1">
-                          Source: {video.source ? video.source.charAt(0).toUpperCase() + video.source.slice(1) : 'Unknown'}
-                        </div>
-                        <div className="mt-2 text-sm flex flex-wrap gap-x-4 gap-y-1 items-center">
-                          {externalLink && (
-                            <a href={externalLink} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
-                              Watch Externally
-                            </a>
-                          )}
-                          <Link href={`/analyze/${video.source}/${video.video_id}`} className="text-green-600 hover:underline">
-                            Analyze In-App
-                          </Link>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </>
+      )}
     </div>
   )
 }
 
-// Allow any authenticated user to access this page
+// Allow any authenticated user to access this page, even without roles
 export default withAuth(
   HomePage, 
   {
     teamId: 'any',
-    roles: ['coach', 'player', 'parent']
+    roles: ['coach', 'player', 'parent'],
+    requireRole: false // Allow access even without roles
   }, 
   'Soccer Videos'
 )

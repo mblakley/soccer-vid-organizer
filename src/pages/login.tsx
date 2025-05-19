@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/router'
-import { getCurrentUser, getRedirectPath } from '@/lib/auth'
+import { getCurrentUser, getRedirectPath, refreshUserSession } from '@/lib/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import ThemeToggle from '@/components/ThemeToggle'
 import { toast } from 'react-toastify'
@@ -11,6 +11,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const router = useRouter()
   const { isDarkMode } = useTheme()
 
@@ -80,43 +81,55 @@ export default function LoginPage() {
     console.log("[Login] Login page loaded, checking session...")
     const handleAuthRedirect = async () => {
       setError(''); // Clear error on auth check
-      const { data: sessionData } = await supabase.auth.getSession()
-      const session = sessionData.session
+      setIsRefreshing(true);
       
-      // Get team_id from URL query if it exists (for later use in redirect)
-      const teamId = router.query.team_id as string
-      console.log("[Login] URL team_id parameter:", teamId)
-      
-      // Check sessionStorage for pending team_id
-      const pendingTeamId = sessionStorage.getItem('pending_team_id')
-      console.log("[Login] Pending team_id from sessionStorage:", pendingTeamId)
-      
-      // Use either URL team_id or pending team_id
-      const finalTeamId = teamId || pendingTeamId
-      if (finalTeamId) {
-        console.log("[Login] Using final team_id:", finalTeamId)
-        // Clear the pending team_id
-        sessionStorage.removeItem('pending_team_id')
-      }
-      
-      if (session) {
-        console.log("[Login] Found session after redirect:", session)
-        try {
-          const userData = await getCurrentUser()
-          console.log("[Login] User data:", userData)
-          
-          // Don't pass team_id in query params, let TeamContext handle it
-          const redirectPath = getRedirectPath(userData)
-          console.log("[Login] Redirecting to:", redirectPath)
-          
-          // Use replace instead of push to avoid adding to browser history
-          router.replace(redirectPath)
-        } catch (error: any) {
-          console.error("[Login] Error processing session:", error)
-          setError(error.message || 'An error occurred while processing your session. Please try logging in again.');
+      try {
+        // Check if user is already logged in
+        const { data: sessionData } = await supabase.auth.getSession()
+        const session = sessionData.session
+        
+        // Get team_id from URL query if it exists (for later use in redirect)
+        const teamId = router.query.team_id as string
+        console.log("[Login] URL team_id parameter:", teamId)
+        
+        // Check sessionStorage for pending team_id
+        const pendingTeamId = sessionStorage.getItem('pending_team_id')
+        console.log("[Login] Pending team_id from sessionStorage:", pendingTeamId)
+        
+        // Use either URL team_id or pending team_id
+        const finalTeamId = teamId || pendingTeamId
+        if (finalTeamId) {
+          console.log("[Login] Using final team_id:", finalTeamId)
+          // Clear the pending team_id
+          sessionStorage.removeItem('pending_team_id')
         }
-      } else {
-        console.log("[Login] No session found - user needs to log in")
+        
+        if (session) {
+          console.log("[Login] Found session, refreshing to get latest claims...")
+          
+          // Refresh token to get the latest team roles
+          const refreshedUser = await refreshUserSession()
+          console.log("[Login] Session refreshed, user data:", refreshedUser)
+          
+          if (refreshedUser) {
+            // Determine redirect path with updated claims
+            const queryParams = finalTeamId ? { team_id: finalTeamId } : undefined
+            const redirectPath = getRedirectPath(refreshedUser, queryParams)
+            console.log("[Login] Redirecting to:", redirectPath)
+            
+            // Use replace instead of push to avoid adding to browser history
+            router.replace(redirectPath)
+          } else {
+            console.log("[Login] No user data after refresh - remaining on login page")
+          }
+        } else {
+          console.log("[Login] No session found - user needs to log in")
+        }
+      } catch (error: any) {
+        console.error("[Login] Error processing session:", error)
+        setError(error.message || 'An error occurred while processing your session. Please try logging in again.');
+      } finally {
+        setIsRefreshing(false);
       }
     }
 
@@ -133,6 +146,9 @@ export default function LoginPage() {
         <div>
           <h1 className="text-2xl font-bold text-center">Soccer Video Organizer</h1>
           <h2 className="text-xl text-center mt-2">Log In</h2>
+          {isRefreshing && (
+            <p className="text-center text-sm mt-2 text-blue-500">Refreshing session...</p>
+          )}
         </div>
         <div className="space-y-4">
           <input 

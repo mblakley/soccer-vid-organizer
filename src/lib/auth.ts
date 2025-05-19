@@ -15,6 +15,32 @@ interface CustomJwtPayload extends JwtPayload {
 }
 
 /**
+ * Refreshes the user's session to get updated JWT claims
+ */
+export async function refreshUserSession(): Promise<User | null> {
+  try {
+    console.log('[Auth] Refreshing user session...');
+    const { data, error } = await supabase.auth.refreshSession();
+    
+    if (error) {
+      console.error('[Auth] Error refreshing session:', error);
+      return null;
+    }
+    
+    if (!data.session) {
+      console.log('[Auth] No session found after refresh');
+      return null;
+    }
+    
+    // Get updated user data with new JWT claims
+    return await getCurrentUser();
+  } catch (error) {
+    console.error('[Auth] Error in refreshUserSession:', error);
+    return null;
+  }
+}
+
+/**
  * Gets the current user and their roles from JWT claims
  */
 export async function getCurrentUser(): Promise<User | null> {
