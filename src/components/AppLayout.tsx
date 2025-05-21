@@ -3,11 +3,10 @@
 import { ReactNode, useState, useEffect } from 'react'
 import UserBanner from '@/components/UserBanner'
 import { useTheme } from '@/contexts/ThemeContext'
-import Link from 'next/link'
 import AppSidebar from '@/components/AppSidebar'
 import { useTeam } from '@/contexts/TeamContext'
 import HamburgerButton from '@/components/HamburgerButton'
-import { useRouter, usePathname } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 
 type AppLayoutProps = {
   children: ReactNode
@@ -23,7 +22,6 @@ export default function AppLayout({ children, title, fullWidth }: AppLayoutProps
   const { isDarkMode } = useTheme()
   const { currentUser, isLoadingUser } = useTeam()
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const router = useRouter()
   const pathname = usePathname()
 
   const toggleSidebar = () => {

@@ -14,7 +14,9 @@ function AdminDashboard() {
     activeTeams: 0,
     totalTeamMembers: 0,
     pendingJoinRequests: 0,
-    pendingRoleRequests: 0
+    pendingRoleRequests: 0,
+    totalLeagues: 0,
+    totalTournaments: 0,
   })
   const [loading, setLoading] = useState(true)
   const { isDarkMode } = useTheme()
@@ -50,10 +52,22 @@ function AdminDashboard() {
           .select('id')
           .eq('status', 'pending')
 
+        // Fetch leagues count
+        const { count: leaguesCount, error: leaguesError } = await supabase
+          .from('leagues')
+          .select('id', { count: 'exact', head: true })
+
+        // Fetch tournaments count
+        const { count: tournamentsCount, error: tournamentsError } = await supabase
+          .from('tournaments')
+          .select('id', { count: 'exact', head: true })
+
         if (teamsError) throw teamsError
         if (membersError) throw membersError
         if (joinError) throw joinError
         if (roleError) throw roleError
+        if (leaguesError) throw leaguesError
+        if (tournamentsError) throw tournamentsError
 
         // Create a set of user IDs that are associated with team members
         const teamMemberUserIds = new Set(teamMembers?.map(member => member.user_id) || [])
@@ -73,7 +87,9 @@ function AdminDashboard() {
           activeTeams: teams?.filter(t => t.club_affiliation !== 'System').length || 0,
           totalTeamMembers: teamMembers?.length || 0,
           pendingJoinRequests: joinRequests?.length || 0,
-          pendingRoleRequests: roleRequests?.length || 0
+          pendingRoleRequests: roleRequests?.length || 0,
+          totalLeagues: leaguesCount || 0,
+          totalTournaments: tournamentsCount || 0,
         })
       } catch (error) {
         console.error('Error fetching stats:', error)
@@ -90,7 +106,7 @@ function AdminDashboard() {
 
   return (
     <div className="p-8">      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <div className={`p-4 rounded-lg shadow ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
           <h3 className="text-lg font-semibold mb-2">Total Users</h3>
           <p className="text-3xl font-bold">{stats.totalUsers}</p>
@@ -102,6 +118,14 @@ function AdminDashboard() {
         <div className={`p-4 rounded-lg shadow ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
           <h3 className="text-lg font-semibold mb-2">Disabled Users</h3>
           <p className="text-3xl font-bold">{stats.disabledUsers}</p>
+        </div>
+        <div className={`p-4 rounded-lg shadow ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
+          <h3 className="text-lg font-semibold mb-2">Total Leagues</h3>
+          <p className="text-3xl font-bold">{stats.totalLeagues}</p>
+        </div>
+        <div className={`p-4 rounded-lg shadow ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
+          <h3 className="text-lg font-semibold mb-2">Total Tournaments</h3>
+          <p className="text-3xl font-bold">{stats.totalTournaments}</p>
         </div>
         <div className={`p-4 rounded-lg shadow ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
           <h3 className="text-lg font-semibold mb-2">Total Teams</h3>
@@ -171,6 +195,30 @@ function AdminDashboard() {
                 </span>
               )}
             </div>
+          </p>
+        </Link>
+
+        <Link 
+          href="/admin/leagues" 
+          className={`p-6 rounded-lg shadow hover:shadow-lg transition-shadow ${
+            isDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-white hover:bg-gray-50'
+          }`}
+        >
+          <h2 className="text-xl font-semibold mb-2">Manage Leagues</h2>
+          <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+            Create and manage leagues, view league details, and handle league settings.
+          </p>
+        </Link>
+
+        <Link 
+          href="/admin/tournaments" 
+          className={`p-6 rounded-lg shadow hover:shadow-lg transition-shadow ${
+            isDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-white hover:bg-gray-50'
+          }`}
+        >
+          <h2 className="text-xl font-semibold mb-2">Manage Tournaments</h2>
+          <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+            Create and manage tournaments, view tournament details, and handle tournament settings.
           </p>
         </Link>
       </div>

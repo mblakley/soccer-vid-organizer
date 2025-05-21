@@ -14,11 +14,14 @@
   },
   "dependencies": {
     "@headlessui/react": "^2.2.3",
+    "@radix-ui/react-slot": "^1.2.2",
     "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@supabase/ssr": "^0.6.1",
     "@tanstack/react-table": "^8.21.3",
     "@types/nodemailer": "^6.4.17",
+    "class-variance-authority": "^0.7.1",
     "client-only": "^0.0.1",
+    "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "jose": "^6.0.11",
     "jwt-decode": "^4.0.0",
@@ -29,7 +32,8 @@
     "react-dom": "^19.0.0",
     "react-toastify": "^11.0.5",
     "resend": "^4.5.1",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "tailwind-merge": "^3.3.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

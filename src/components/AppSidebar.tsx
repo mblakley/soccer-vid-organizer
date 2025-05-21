@@ -8,7 +8,8 @@ import { TeamRole } from '@/lib/types';
 import { 
   Home, Users, Video as VideoIcon, Settings, ShieldCheck, BarChart3, 
   FolderKanban, ClipboardList, X as CloseIcon,
-  ChevronDown, ChevronRight, CalendarDays, Film
+  ChevronDown, ChevronRight, CalendarDays, Film,
+  Trophy, Medal, Flag, UserCheck, FileSpreadsheet, PlusCircle
 } from 'lucide-react';
 
 interface NavItem {
@@ -26,6 +27,38 @@ interface NavItem {
 
 const allNavItems: NavItem[] = [
   { id: 'home', path: '/', label: 'Home', icon: Home, global: true },
+  {
+    id: 'leagues',
+    label: 'Leagues',
+    icon: Trophy,
+    isCategory: true,
+    global: true,
+    children: [
+      { id: 'leagues-list', path: '/leagues', label: 'All Leagues', icon: Trophy, global: true },
+    ]
+  },
+  {
+    id: 'tournaments',
+    label: 'Tournaments',
+    icon: Medal,
+    isCategory: true,
+    global: true,
+    children: [
+      { id: 'tournaments-list', path: '/tournaments', label: 'All Tournaments', icon: Medal, global: true },
+    ]
+  },
+  {
+    id: 'games',
+    label: 'Games',
+    icon: Flag,
+    isCategory: true,
+    global: true,
+    children: [
+      { id: 'games-list', path: '/games', label: 'All Games', icon: Flag, global: true },
+      { id: 'add-game', path: '/games/new', label: 'Add Game', icon: PlusCircle, requiredRoles: ['coach', 'manager'], global: true },
+      { id: 'attendance-overview', path: '/attendance', label: 'Attendance Overview', icon: FileSpreadsheet, requiredRoles: ['coach', 'manager'], global: true },
+    ]
+  },
   {
     id: 'players',
     label: 'Player',
@@ -71,8 +104,8 @@ const allNavItems: NavItem[] = [
     ]
   },
   {
-    id: 'games',
-    label: 'Games',
+    id: 'team-games',
+    label: 'Team Games',
     icon: CalendarDays,
     isCategory: true,
     teamRequired: true,
@@ -104,6 +137,8 @@ const allNavItems: NavItem[] = [
       { id: 'admin-users', path: '/admin/users', label: 'Manage Users', icon: Users, adminOnly: true, global: true },
       { id: 'admin-teams', path: '/admin/teams', label: 'Manage Teams', icon: ShieldCheck, adminOnly: true, global: true },
       { id: 'admin-team-members', path: '/admin/team-members', label: 'Team Members', icon: Users, adminOnly: true, global: true },
+      { id: 'admin-leagues', path: '/admin/leagues', label: 'Manage Leagues', icon: Trophy, adminOnly: true, global: true },
+      { id: 'admin-tournaments', path: '/admin/tournaments', label: 'Manage Tournaments', icon: Medal, adminOnly: true, global: true },
     ]
   },
 ];
