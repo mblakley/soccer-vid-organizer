@@ -75,13 +75,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .from('team_members')
           .update({ team_id: team.id })
           .eq('team_id', '00000000-0000-0000-0000-000000000000')
-          .in('user_id', (
-            supabaseAdmin
+          .in('user_id', 
+            // Fetch the user IDs from team_requests first, then use them in the IN clause
+            (await supabaseAdmin
               .from('team_requests')
               .select('user_id')
               .eq('team_name', request.team_name)
-              .eq('status', 'pending')
-          ))
+              .eq('status', 'pending')).data?.map(row => row.user_id) || []
+          )
 
         if (updateError) throw updateError
 

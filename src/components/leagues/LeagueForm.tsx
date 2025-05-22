@@ -97,8 +97,10 @@ export default function LeagueForm({
       membershipData.forEach((membership) => {
         if (!membership.division) return;
         
-        // Use the division name from the joined league_divisions table
-        const divisionName = membership.league_divisions?.name || membership.division;
+        // Fix: league_divisions is an array, not an object
+        const divisionName = membership.league_divisions && 
+          membership.league_divisions[0]?.name || 
+          membership.division;
         
         if (!teamCounts[divisionName]) {
           teamCounts[divisionName] = 0

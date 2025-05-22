@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { ReactElement } from 'react';
 import { VideoSource, VideoMetadata } from './types';
 
 const InstagramSource: VideoSource = {
@@ -11,7 +11,7 @@ const InstagramSource: VideoSource = {
     return match ? match[1] : null;
   },
   
-  getPlayerComponent(videoId: string, start: number = 0, end?: number): JSX.Element {
+  getPlayerComponent(videoId: string, start: number = 0, end?: number): ReactElement {
     // Instagram embeds don't support start/end times
     const src = `https://www.instagram.com/p/${videoId}/embed/`;
     

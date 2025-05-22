@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useTeam } from '@/contexts/TeamContext'
-import { supabase } from '@/lib/supabase'
 import AppLayout from '@/components/AppLayout'
 import { useTheme } from '@/contexts/ThemeContext'
+import { supabase } from '@/lib/supabaseClient'
+import { getSupabaseClient } from '@/lib/supabaseClient'
 
 interface TeamStats {
   wins: number

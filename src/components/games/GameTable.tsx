@@ -13,7 +13,6 @@ import {
 
 interface Game {
   id: string
-  league_id: string
   home_team: string
   away_team: string
   home_team_name: string

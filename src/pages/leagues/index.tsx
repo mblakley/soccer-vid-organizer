@@ -1,10 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '@/lib/supabaseClient';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTeam } from '@/contexts/TeamContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import GameTable from '@/components/leagues/GameTable';
 import { withAuth } from '@/components/auth';
 
 interface League {
@@ -21,7 +19,6 @@ interface League {
 
 interface Game {
   id: string;
-  league_id: string;
   home_team: string;
   away_team: string;
   home_team_name: string;
@@ -160,7 +157,6 @@ function LeaguesPage({ user }: { user: any }) {
       // Format games to match our interface
       const formattedGames: Game[] = (gamesData || []).map(game => ({
         id: game.id,
-        league_id: leagueId,
         home_team: game.home_team_id,
         away_team: game.away_team_id,
         home_team_name: game.home_team?.name || 'Unknown Team',
@@ -185,7 +181,17 @@ function LeaguesPage({ user }: { user: any }) {
   };
 
   const handleEditGame = (game: Game) => {
-    router.push(`/leagues/${game.league_id}/games/${game.id}/edit`);
+    // Since we no longer have league_id in the Game interface,
+    // we need to find which league this game belongs to
+    const leagueId = Object.keys(leagueGames).find(
+      leagueId => leagueGames[leagueId].some(g => g.id === game.id)
+    );
+    
+    if (leagueId) {
+      router.push(`/leagues/${leagueId}/games/${game.id}/edit`);
+    } else {
+      console.error('Could not find league for game:', game.id);
+    }
   };
 
   const handleDeleteGame = async (id: string) => {
@@ -199,12 +205,15 @@ function LeaguesPage({ user }: { user: any }) {
 
       if (error) throw error;
 
-      // Refresh the games for the league
-      const game = Object.values(leagueGames)
-        .flat()
-        .find(g => g.id === id);
-      if (game) {
-        fetchLeagueGames(game.league_id);
+      // Find which league this game belongs to
+      const leagueId = Object.keys(leagueGames).find(
+        leagueId => leagueGames[leagueId].some(g => g.id === id)
+      );
+      
+      if (leagueId) {
+        fetchLeagueGames(leagueId);
+      } else {
+        console.error('Could not find league for deleted game:', id);
       }
     } catch (error) {
       console.error('Error deleting game:', error);
@@ -262,45 +271,6 @@ function LeaguesPage({ user }: { user: any }) {
           </select>
         </div>
       </div>
-
-      {filteredLeagues.length === 0 ? (
-        <p className="py-4">No leagues available.</p>
-      ) : (
-        <div className="space-y-8">
-          {filteredLeagues.map((league) => (
-            <Card key={league.id} className={`hover:shadow-lg transition-shadow ${
-              isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
-            }`}>
-              <CardHeader>
-                <CardTitle>{league.name}</CardTitle>
-                <div className="text-sm text-gray-500">
-                  {league.season} {league.age_group && `• ${league.age_group}`} {league.gender && `• ${league.gender}`}
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <p className="text-gray-600">{league.description}</p>
-                  <div className="mt-4">
-                    <h3 className="text-lg font-semibold mb-2">Games</h3>
-                    {loadingGames[league.id] ? (
-                      <div>Loading games...</div>
-                    ) : (
-                      <GameTable
-                        games={leagueGames[league.id] || []}
-                        isDarkMode={isDarkMode}
-                        selectedTeamId={selectedTeamId}
-                        onEdit={handleEditGame}
-                        onDelete={handleDeleteGame}
-                        viewOnly={true}
-                      />
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

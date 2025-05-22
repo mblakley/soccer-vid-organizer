@@ -245,8 +245,7 @@ function NewFilmReviewSessionPageContent() {
                   <div key={sClip.id} className={`p-4 border rounded-md ${isDarkMode ? `bg-gray-700 ${inputBorder}` : `bg-gray-50 ${inputBorder}`}`}>
                     <div className="flex justify-between items-start mb-2">
                       <div>
-                        <p className={`font-medium ${textColor}`}>Clip {index + 1}: {libraryClip?.name || sClip.clip_id}</p>
-                        {libraryClip?.description && <p className={`text-xs mt-0.5 ${subduedTextColor}`}>{libraryClip.description}</p>}
+                        <p className={`font-medium ${textColor}`}>Clip {index + 1}: {libraryClip?.title || sClip.clip_id}</p>
                       </div>
                       <button type="button" onClick={() => removeClipFromSession(sClip.id)} className={`text-xs font-medium ${isDarkMode ? 'text-red-400 hover:text-red-300' : 'text-red-600 hover:text-red-700'} transition-colors`}>Remove</button>
                     </div>

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Video } from '@/pages/coach/analyze-video'
+import { Video } from '@/pages/videos/analyze'
 import { VideoPlayerControls } from '@/components/VideoPlayer'
 import CountersSection from '@/components/counters/CountersSection'
 import TimersSection from '@/components/timers/TimersSection'

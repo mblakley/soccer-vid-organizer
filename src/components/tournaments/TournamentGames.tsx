@@ -2,7 +2,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { toast } from 'react-toastify'
-import { Plus } from 'lucide-react'
 import GameTable from '@/components/games/GameTable'
 import GameForm from '@/components/games/GameForm'
 
@@ -204,8 +203,9 @@ export default function TournamentGames({
     <GameTable
       games={games}
       isDarkMode={isDarkMode}
-      onEdit={onEdit}
-      onDelete={onDelete}
+      selectedTeamId={null}
+      onEdit={onEdit || ((game) => {})}
+      onDelete={onDelete || ((id) => {})}
     />
   )
 } 

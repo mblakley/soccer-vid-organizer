@@ -10,7 +10,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     // Check if user is admin
     const user = await getCurrentUser()
-    if (!user?.roles?.includes('admin')) {
+    if (!user?.isAdmin) {
       return res.status(403).json({ error: 'Unauthorized' })
     }
 

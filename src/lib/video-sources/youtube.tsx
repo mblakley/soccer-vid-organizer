@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { ReactElement } from 'react';
 import { VideoMetadata, YouTubeSource } from './types';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -61,7 +61,7 @@ const YouTubeSourceImpl: YouTubeSource = {
     return match ? match[1] : null;
   },
   
-  getPlayerComponent(videoId: string, start: number = 0, end?: number): React.ReactElement {
+  getPlayerComponent(videoId: string, start: number = 0, end?: number): ReactElement {
     // YouTube embed with start and optionally end time
     const params = [`start=${start}`];
     if (end && end > start) {

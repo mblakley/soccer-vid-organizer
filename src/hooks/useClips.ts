@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { Video } from '@/pages/coach/analyze-video'; // Video might still be here or also moved
-import { ClipMarker } from '@/types/clips'; // Updated import for ClipMarker
+import { Video } from '@/pages/videos/analyze';
+import { ClipMarker } from '@/types/clips';
 import { VideoPlayerControls } from '@/components/VideoPlayer';
 import { createClipMarkerFromData, parseLabelsFromCommentString, createLabelsCommentString } from '@/components/clips/ClipFactory';
 

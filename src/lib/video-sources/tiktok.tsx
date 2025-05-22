@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { ReactElement, useEffect } from 'react';
 import { VideoSource, VideoMetadata } from './types';
 
 const TikTokSource: VideoSource = {
@@ -11,7 +11,7 @@ const TikTokSource: VideoSource = {
     return match ? match[1] : null;
   },
   
-  getPlayerComponent(videoId: string, start: number = 0, end?: number): JSX.Element {
+  getPlayerComponent(videoId: string, start: number = 0, end?: number): ReactElement {
     // TikTok doesn't support start/end times in their embed
     // We need to use their embed script
     

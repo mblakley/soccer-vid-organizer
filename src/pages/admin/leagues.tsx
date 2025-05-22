@@ -31,7 +31,6 @@ interface League {
 
 interface Game {
   id: string
-  league_id: string
   home_team: string
   away_team: string
   home_team_name: string
@@ -216,7 +215,6 @@ function LeaguesPage() {
       const formattedGames: Game[] = (gamesData || []).map(game => {
         return {
           id: game.id,
-          league_id: leagueId,
           home_team: game.home_team_id,
           away_team: game.away_team_id,
           home_team_name: game.home_team?.name || 'Unknown Team',

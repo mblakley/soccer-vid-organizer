@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { ReactElement } from 'react';
 import { VideoSource, VideoMetadata } from './types';
 
 const HudlSource: VideoSource = {
@@ -11,7 +11,7 @@ const HudlSource: VideoSource = {
     return match ? match[1] : null;
   },
   
-  getPlayerComponent(videoId: string, start: number = 0, end?: number): JSX.Element {
+  getPlayerComponent(videoId: string, start: number = 0, end?: number): ReactElement {
     // Hudl embed doesn't directly support start/end in the iframe URL
     const src = `https://www.hudl.com/embed/video/${videoId}`;
     
