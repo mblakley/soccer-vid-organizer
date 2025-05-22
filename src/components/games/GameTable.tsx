@@ -21,7 +21,7 @@ interface Game {
   location: string | null
   game_date: string | null
   start_time: string | null
-  division: string | null
+  flight: string | null
   status: 'scheduled' | 'completed' | 'cancelled' | 'postponed'
   score_home: number | null
   score_away: number | null
@@ -35,6 +35,7 @@ interface GameTableProps {
   selectedTeamId: string | null
   onEdit: (game: Game) => void
   onDelete: (id: string) => void
+  viewOnly?: boolean
 }
 
 const columnHelper = createColumnHelper<Game>()
@@ -44,7 +45,8 @@ export default function GameTable({
   isDarkMode,
   selectedTeamId,
   onEdit,
-  onDelete
+  onDelete,
+  viewOnly = false
 }: GameTableProps) {
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'game_date', desc: false }
@@ -67,13 +69,7 @@ export default function GameTable({
       header: 'Away Team',
       cell: info => info.getValue(),
     }),
-    columnHelper.accessor(row => {
-      if (!selectedTeamId) return null;
-      if (row.home_team === selectedTeamId) return 'Home';
-      if (row.away_team === selectedTeamId) return 'Away';
-      return null;
-    }, {
-      id: 'location',
+    columnHelper.accessor('location', {
       header: 'Location',
       cell: info => info.getValue() || '-',
     }),
@@ -84,6 +80,10 @@ export default function GameTable({
     columnHelper.accessor('start_time', {
       header: 'Time',
       cell: info => info.getValue() ? new Date(`2000-01-01T${info.getValue()}`).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
+    }),
+    columnHelper.accessor('flight', {
+      header: 'Flight',
+      cell: info => info.getValue() || '-',
     }),
     columnHelper.accessor('status', {
       header: 'Status',
@@ -108,7 +108,8 @@ export default function GameTable({
           : '-'
       },
     }),
-    columnHelper.display({
+    // Only show actions column if not in view-only mode
+    ...(viewOnly ? [] : [columnHelper.display({
       id: 'actions',
       header: 'Actions',
       cell: props => (
@@ -129,7 +130,7 @@ export default function GameTable({
           </button>
         </div>
       ),
-    }),
+    })])
   ]
 
   const table = useReactTable({
@@ -148,32 +149,33 @@ export default function GameTable({
     return (
       <div className="text-center py-10">
         <p className="text-gray-500 dark:text-gray-400 mb-4">No games have been added yet.</p>
-        <button
-          onClick={() => onEdit({
-            id: '',
-            league_id: '',
-            home_team: '',
-            away_team: '',
-            home_team_name: '',
-            away_team_name: '',
-            location: null,
-            game_date: null,
-            start_time: null,
-            division: null,
-            status: 'scheduled',
-            score_home: null,
-            score_away: null,
-            created_at: null,
-            updated_at: null
-          })}
-          className={`px-4 py-2 rounded-md ${
-            isDarkMode
-              ? 'bg-blue-600 text-white hover:bg-blue-700'
-              : 'bg-blue-500 text-white hover:bg-blue-600'
-          }`}
-        >
-          Create First Game
-        </button>
+        {!viewOnly && (
+          <button
+            onClick={() => onEdit({
+              id: '',
+              home_team: '',
+              away_team: '',
+              home_team_name: '',
+              away_team_name: '',
+              location: null,
+              game_date: null,
+              start_time: null,
+              flight: null,
+              status: 'scheduled',
+              score_home: null,
+              score_away: null,
+              created_at: null,
+              updated_at: null
+            })}
+            className={`px-4 py-2 rounded-md ${
+              isDarkMode
+                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-blue-500 text-white hover:bg-blue-600'
+            }`}
+          >
+            Create First Game
+          </button>
+        )}
       </div>
     )
   }
@@ -181,16 +183,14 @@ export default function GameTable({
   return (
     <>
       <div className="overflow-x-auto">
-        <table className={`w-full divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'}`}>
-          <thead className={isDarkMode ? 'bg-gray-800' : 'bg-gray-50'}>
+        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+          <thead className="bg-gray-50 dark:bg-gray-800">
             {table.getHeaderGroups().map(headerGroup => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map(header => (
                   <th
                     key={header.id}
-                    className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${
-                      isDarkMode ? 'text-gray-300' : 'text-gray-500'
-                    }`}
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider"
                   >
                     {header.isPlaceholder ? null : (
                       <div
@@ -216,15 +216,13 @@ export default function GameTable({
               </tr>
             ))}
           </thead>
-          <tbody className={`divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'}`}>
+          <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
             {table.getRowModel().rows.map(row => (
               <tr key={row.id}>
                 {row.getVisibleCells().map(cell => (
                   <td
                     key={cell.id}
-                    className={`px-6 py-4 whitespace-nowrap text-sm ${
-                      isDarkMode ? 'text-gray-300' : 'text-gray-500'
-                    }`}
+                    className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-300"
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
@@ -238,36 +236,28 @@ export default function GameTable({
       <div className="mt-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <button
-            className={`px-3 py-1 rounded ${
-              isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'
-            }`}
+            className="px-3 py-1 rounded bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 disabled:opacity-50"
             onClick={() => table.setPageIndex(0)}
             disabled={!table.getCanPreviousPage()}
           >
             {'<<'}
           </button>
           <button
-            className={`px-3 py-1 rounded ${
-              isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'
-            }`}
+            className="px-3 py-1 rounded bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 disabled:opacity-50"
             onClick={() => table.previousPage()}
             disabled={!table.getCanPreviousPage()}
           >
             {'<'}
           </button>
           <button
-            className={`px-3 py-1 rounded ${
-              isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'
-            }`}
+            className="px-3 py-1 rounded bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 disabled:opacity-50"
             onClick={() => table.nextPage()}
             disabled={!table.getCanNextPage()}
           >
             {'>'}
           </button>
           <button
-            className={`px-3 py-1 rounded ${
-              isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'
-            }`}
+            className="px-3 py-1 rounded bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 disabled:opacity-50"
             onClick={() => table.setPageIndex(table.getPageCount() - 1)}
             disabled={!table.getCanNextPage()}
           >

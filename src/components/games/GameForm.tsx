@@ -5,7 +5,6 @@ import { supabase } from '@/lib/supabaseClient'
 
 interface Game {
   id: string
-  league_id: string
   home_team: string
   away_team: string
   home_team_name: string
@@ -13,7 +12,7 @@ interface Game {
   location: string | null
   game_date: string | null
   start_time: string | null
-  division: string | null
+  flight: string | null
   status: 'scheduled' | 'completed' | 'cancelled' | 'postponed'
   score_home: number | null
   score_away: number | null
@@ -30,35 +29,24 @@ interface Team {
   gender?: string
 }
 
-interface LeagueDivision {
-  id: string
-  league_id: string
-  name: string
-  description: string | null
-  team_count?: number
-  created_at: string | null
-  updated_at: string | null
-}
-
 interface GameFormProps {
-  leagueId: string
   game?: Game | null
   isDarkMode: boolean
-  selectedDivision?: string | null
+  selectedFlight?: string | null
+  leagueId?: string
   onClose: () => void
   onSave: () => void
 }
 
 export default function GameForm({
-  leagueId,
   game,
   isDarkMode,
-  selectedDivision,
+  selectedFlight,
+  leagueId,
   onClose,
   onSave
 }: GameFormProps) {
   const [newGame, setNewGame] = useState<Omit<Game, 'id' | 'created_at' | 'updated_at'>>({
-    league_id: leagueId,
     home_team: '',
     away_team: '',
     home_team_name: '',
@@ -66,7 +54,7 @@ export default function GameForm({
     location: '',
     game_date: '',
     start_time: '',
-    division: selectedDivision || '',
+    flight: selectedFlight || '',
     status: 'scheduled',
     score_home: null,
     score_away: null
@@ -77,20 +65,12 @@ export default function GameForm({
   const [selectedTeams, setSelectedTeams] = useState<{ home: Team | null, away: Team | null }>({ home: null, away: null })
   const [isSearching, setIsSearching] = useState({ home: false, away: false })
   const [showTeamResults, setShowTeamResults] = useState({ home: false, away: false })
-  
-  const [divisionSearchQuery, setDivisionSearchQuery] = useState('')
-  const [divisionSearchResults, setDivisionSearchResults] = useState<LeagueDivision[]>([])
-  const [selectedDivisionEntity, setSelectedDivisionEntity] = useState<LeagueDivision | null>(null)
-  const [isSearchingDivision, setIsSearchingDivision] = useState(false)
-  const [showDivisionResults, setShowDivisionResults] = useState(false)
-  
   const [formError, setFormError] = useState<string | null>(null)
 
   useEffect(() => {
     // Initialize the form with game data when editing
     if (game) {
       setNewGame({
-        league_id: game.league_id,
         home_team: game.home_team,
         away_team: game.away_team,
         home_team_name: game.home_team_name,
@@ -98,25 +78,24 @@ export default function GameForm({
         location: game.location || '',
         game_date: game.game_date || '',
         start_time: game.start_time || '',
-        division: game.division || '',
+        flight: game.flight || '',
         status: game.status,
         score_home: game.score_home,
         score_away: game.score_away
       })
       
-      // Load team and division data
+      // Load team data
       loadTeamsForGame(game)
-    } else if (selectedDivision) {
-      // Set the division from prop if creating a new game
+    } else if (selectedFlight) {
+      // Set the flight from prop if creating a new game
       setNewGame(prev => ({
         ...prev,
-        division: selectedDivision
+        flight: selectedFlight
       }))
-      setDivisionSearchQuery(selectedDivision)
     }
-  }, [game, selectedDivision])
+  }, [game, selectedFlight])
 
-  // Load team and division data when editing a game
+  // Load team data when editing a game
   const loadTeamsForGame = async (game: Game) => {
     try {
       // Get home team details
@@ -147,22 +126,6 @@ export default function GameForm({
         setTeamSearchQuery(prev => ({ ...prev, away: awayTeam.name }))
         setSelectedTeams(prev => ({ ...prev, away: awayTeam }))
       }
-      
-      // If game has a division, try to get division details
-      if (game.division) {
-        setDivisionSearchQuery(game.division)
-        
-        const { data: divisionData, error: divisionError } = await supabase
-          .from('league_divisions')
-          .select('*')
-          .eq('league_id', game.league_id)
-          .eq('name', game.division)
-          .single()
-          
-        if (!divisionError && divisionData) {
-          setSelectedDivisionEntity(divisionData)
-        }
-      }
     } catch (error: any) {
       console.error('Error fetching details:', error)
       // If we fail to get team details, we still want to show the game form
@@ -171,19 +134,14 @@ export default function GameForm({
         home: game.home_team_name, 
         away: game.away_team_name 
       })
-      
-      // Also set the division search query if available
-      if (game.division) {
-        setDivisionSearchQuery(game.division)
-      }
     }
   }
 
   // Effect to close search results when clicking outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      // Only handle clicks if team search results or division search results are showing
-      if (!showTeamResults.home && !showTeamResults.away && !showDivisionResults) return
+      // Only handle clicks if team search results are showing
+      if (!showTeamResults.home && !showTeamResults.away) return
       
       const target = e.target as Element
       
@@ -191,18 +149,13 @@ export default function GameForm({
       if (!target.closest('.team-search-container')) {
         setShowTeamResults({ home: false, away: false })
       }
-      
-      // Close division search results
-      if (!target.closest('.division-search-container')) {
-        setShowDivisionResults(false)
-      }
     }
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => {
       document.removeEventListener('mousedown', handleClickOutside)
     }
-  }, [showTeamResults, showDivisionResults])
+  }, [showTeamResults])
 
   // Handle searching for teams
   const searchTeams = async (query: string, type: 'home' | 'away') => {
@@ -250,47 +203,6 @@ export default function GameForm({
     })
   }
 
-  // Handle searching for divisions
-  const searchDivisions = async (query: string) => {
-    if (query.trim().length < 2) {
-      setDivisionSearchResults([])
-      return
-    }
-
-    setIsSearchingDivision(true)
-    try {
-      const { data, error } = await supabase
-        .from('league_divisions')
-        .select('*')
-        .eq('league_id', leagueId)
-        .ilike('name', `%${query}%`)
-        .order('name')
-        .limit(5)
-
-      if (error) throw error
-      
-      setDivisionSearchResults(data || [])
-      setShowDivisionResults(true)
-    } catch (error: any) {
-      console.error('Error searching for divisions:', error)
-    } finally {
-      setIsSearchingDivision(false)
-    }
-  }
-
-  // Handle selecting a division from search results
-  const handleSelectDivision = (division: LeagueDivision) => {
-    setSelectedDivisionEntity(division)
-    setDivisionSearchQuery(division.name)
-    setShowDivisionResults(false)
-    
-    // Update the new game state
-    setNewGame(prev => ({
-      ...prev,
-      division: division.name
-    }))
-  }
-
   // Handle saving a game
   const handleSaveGame = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -305,14 +217,8 @@ export default function GameForm({
       // Create or get team IDs
       const homeTeamId = await createTeamIfNeeded(teamSearchQuery.home, 'home')
       const awayTeamId = await createTeamIfNeeded(teamSearchQuery.away, 'away')
-      
-      // Create or get division if entered
-      let division = null
-      if (divisionSearchQuery.trim()) {
-        division = await createDivisionIfNeeded(divisionSearchQuery)
-      }
 
-      // Prepare the game data
+      // Prepare the game data WITHOUT flight
       const gameData = {
         home_team_id: homeTeamId,
         away_team_id: awayTeamId,
@@ -324,7 +230,9 @@ export default function GameForm({
         score_away: newGame.score_away
       }
 
-      if (game) {
+      let gameId: string;
+
+      if (game && game.id) {
         // Update existing game
         const { error } = await supabase
           .from('games')
@@ -332,7 +240,7 @@ export default function GameForm({
           .eq('id', game.id)
 
         if (error) throw error
-        toast.success('Game updated successfully!')
+        gameId = game.id;
       } else {
         // Create new game
         const { data, error } = await supabase
@@ -341,27 +249,45 @@ export default function GameForm({
           .select()
 
         if (error) throw error
-        if (data && data.length > 0) {
-          const gameId = data[0].id
-          
-          // Create the league_games relation
-          const { error: leagueGameError } = await supabase
-            .from('league_games')
-            .insert([{
-              league_id: leagueId,
-              game_id: gameId
-            }])
-            
-          if (leagueGameError) throw leagueGameError
-
-          // Automatically add teams to this league if they're not already members
-          await ensureTeamsInLeague(homeTeamId, awayTeamId, leagueId, division)
-        }
-        
-        toast.success('Game added successfully!')
+        if (!data || data.length === 0) throw new Error('Failed to create game')
+        gameId = data[0].id;
       }
 
-      // Reset form and notify parent
+      // Now handle flight/division in the junction tables
+      if (leagueId) {
+        // First check if the game-league connection already exists
+        const { data: existingConnection, error: checkError } = await supabase
+          .from('league_games')
+          .select('*')
+          .eq('league_id', leagueId)
+          .eq('game_id', gameId)
+          
+        if (checkError) throw checkError
+        
+        if (existingConnection && existingConnection.length > 0) {
+          // Update the existing connection with the division
+          const { error: updateError } = await supabase
+            .from('league_games')
+            .update({ division: newGame.flight }) // Using flight field for division value
+            .eq('league_id', leagueId)
+            .eq('game_id', gameId)
+            
+          if (updateError) throw updateError
+        } else {
+          // Create new connection with the division
+          const { error: insertError } = await supabase
+            .from('league_games')
+            .insert([{ 
+              league_id: leagueId, 
+              game_id: gameId,
+              division: newGame.flight // Using flight field for division value
+            }])
+            
+          if (insertError) throw insertError
+        }
+      }
+      
+      toast.success(game ? 'Game updated successfully!' : 'Game added successfully!')
       onSave()
     } catch (error: any) {
       console.error('Error saving game:', error)
@@ -395,27 +321,11 @@ export default function GameForm({
     }
 
     // Otherwise create a new team
-    // Use context from the league or the other team if available
-    const otherType = type === 'home' ? 'away' : 'home'
-    const otherTeam = selectedTeams[otherType]
-    
-    // Get league info if available
-    const { data: leagueData } = await supabase
-      .from('leagues')
-      .select('season, age_group, gender')
-      .eq('id', leagueId)
-      .single()
-    
-    const newTeamData = {
-      name: teamName.trim(),
-      season: leagueData?.season || otherTeam?.season || null,
-      age_group: leagueData?.age_group || otherTeam?.age_group || null,
-      gender: leagueData?.gender || otherTeam?.gender || null,
-    }
-
     const { data: createdTeam, error: createError } = await supabase
       .from('teams')
-      .insert([newTeamData])
+      .insert([{
+        name: teamName.trim()
+      }])
       .select('id')
       .single()
 
@@ -427,125 +337,6 @@ export default function GameForm({
     }
 
     throw new Error(`Failed to create ${type === 'home' ? 'home' : 'away'} team`)
-  }
-
-  // Handle creating a new division if it doesn't exist
-  const createDivisionIfNeeded = async (divisionName: string): Promise<string | null> => {
-    if (!divisionName.trim() || !leagueId) {
-      return null
-    }
-
-    // Check if there's already a selected division
-    if (selectedDivisionEntity?.name === divisionName.trim()) {
-      return selectedDivisionEntity.name
-    }
-
-    // Try to find an existing division with this exact name
-    const { data: existingDivisions, error: searchError } = await supabase
-      .from('league_divisions')
-      .select('id, name')
-      .eq('league_id', leagueId)
-      .eq('name', divisionName.trim())
-      .limit(1)
-
-    if (searchError) throw searchError
-
-    // If division already exists, return its name
-    if (existingDivisions && existingDivisions.length > 0) {
-      return existingDivisions[0].name
-    }
-
-    // Otherwise create a new division
-    const { data: createdDivision, error: createError } = await supabase
-      .from('league_divisions')
-      .insert([{
-        league_id: leagueId,
-        name: divisionName.trim(),
-        description: `Auto-created for game on ${new Date().toLocaleDateString()}`
-      }])
-      .select('name')
-      .single()
-
-    if (createError) throw createError
-    
-    // If created successfully, return the new division name
-    if (createdDivision) {
-      return createdDivision.name
-    }
-
-    return null
-  }
-
-  // Ensure teams are members of the league
-  const ensureTeamsInLeague = async (homeTeamId: string, awayTeamId: string, leagueId: string, division: string | null = null) => {
-    try {
-      // Check which teams are already in the league
-      const { data: existingMemberships, error: membershipError } = await supabase
-        .from('team_league_memberships')
-        .select('team_id, division')
-        .eq('league_id', leagueId)
-        .in('team_id', [homeTeamId, awayTeamId])
-      
-      if (membershipError) throw membershipError
-      
-      const existingTeamIds = existingMemberships?.map(m => m.team_id) || []
-      const teamsToAdd = []
-      const teamsToUpdate = []
-      
-      // Add home team if not already in league
-      if (!existingTeamIds.includes(homeTeamId)) {
-        teamsToAdd.push({
-          team_id: homeTeamId,
-          league_id: leagueId,
-          division: division
-        })
-      } else if (division && existingMemberships?.find(m => m.team_id === homeTeamId)?.division !== division) {
-        // Update division if it's different and provided
-        teamsToUpdate.push({
-          team_id: homeTeamId,
-          division: division
-        })
-      }
-      
-      // Add away team if not already in league
-      if (!existingTeamIds.includes(awayTeamId)) {
-        teamsToAdd.push({
-          team_id: awayTeamId,
-          league_id: leagueId,
-          division: division
-        })
-      } else if (division && existingMemberships?.find(m => m.team_id === awayTeamId)?.division !== division) {
-        // Update division if it's different and provided
-        teamsToUpdate.push({
-          team_id: awayTeamId,
-          division: division
-        })
-      }
-      
-      // Add teams to league if necessary
-      if (teamsToAdd.length > 0) {
-        const { error: addError } = await supabase
-          .from('team_league_memberships')
-          .insert(teamsToAdd)
-          
-        if (addError) throw addError
-      }
-      
-      // Update team divisions if necessary
-      for (const team of teamsToUpdate) {
-        const { error: updateError } = await supabase
-          .from('team_league_memberships')
-          .update({ division: team.division })
-          .eq('team_id', team.team_id)
-          .eq('league_id', leagueId)
-          
-        if (updateError) throw updateError
-      }
-    } catch (error: any) {
-      console.error('Error ensuring teams in league:', error)
-      // We don't want to fail the entire operation if this part fails
-      // So we just log the error and continue
-    }
   }
 
   return (
@@ -722,73 +513,6 @@ export default function GameForm({
             )}
           </div>
           
-          <div className="relative division-search-container">
-            <label className="block text-sm font-medium mb-2">Division</label>
-            <input
-              type="text"
-              value={divisionSearchQuery}
-              onChange={(e) => {
-                const query = e.target.value
-                setDivisionSearchQuery(query)
-                
-                // If text has been changed after a division was selected, clear the selection
-                if (selectedDivisionEntity && selectedDivisionEntity.name !== query) {
-                  setSelectedDivisionEntity(null)
-                }
-                
-                setNewGame(prev => ({ ...prev, division: query || null }))
-                searchDivisions(query)
-              }}
-              onFocus={() => {
-                if (divisionSearchQuery.trim().length >= 2) {
-                  setShowDivisionResults(true)
-                }
-              }}
-              placeholder="Search or enter new division name"
-              className={`w-full p-2 rounded border ${
-                isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
-              }`}
-            />
-            {showDivisionResults && divisionSearchResults.length > 0 && (
-              <div className={`absolute z-10 w-full mt-1 max-h-60 overflow-auto rounded-md shadow-lg ${
-                isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border border-gray-200'
-              }`}>
-                {isSearchingDivision ? (
-                  <div className="p-2 text-center">
-                    <div className="animate-spin inline-block h-4 w-4 border-b-2 border-blue-500"></div>
-                    <span className="ml-2">Searching...</span>
-                  </div>
-                ) : (
-                  <ul>
-                    {divisionSearchResults.map(division => (
-                      <li 
-                        key={division.id}
-                        onClick={() => handleSelectDivision(division)}
-                        className={`p-2 cursor-pointer ${
-                          isDarkMode 
-                            ? 'hover:bg-gray-600' 
-                            : 'hover:bg-gray-100'
-                        }`}
-                      >
-                        <div className="font-medium">{division.name}</div>
-                        {division.description && (
-                          <div className="text-xs text-gray-500 dark:text-gray-400">
-                            {division.description}
-                          </div>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-            {selectedDivisionEntity && (
-              <div className="mt-1 text-xs text-blue-500 dark:text-blue-400">
-                Selected existing division: {selectedDivisionEntity.name}
-              </div>
-            )}
-          </div>
-          
           <div>
             <label className="block text-sm font-medium mb-2">Game Date</label>
             <input
@@ -823,6 +547,19 @@ export default function GameForm({
                 isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
               }`}
               placeholder="Field or venue name"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium mb-2">Flight</label>
+            <input
+              type="text"
+              value={newGame.flight || ''}
+              onChange={(e) => setNewGame({ ...newGame, flight: e.target.value || null })}
+              className={`w-full p-2 rounded border ${
+                isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
+              }`}
+              placeholder="e.g., A, B, C"
             />
           </div>
           

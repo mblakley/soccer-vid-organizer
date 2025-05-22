@@ -12,8 +12,8 @@ import Link from 'next/link'
 // Import new components
 import LeagueTable from '@/components/leagues/LeagueTable'
 import LeagueForm from '@/components/leagues/LeagueForm'
-import GameTable from '@/components/leagues/GameTable'
-import GameForm from '@/components/leagues/GameForm'
+import GameTable from '@/components/games/GameTable'
+import GameForm from '@/components/games/GameForm'
 
 interface League {
   id: string
@@ -39,7 +39,7 @@ interface Game {
   location: string | null
   game_date: string | null
   start_time: string | null
-  division: string | null
+  flight: string | null
   status: 'scheduled' | 'completed' | 'cancelled' | 'postponed'
   score_home: number | null
   score_away: number | null
@@ -135,6 +135,8 @@ function LeaguesPage() {
   const fetchLeagueGames = async (leagueId: string) => {
     setLoadingGames(true)
     try {
+      console.log("Fetching games for league:", leagueId);
+      
       // First get all divisions for this league
       const { data: leagueDivisions, error: divisionsError } = await supabase
         .from('league_divisions')
@@ -145,24 +147,57 @@ function LeaguesPage() {
 
       // Initialize division options with just the league divisions
       const divisionOptions = leagueDivisions ? leagueDivisions.map(d => d.name) : []
+      console.log("League divisions:", divisionOptions);
 
-      // First get the game IDs from the junction table
+      // First get all games linked to this league
       const { data: leagueGamesData, error: leagueGamesError } = await supabase
         .from('league_games')
         .select('game_id')
         .eq('league_id', leagueId)
 
-      if (leagueGamesError) throw leagueGamesError
+      if (leagueGamesError) {
+        console.error("Error fetching league games:", leagueGamesError);
+        throw leagueGamesError;
+      }
+
+      console.log("League games data:", leagueGamesData);
 
       if (!leagueGamesData || leagueGamesData.length === 0) {
+        console.log("No games found for this league");
         setLeagueGames([])
         setAvailableDivisions(divisionOptions)
         setSelectedDivisionTab(divisionOptions[0] || null)
+        setLoadingGames(false)
         return
+      }
+
+      // Get division information separately to handle missing column
+      let divisionMap: Record<string, string | null> = {};
+      
+      try {
+        const { data: divisionData, error: divisionError } = await supabase
+          .from('league_games')
+          .select('game_id, division')
+          .eq('league_id', leagueId)
+        
+        if (divisionError) {
+          console.error("Error fetching division data:", divisionError);
+          // Continue without division data
+        } else if (divisionData) {
+          divisionMap = divisionData.reduce((map, item) => {
+            map[item.game_id] = item.division || null;
+            return map;
+          }, {} as Record<string, string | null>);
+          console.log("Division map:", divisionMap);
+        }
+      } catch (error) {
+        console.error("Error processing division data:", error);
+        // Continue without division data
       }
 
       // Then fetch the actual game details
       const gameIds = leagueGamesData.map(item => item.game_id)
+      console.log("Game IDs:", gameIds);
       
       const { data: gamesData, error: gamesError } = await supabase
         .from('games')
@@ -170,45 +205,18 @@ function LeaguesPage() {
         .in('id', gameIds)
         .order('game_date', { ascending: true })
 
-      if (gamesError) throw gamesError
-
-      // Get division information for these teams from team_league_memberships
-      const teamIds = gamesData.reduce((acc, game) => {
-        if (game.home_team_id) acc.add(game.home_team_id)
-        if (game.away_team_id) acc.add(game.away_team_id)
-        return acc
-      }, new Set<string>())
-
-      let teamDivisionsMap: Record<string, string | null> = {}
-      if (teamIds.size > 0) {
-        const { data: memberships, error: membershipError } = await supabase
-          .from('team_league_memberships')
-          // Select the team_id and then join with league_divisions to get the name
-          .select('team_id, league_divisions(id, name)') 
-          .eq('league_id', leagueId)
-          .in('team_id', Array.from(teamIds))
-          .not('division', 'is', null) // Only get memberships with a division
-
-        if (membershipError) throw membershipError
-        
-        memberships?.forEach(mem => {
-          // mem.league_divisions will be an object {id, name} if the join works, or null if no matching division found
-          // If league_divisions is an array (e.g. one-to-many), take the first element.
-          const divisionInfo = Array.isArray(mem.league_divisions) 
-            ? mem.league_divisions[0] as { id: string; name: string } | null 
-            : mem.league_divisions as { id: string; name: string } | null;
-          teamDivisionsMap[mem.team_id] = divisionInfo ? divisionInfo.name : null;
-        })
+      if (gamesError) {
+        console.error("Error fetching games:", gamesError);
+        throw gamesError;
       }
+
+      console.log("Games data:", gamesData);
 
       // Map the fetched data to match our Game interface
       const formattedGames: Game[] = (gamesData || []).map(game => {
-        // Try to get division from home team, then away team
-        const divisionName = teamDivisionsMap[game.home_team_id] || teamDivisionsMap[game.away_team_id] || null
-
         return {
           id: game.id,
-          league_id: leagueId, // Add the league_id manually
+          league_id: leagueId,
           home_team: game.home_team_id,
           away_team: game.away_team_id,
           home_team_name: game.home_team?.name || 'Unknown Team',
@@ -216,7 +224,7 @@ function LeaguesPage() {
           location: game.location,
           game_date: game.game_date,
           start_time: game.game_time,
-          division: divisionName,
+          flight: divisionMap[game.id] || null, // Use division from junction table
           status: game.status,
           score_home: game.score_home,
           score_away: game.score_away,
@@ -225,16 +233,30 @@ function LeaguesPage() {
         }
       })
 
+      console.log("Formatted games:", formattedGames);
       setLeagueGames(formattedGames)
       
+      // Collect all division values from the games
+      const divisionValues = Object.values(divisionMap).filter(Boolean) as string[];
+      const uniqueDivisions = [...new Set(divisionValues)];
+      console.log("Unique divisions from games:", uniqueDivisions);
+      
+      // Add divisions from games to options
+      uniqueDivisions.forEach(div => {
+        if (!divisionOptions.includes(div)) {
+          divisionOptions.push(div);
+        }
+      });
+      
       // Check if there are any games without a division
-      const hasGamesWithoutDivision = formattedGames.some(game => !game.division);
+      const hasGamesWithoutDivision = Object.values(divisionMap).some(div => !div);
       
       // Add "No Division" tab if needed
       if (hasGamesWithoutDivision && !divisionOptions.includes("No Division")) {
         divisionOptions.push("No Division");
       }
       
+      console.log("Final division options:", divisionOptions);
       setAvailableDivisions(divisionOptions);
       // Select first division in the list
       setSelectedDivisionTab(divisionOptions[0] || null);
@@ -334,10 +356,10 @@ function LeaguesPage() {
     if (!selectedDivisionTab) return leagueGames;
     
     if (selectedDivisionTab === "No Division") {
-      return leagueGames.filter(g => !g.division);
+      return leagueGames.filter(g => !g.flight);
     }
     
-    return leagueGames.filter(g => g.division === selectedDivisionTab);
+    return leagueGames.filter(g => g.flight === selectedDivisionTab);
   };
 
   return (
@@ -500,7 +522,7 @@ function LeaguesPage() {
             leagueId={selectedLeagueForGames.id}
             game={editingGame}
             isDarkMode={isDarkMode}
-            selectedDivision={selectedDivisionTab === "No Division" ? "" : selectedDivisionTab}
+            selectedFlight={selectedDivisionTab === "No Division" ? "" : selectedDivisionTab}
             onClose={handleCloseGameModal}
             onSave={handleSaveGame}
           />

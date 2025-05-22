@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/router'
 import Link from 'next/link'
@@ -9,14 +9,25 @@ export default function UserBanner({ email, roles }: { email: string; roles: str
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [showInitials, setShowInitials] = useState(false)
   const { isDarkMode, toggleTheme } = useTheme()
   const { selectedTeamId, setSelectedTeamId, userTeams, isLoadingUser, currentUser } = useTeam()
 
   useEffect(() => {
     const fetchProfile = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      const url = user?.user_metadata?.avatar_url || null
+      // Get avatar URL from user metadata (works for Google accounts)
+      let url = user?.user_metadata?.avatar_url || user?.user_metadata?.picture || null
+      
+      // If it's a Google avatar URL, modify it to get a larger version
+      if (url && url.includes('googleusercontent.com')) {
+        // Remove any size parameters and add a larger size
+        url = url.replace(/=s\d+-c/, '=s192-c')
+      }
+      
+      console.log('Avatar URL:', url) // Debug log
       setAvatarUrl(url)
+      setShowInitials(!url) // Show initials if no URL
     }
     fetchProfile()
   }, [])
@@ -83,12 +94,21 @@ export default function UserBanner({ email, roles }: { email: string; roles: str
         className={`w-10 h-10 rounded-full ${isDarkMode ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'} flex items-center justify-center overflow-hidden`}
         onClick={() => setOpen(!open)}
       >
-        {avatarUrl ? (
-          <img src={avatarUrl} alt="avatar" className="w-full h-full object-cover rounded-full" />
+        {avatarUrl && !showInitials ? (
+          <img 
+            src={avatarUrl} 
+            alt="avatar" 
+            className="w-full h-full object-cover"
+            onError={() => {
+              console.log('Avatar image failed to load, falling back to initials') // Debug log
+              setShowInitials(true)
+            }}
+          />
         ) : (
-          initials
+          <span className="text-sm font-medium">{initials}</span>
         )}
       </button>
+      
       {open && (
         <div className={`absolute top-12 right-0 w-56 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-800'} border rounded shadow-md z-10`}>
           <div className={`px-4 py-2 text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>{email}</div>

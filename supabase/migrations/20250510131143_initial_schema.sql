@@ -46,6 +46,74 @@
     updated_at TIMESTAMP DEFAULT now()
   );
 
+  CREATE TABLE IF NOT EXISTS games (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    home_team_id UUID REFERENCES teams(id),
+    away_team_id UUID REFERENCES teams(id),
+    location TEXT,
+    game_date DATE NOT NULL,
+    game_time TIME,
+    score_home INTEGER,
+    score_away INTEGER,
+    status game_status DEFAULT 'scheduled',
+    additional_info JSONB DEFAULT '{}'::JSONB,
+    created_by UUID REFERENCES auth.users,
+    created_at TIMESTAMP DEFAULT now(),
+    updated_at TIMESTAMP DEFAULT now(),
+    type TEXT CHECK (type IN ('league', 'tournament')),
+    CONSTRAINT different_teams CHECK (home_team_id != away_team_id)
+  );
+
+  -- Create leagues table
+  CREATE TABLE IF NOT EXISTS leagues (
+      id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+      name TEXT NOT NULL,
+      season TEXT NOT NULL,
+      age_group TEXT,
+      gender TEXT,
+      start_date DATE,
+      end_date DATE,
+      additional_info JSONB DEFAULT '{}'::JSONB,
+      created_at TIMESTAMP DEFAULT now(),
+      updated_at TIMESTAMP DEFAULT now(),
+      CONSTRAINT leagues_valid_dates CHECK (end_date >= start_date)
+  );
+
+  -- Create league_divisions table to store divisions for each league
+  CREATE TABLE IF NOT EXISTS league_divisions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    league_id UUID NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT now(),
+    updated_at TIMESTAMP DEFAULT now(),
+    UNIQUE(league_id, name)
+  );
+
+  -- Create team_league_memberships table
+  CREATE TABLE IF NOT EXISTS team_league_memberships (
+      id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+      team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      league_id UUID NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
+      division UUID NOT NULL REFERENCES league_divisions(id) ON DELETE CASCADE,
+      additional_info JSONB DEFAULT '{}'::JSONB,
+      created_at TIMESTAMP DEFAULT now(),
+      updated_at TIMESTAMP DEFAULT now(),
+      UNIQUE(team_id, league_id)
+  );
+
+  -- Create league_games table to track which games belong to which leagues
+  CREATE TABLE IF NOT EXISTS league_games (
+      id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+      league_id UUID NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
+      game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      division TEXT,
+      created_at TIMESTAMP DEFAULT now(),
+      updated_at TIMESTAMP DEFAULT now(),
+      UNIQUE(game_id, league_id)
+  );
+
+  -- Create team_members table
   CREATE TABLE IF NOT EXISTS team_members (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id UUID REFERENCES teams(id) ON DELETE CASCADE,
@@ -104,24 +172,6 @@
     status TEXT CHECK (status IN ('pending', 'approved', 'rejected')) DEFAULT 'pending',
     created_at TIMESTAMP DEFAULT now(),
     updated_at TIMESTAMP DEFAULT now()
-  );
-
-  CREATE TABLE IF NOT EXISTS games (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    home_team_id UUID REFERENCES teams(id),
-    away_team_id UUID REFERENCES teams(id),
-    location TEXT,
-    game_date DATE NOT NULL,
-    game_time TIME,
-    score_home INTEGER,
-    score_away INTEGER,
-    status game_status DEFAULT 'scheduled',
-    additional_info JSONB DEFAULT '{}'::JSONB,
-    created_by UUID REFERENCES auth.users,
-    created_at TIMESTAMP DEFAULT now(),
-    updated_at TIMESTAMP DEFAULT now(),
-    type TEXT CHECK (type IN ('league', 'tournament')),
-    CONSTRAINT different_teams CHECK (home_team_id != away_team_id)
   );
 
   CREATE TABLE IF NOT EXISTS game_attendance (
@@ -282,53 +332,16 @@
       END IF;
   END $$;
 
-  -- Create leagues table
-  CREATE TABLE IF NOT EXISTS leagues (
-      id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-      name TEXT NOT NULL,
-      season TEXT NOT NULL,
-      age_group TEXT,
-      gender TEXT,
-      start_date DATE,
-      end_date DATE,
-      additional_info JSONB DEFAULT '{}'::JSONB,
-      created_at TIMESTAMP DEFAULT now(),
-      updated_at TIMESTAMP DEFAULT now(),
-      CONSTRAINT leagues_valid_dates CHECK (end_date >= start_date)
-  );
-
-  -- Create team_league_memberships table
-  CREATE TABLE IF NOT EXISTS team_league_memberships (
-      id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-      team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-      league_id UUID NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
-      division UUID NOT NULL REFERENCES divisions(id) ON DELETE CASCADE,
-      additional_info JSONB DEFAULT '{}'::JSONB,
-      created_at TIMESTAMP DEFAULT now(),
-      updated_at TIMESTAMP DEFAULT now(),
-      UNIQUE(team_id, league_id)
-  );
-
-  -- Create league_games table to track which games belong to which leagues
-  CREATE TABLE IF NOT EXISTS league_games (
-      id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-      league_id UUID NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
-      game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-      created_at TIMESTAMP DEFAULT now(),
-      updated_at TIMESTAMP DEFAULT now(),
-      UNIQUE(game_id, league_id)
-  );
-
   -- Create tournaments table
   CREATE TABLE IF NOT EXISTS tournaments (
       id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
       name TEXT NOT NULL,
-      league_id UUID NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
       start_date DATE NOT NULL,
       end_date DATE NOT NULL,
       location TEXT,
       status TEXT CHECK (status IN ('upcoming', 'in_progress', 'completed', 'cancelled')) DEFAULT 'upcoming',
       format TEXT,
+      description TEXT,
       additional_info JSONB DEFAULT '{}'::JSONB,
       created_at TIMESTAMP DEFAULT now(),
       updated_at TIMESTAMP DEFAULT now(),
@@ -342,6 +355,7 @@
       game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
       stage TEXT NOT NULL, -- e.g., 'group_stage', 'round_of_16', 'quarter_finals', 'semi_finals', 'finals'
       group_name TEXT, -- for group stage games
+      flight TEXT,
       created_at TIMESTAMP DEFAULT now(),
       updated_at TIMESTAMP DEFAULT now(),
       UNIQUE(game_id, tournament_id)
@@ -381,7 +395,8 @@
       id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
       tournament_id UUID NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
       team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-      division TEXT NOT NULL,
+      flight TEXT NOT NULL,
+      age_group TEXT,
       seed INTEGER,
       group_name TEXT, -- for group stage tournaments
       status TEXT CHECK (status IN ('registered', 'confirmed', 'withdrawn')) DEFAULT 'registered',
@@ -470,7 +485,6 @@
   CREATE INDEX IF NOT EXISTS idx_games_away_team_id ON games(away_team_id);
   CREATE INDEX IF NOT EXISTS idx_games_game_date ON games(game_date);
   CREATE INDEX IF NOT EXISTS idx_games_status ON games(status);
-  CREATE INDEX IF NOT EXISTS idx_tournaments_league_id ON tournaments(league_id);
   CREATE INDEX IF NOT EXISTS idx_tournaments_dates ON tournaments(start_date, end_date);
   CREATE INDEX IF NOT EXISTS idx_tournaments_status ON tournaments(status);
   CREATE INDEX IF NOT EXISTS idx_tournament_games_tournament_id ON tournament_games(tournament_id);
@@ -478,7 +492,7 @@
   CREATE INDEX IF NOT EXISTS idx_tournament_games_stage ON tournament_games(stage);
   CREATE INDEX IF NOT EXISTS idx_tournament_teams_tournament_id ON tournament_teams(tournament_id);
   CREATE INDEX IF NOT EXISTS idx_tournament_teams_team_id ON tournament_teams(team_id);
-  CREATE INDEX IF NOT EXISTS idx_tournament_teams_division ON tournament_teams(division);
+  CREATE INDEX IF NOT EXISTS idx_tournament_teams_flight ON tournament_teams(flight);
   CREATE INDEX IF NOT EXISTS idx_tournament_teams_group ON tournament_teams(group_name);
   CREATE INDEX IF NOT EXISTS idx_game_rosters_game_id ON game_rosters(game_id);
   CREATE INDEX IF NOT EXISTS idx_game_rosters_team_id ON game_rosters(team_id);
@@ -1060,17 +1074,6 @@
     notes TEXT,
     created_at TIMESTAMP DEFAULT now(),
     updated_at TIMESTAMP DEFAULT now()
-  );
-
-  -- Create league_divisions table to store divisions for each league
-  CREATE TABLE IF NOT EXISTS league_divisions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    league_id UUID NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    description TEXT,
-    created_at TIMESTAMP DEFAULT now(),
-    updated_at TIMESTAMP DEFAULT now(),
-    UNIQUE(league_id, name)
   );
 
   -- Create tournament_divisions table to store divisions for each tournament
