@@ -1,27 +1,31 @@
-import { NextApiRequest, NextApiResponse } from 'next'
-import { supabase } from '@/lib/supabaseClient'
+import type { NextApiRequest, NextApiResponse } from 'next'
+import { getSupabaseClient } from '@/lib/supabaseClient'
+import type { TeamRequestsApiResponse, ErrorResponse } from '@/lib/types/teams'
+import { teamRequestsResponseSchema } from '@/lib/types/teams' // Import the schema
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<TeamRequestsApiResponse>
+) {
   if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' })
+    const errorResponse: ErrorResponse = {
+      error: 'Method not allowed'
+    }
+    return res.status(405).json(errorResponse)
   }
 
   try {
-    // First, let's check if we can access the table
-    const { data: testData, error: testError } = await supabase
-      .from('team_member_requests')
-      .select('id')
-      .limit(1)
+    const supabase = getSupabaseClient(req.headers.authorization)
 
-    if (testError) {
-      console.error('Error accessing team_member_requests table:', testError)
-      return res.status(500).json({ 
-        error: 'Failed to access team_member_requests table',
-        details: testError
-      })
+    // Add user authentication check - only admins or relevant users should access all requests
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+        console.error('Error getting user or user not found:', userError);
+        const errorResp: ErrorResponse = { error: 'Unauthorized' };
+        return res.status(401).json(errorResp);
     }
+    // Further role-based access control might be needed here if not all users can see all requests
 
-    // Now try the full query
     const { data, error } = await supabase
       .from('team_member_requests')
       .select(`
@@ -34,30 +38,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         updated_at,
         reviewed_by,
         reviewed_at,
-        auth.users!user_id (
-          email
-        ),
-        teams!team_id (
-          name
-        )
+        user:auth_users!user_id (email, user_metadata->>full_name),
+        team:teams!team_id (name)
       `)
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
 
     if (error) {
       console.error('Error fetching team member requests:', error)
-      return res.status(500).json({ 
-        error: 'Failed to fetch team member requests',
-        details: error
-      })
+      throw new Error(error.message)
     }
 
-    return res.status(200).json(data)
+    const responseData = { requests: data || [] };
+    teamRequestsResponseSchema.parse(responseData); // Validate the response
+
+    return res.status(200).json(responseData)
   } catch (error) {
-    console.error('Unexpected error in team member requests API:', error)
-    return res.status(500).json({ 
-      error: 'Unexpected error occurred',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    })
+    if (error instanceof Error) {
+      const errorResponse: ErrorResponse = {
+        error: error.message
+      }
+      return res.status(400).json(errorResponse)
+    }
+    console.error('Error in team requests handler:', error)
+    const errorResponse: ErrorResponse = {
+      error: 'An unknown error occurred'
+    }
+    return res.status(500).json(errorResponse)
   }
 } 

@@ -1,49 +1,80 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '@/lib/supabaseClient'
+import type { CreateClipApiResponse } from '@/lib/types/clips'
+import type { ErrorResponse } from '@/lib/types/auth' // Shared ErrorResponse
+import {
+  createClipRequestSchema,
+  createClipResponseSchema
+} from '@/lib/types/clips'
+import { z } from 'zod'
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<CreateClipApiResponse>
+) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed' })
+    const errorResponse: ErrorResponse = { error: 'Method not allowed' };
+    res.setHeader('Allow', ['POST']);
+    return res.status(405).json(errorResponse);
   }
 
   try {
-    const { title, video_id, start_time, end_time, created_by, source } = req.body
+    const supabase = getSupabaseClient(req.headers.authorization);
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-    if (!title || !video_id || start_time == null || end_time == null || !created_by) {
-      return res.status(400).json({ message: 'Missing required fields' })
+    if (authError || !user) {
+      console.error('Authentication error:', authError);
+      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+      return res.status(401).json(errorResponse);
     }
 
-    // Get auth token from header
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      return res.status(401).json({ message: 'Missing authorization header' });
-    }
-    
-    // Get authenticated Supabase client
-    const supabase = getSupabaseClient(authHeader);
-    
-    // Create the clip
-    const { data, error } = await supabase
+    const rawClipData = req.body;
+    const validatedClipData = createClipRequestSchema.parse(rawClipData);
+
+    // Add created_by field from authenticated user
+    const clipToInsert = {
+      ...validatedClipData,
+      created_by: user.id
+    };
+
+    const { data: clip, error: insertError } = await supabase
       .from('clips')
-      .insert({
-        title,
-        video_id,
-        start_time,
-        end_time,
-        created_by,
-        created_at: new Date().toISOString()
-      })
+      .insert(clipToInsert)
       .select()
       .single();
 
-    if (error) {
-      console.error('Error creating clip:', error);
-      return res.status(500).json({ message: error.message });
+    if (insertError) {
+      console.error('Error creating clip:', insertError);
+      // Handle specific Supabase errors, e.g., unique constraint violation
+      if (insertError.code === '23505') { // Unique violation
+        const errorResponse: ErrorResponse = { error: 'Clip already exists or unique constraint failed.' };
+        return res.status(409).json(errorResponse); // 409 Conflict
+      }
+      throw new Error(insertError.message);
+    }
+    if (!clip) { // Should not happen if insertError is null, but good practice
+        throw new Error('Clip creation did not return data.')
     }
 
-    return res.status(200).json({ id: data.id, ...data });
-  } catch (err: any) {
-    console.error('Error in clips/create API:', err);
-    return res.status(500).json({ message: err.message || 'Internal server error' });
+    const responseData = { clip };
+    createClipResponseSchema.parse(responseData);
+    return res.status(201).json(responseData);
+
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const errorResponse: ErrorResponse = { 
+        error: 'Invalid request body',
+        // issues: error.issues 
+      };
+      return res.status(400).json(errorResponse);
+    }
+    if (error instanceof Error) {
+      const errorResponse: ErrorResponse = { error: error.message };
+      // Consider more specific status codes based on error type if possible
+      return res.status(500).json(errorResponse);
+    }
+    console.error('Error in create clip handler:', error);
+    const errorResponse: ErrorResponse = { error: 'An unknown error occurred' };
+    return res.status(500).json(errorResponse);
   }
 } 

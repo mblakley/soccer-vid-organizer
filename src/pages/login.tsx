@@ -1,92 +1,121 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/router'
-import { getCurrentUser, getRedirectPath, refreshUserSession } from '@/lib/auth'
+import { getRedirectPath, refreshUserSession } from '@/lib/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import ThemeToggle from '@/components/ThemeToggle'
 import { toast } from 'react-toastify'
+import { apiClient } from '@/lib/api/client'
+import { AuthLoginRequest, AuthSessionApiResponse, GoogleOAuthApiResponse, ErrorResponse } from '@/lib/types/auth'
+
+// Type guard to check for ErrorResponse
+function isErrorResponse(response: any): response is ErrorResponse {
+  return response && typeof response.error === 'string';
+}
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const [isRefreshing, setIsRefreshing] = useState(false)
   const router = useRouter()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [formData, setFormData] = useState<AuthLoginRequest>({
+    email: '',
+    password: '',
+  })
   const { isDarkMode } = useTheme()
 
-  const handleLogin = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+
     try {
-      console.log("[Login] Starting login process")
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) {
-        console.error("[Login] Login error:", error)
-        setError(error.message)
-        return
+      const response = await apiClient.post<AuthSessionApiResponse>('/api/auth/login', formData)
+      if (isErrorResponse(response)) {
+        throw new Error(response.error)
       }
-      
-      // Pass the team_id from URL if it exists
-      const teamId = router.query.team_id as string
-      console.log("[Login] URL team_id parameter for redirect:", teamId)
-      const queryParams = teamId ? { team_id: teamId } : undefined
-      console.log("[Login] Query params for redirect:", queryParams)
-      
-      const userData = await getCurrentUser()
-      console.log("[Login] User data after login:", userData)
-      const redirectPath = getRedirectPath(userData, queryParams)
-      console.log("[Login] Redirecting to after login:", redirectPath)
-      router.push(redirectPath)
-    } catch (error: any) {
-      console.error("[Login] Error during login:", error)
-      setError(error.message || 'An error occurred during login')
+      if (!response.session) {
+        throw new Error('Login successful, but no session data received.')
+      }
+
+      toast.success('Logged in successfully!')
+      await refreshUserSession()
+      const user = await apiClient.get<AuthSessionApiResponse>('/api/auth/session')
+      if (user && !isErrorResponse(user) && user.session) {
+        const refreshedCurrentUser = await refreshUserSession()
+        const redirectPath = getRedirectPath(refreshedCurrentUser, router.query.team_id ? { team_id: router.query.team_id as string } : undefined)
+        router.push(redirectPath)
+      } else {
+        router.push('/dashboard')
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to log in. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleResetPassword = async () => {
+    try {
+      await apiClient.post('/api/auth/reset-password', { email: formData.email })
+      toast.success('Password reset email sent!')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to send reset email. Please try again.')
     }
   }
 
   const handleGoogleLogin = async () => {
     console.log("[Login] Starting Google login...")
-    // Get team_id from URL if it exists
-    const teamId = router.query.team_id as string
-    console.log("[Login] Preserving team_id for Google login:", teamId)
+    setLoading(true)
     
-    // Build the full redirect URL with team_id
-    const redirectUrl = new URL('/login', window.location.origin)
-    if (teamId) {
-      redirectUrl.searchParams.set('team_id', teamId)
-    }
-    console.log("[Login] Full redirect URL:", redirectUrl.toString())
-    
-    // Store the team_id in sessionStorage as a backup
-    if (teamId) {
-      sessionStorage.setItem('pending_team_id', teamId)
-      console.log("[Login] Stored team_id in sessionStorage:", teamId)
-    }
-    
-    const { data, error } = await supabase.auth.signInWithOAuth({ 
-      provider: 'google',
-      options: {
-        redirectTo: redirectUrl.toString(),
-        queryParams: teamId ? { team_id: teamId } : undefined
+    try {
+      // Get team_id from URL if it exists
+      const teamId = router.query.team_id as string
+      console.log("[Login] Preserving team_id for Google login:", teamId)
+      
+      // Call our API endpoint to initiate Google OAuth
+      const response = await apiClient.post<GoogleOAuthApiResponse>('/api/auth/google', { team_id: teamId })
+      
+      if (isErrorResponse(response)) {
+        throw new Error(response.error)
       }
-    })
-    
-    if (error) {
-      console.error("[Login] Google login error:", error)
-      setError(error.message)
-    } else {
+
+      if (!response.url) {
+        throw new Error('No OAuth URL received')
+      }
+      
+      // Store the team_id in sessionStorage as a backup
+      if (teamId) {
+        sessionStorage.setItem('pending_team_id', teamId)
+        console.log("[Login] Stored team_id in sessionStorage:", teamId)
+      }
+      
+      // Redirect to Google OAuth URL
+      window.location.href = response.url
+      
+      
       console.log("[Login] Google OAuth initiated, waiting for redirect back")
+    } catch (error) {
+      console.error("[Login] Google login error:", error)
+      setError(error instanceof Error ? error.message : 'Failed to initiate Google login')
+    } finally {
+      setLoading(false)
     }
   }
 
   useEffect(() => {
     console.log("[Login] Login page loaded, checking session...")
     const handleAuthRedirect = async () => {
-      setError(''); // Clear error on auth check
-      setIsRefreshing(true);
+      setError('') // Clear error on auth check
+      setLoading(true)
       
       try {
         // Check if user is already logged in
-        const { data: sessionData } = await supabase.auth.getSession()
-        const session = sessionData.session
+        const response = await apiClient.get<AuthSessionApiResponse>('/api/auth/session')
+        if (!response || isErrorResponse(response)) {
+          console.log("[Login] No session data received or error fetching session")
+          setLoading(false)
+          return
+        }
         
         // Get team_id from URL query if it exists (for later use in redirect)
         const teamId = router.query.team_id as string
@@ -104,32 +133,26 @@ export default function LoginPage() {
           sessionStorage.removeItem('pending_team_id')
         }
         
-        if (session) {
-          console.log("[Login] Found session, refreshing to get latest claims...")
+        // Refresh token to get the latest team roles
+        const refreshedUser = await refreshUserSession()
+        console.log("[Login] Session refreshed, user data:", refreshedUser)
+        
+        if (refreshedUser) {
+          // Determine redirect path with updated claims
+          const queryParams = finalTeamId ? { team_id: finalTeamId } : undefined
+          const redirectPath = getRedirectPath(refreshedUser, queryParams)
+          console.log("[Login] Redirecting to:", redirectPath)
           
-          // Refresh token to get the latest team roles
-          const refreshedUser = await refreshUserSession()
-          console.log("[Login] Session refreshed, user data:", refreshedUser)
-          
-          if (refreshedUser) {
-            // Determine redirect path with updated claims
-            const queryParams = finalTeamId ? { team_id: finalTeamId } : undefined
-            const redirectPath = getRedirectPath(refreshedUser, queryParams)
-            console.log("[Login] Redirecting to:", redirectPath)
-            
-            // Use replace instead of push to avoid adding to browser history
-            router.replace(redirectPath)
-          } else {
-            console.log("[Login] No user data after refresh - remaining on login page")
-          }
+          // Use replace instead of push to avoid adding to browser history
+          router.replace(redirectPath)
         } else {
-          console.log("[Login] No session found - user needs to log in")
+          console.log("[Login] No user data after refresh - remaining on login page")
         }
-      } catch (error: any) {
+      } catch (error) {
         console.error("[Login] Error processing session:", error)
-        setError(error.message || 'An error occurred while processing your session. Please try logging in again.');
+        setError(error instanceof Error ? error.message : 'An error occurred while processing your session. Please try logging in again.')
       } finally {
-        setIsRefreshing(false);
+        setLoading(false)
       }
     }
 
@@ -146,8 +169,8 @@ export default function LoginPage() {
         <div>
           <h1 className="text-2xl font-bold text-center">Soccer Video Organizer</h1>
           <h2 className="text-xl text-center mt-2">Log In</h2>
-          {isRefreshing && (
-            <p className="text-center text-sm mt-2 text-blue-500">Refreshing session...</p>
+          {loading && (
+            <p className="text-center text-sm mt-2 text-blue-500">Loading...</p>
           )}
         </div>
         <div className="space-y-4">
@@ -155,24 +178,38 @@ export default function LoginPage() {
             className={`border px-4 py-2 w-full rounded ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`} 
             placeholder="Email" 
             type="email"
-            onChange={e => setEmail(e.target.value)} 
+            value={formData.email}
+            onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))} 
           />
           <input 
             type="password" 
             className={`border px-4 py-2 w-full rounded ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`} 
             placeholder="Password" 
-            onChange={e => setPassword(e.target.value)} 
+            value={formData.password}
+            onChange={e => setFormData(prev => ({ ...prev, password: e.target.value }))} 
           />
+          <div className="text-right">
+            <button 
+              type="button"
+              className={`text-sm ${isDarkMode ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-700'} hover:underline`}
+              onClick={handleResetPassword}
+              disabled={loading}
+            >
+              Forgot Password?
+            </button>
+          </div>
           <div className="flex flex-col gap-3">
             <button 
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full" 
-              onClick={handleLogin}
+              onClick={handleSubmit}
+              disabled={loading}
             >
-              Login
+              {loading ? 'Logging in...' : 'Login'}
             </button>
             <button 
               className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded w-full" 
               onClick={handleGoogleLogin}
+              disabled={loading}
             >
               Log in with Google
             </button>
@@ -186,6 +223,7 @@ export default function LoginPage() {
             </button>
           </div>
           {error && <p className="text-red-600 text-sm">{error}</p>}
+          {message && <p className="text-green-600 text-sm">{message}</p>}
         </div>
       </div>
     </div>

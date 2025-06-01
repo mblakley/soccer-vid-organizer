@@ -21,7 +21,39 @@ import {
 import { Dialog, Listbox } from '@headlessui/react'
 import { ChevronsUpDown, Check as CheckIcon } from 'lucide-react'
 import React from 'react'
+import { apiClient } from '@/lib/api/client'
 
+// Import correct types and remove local ones
+import { Team, TeamMember } from '@/lib/types/teams'; // Assuming TeamMember's roles is non-optional array
+import { UserWithRole } from '@/lib/types/auth';
+// TeamRequest for pending requests - might need a more specific AdminDisplayTeamRequest later
+import { TeamRequest } from '@/lib/types/teams'; 
+import { ErrorResponse } from '@/lib/types/auth'; // For type guard
+// Import the new AdminDisplayTeamRequest and AdminPendingRequestsResponse
+import { AdminDisplayTeamRequest, AdminPendingRequestsResponse } from '@/lib/types/admin'; 
+import {
+  AdminTeamMembersApiResponse, // For fetching members
+  AdminTeamRelationshipsApiResponse, // For fetching relationships
+  AdminTeamApiResponse, // For fetching single team details
+  Relationship, // Import the new Relationship type from admin types
+  AdminListTeamsApiResponseForTeamsPage,
+  AdminListRolesApiResponse,
+  AdminPendingRequestsApiResponse,
+  CheckUserApiResponse,
+  AdminManageTeamMemberRequest,
+  AdminManageTeamMemberApiResponse,
+  InviteUserRequest,
+  NotifyTeamMemberRequest,
+  InviteUserApiResponse,
+  NotifyTeamMemberApiResponse,
+  AdminRemoveTeamMemberRequest,
+  AdminRemoveTeamMemberApiResponse,
+  ProcessTeamRequest,
+  ProcessTeamRequestApiResponse,
+} from '@/lib/types/admin'; 
+
+// Remove local AuthUser
+/*
 interface AuthUser {
   id: string
   email?: string
@@ -30,7 +62,13 @@ interface AuthUser {
     name?: string
   }
 }
+*/
 
+// Remove local TeamMember if covered by imported TeamMember
+// The local one had roles as optional, the imported one has it as required array.
+// This might require adjustments where TeamMember is used if data can have optional roles.
+// For now, assume imported TeamMember is the standard.
+/*
 interface TeamMember {
   id: string
   team_id: string
@@ -44,49 +82,64 @@ interface TeamMember {
   user_name?: string
   roles?: string[]
 }
+*/
 
+// Remove local Team
+/*
 interface Team {
   id: string
   name: string
-  club_affiliation: string | null
+  club_affiliation?: string
 }
+*/
 
-interface FormData {
-  name: string;
-  email: string;
-  jersey_number: string;
-  position: string;
-  roles: string[];
+// Remove local Relationship interface as it's now imported from admin types
+/*
+interface Relationship { 
+  player_team_member_id: string
+  parent_team_member_id: string
   team_id: string | null;
   user_id?: string;
 }
+*/
 
-interface TeamMemberRequest {
-  id: string
-  user_id: string
-  team_id: string
-  requested_roles: string[]
-  status: 'pending' | 'approved' | 'rejected'
-  created_at: string
-  user_email?: string
-  user_name?: string
-  team_name?: string
-  request_type: 'join' | 'role'
+// Adjusted TeamMemberRequest to use imported TeamRequest as a base, then extend or use a new Admin one
+// For now, let's use a more specific local type that matches the fields used.
+// This will eventually be replaced by a type from src/lib/types/admin.ts
+/*
+interface DisplayTeamRequest extends TeamRequest { // Extending TeamRequest for now
+  user_email?: string;
+  user_name?: string;
+  team_name?: string; // This might be redundant if team object is nested
+  request_type: 'join' | 'role'; // Custom field for UI logic
+  // team_members and teams are from the original local interface, likely from a complex query.
+  // These would be part of the structure returned by a dedicated admin API for requests.
   team_members?: {
-    user_id: string
-    team_id: string
-  }
+    user_id: string;
+    team_id: string;
+  };
   teams?: {
-    name: string
-  }
-  requested_role?: string
+    name: string;
+  };
+  requested_role?: string; // If request_type is 'role', this might hold the specific role
   additional_info?: {
-    playerName?: string
-    [key: string]: any
-  }
+    playerName?: string;
+    [key: string]: any;
+  };
 }
 
-const columnHelper = createColumnHelper<TeamMember>()
+interface PendingRequests {
+  join: DisplayTeamRequest[];
+  role: DisplayTeamRequest[];
+}
+*/
+
+// Type guard for ErrorResponse
+function isErrorResponse(response: any): response is ErrorResponse {
+  return response && typeof response.error === 'string';
+}
+
+const columnHelper = createColumnHelper<TeamMember>() // Uses imported TeamMember
 
 function TeamMembersPage() {
   const searchParams = useSearchParams()
@@ -123,13 +176,14 @@ function TeamMembersPage() {
     position: '',
     roles: [] as string[]
   })
-  const [existingUser, setExistingUser] = useState<AuthUser | null>(null)
+  const [existingUser, setExistingUser] = useState<UserWithRole | null>(null)
   const [isCheckingEmail, setIsCheckingEmail] = useState(false)
   const [existingUserFound, setExistingUserFound] = useState(false)
   const [roleError, setRoleError] = useState(false)
-  const [pendingRequests, setPendingRequests] = useState<TeamMemberRequest[]>([])
+  // Use AdminDisplayTeamRequest for pendingRequests state
+  const [pendingRequests, setPendingRequests] = useState<{ join: AdminDisplayTeamRequest[], role: AdminDisplayTeamRequest[] }>({ join: [], role: [] })
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false)
-  const [selectedRequest, setSelectedRequest] = useState<TeamMemberRequest | null>(null)
+  const [selectedRequest, setSelectedRequest] = useState<AdminDisplayTeamRequest | null>(null) // Use AdminDisplayTeamRequest
   const [isProcessingRequest, setIsProcessingRequest] = useState(false)
   const [editPlayerName, setEditPlayerName] = useState<string>('')
 
@@ -239,126 +293,80 @@ function TeamMembersPage() {
 
   const fetchTeamMembers = useCallback(async () => {
     if (!teamId) return;
-
+    setError(null); // Clear previous errors
     try {
-      // Fetch team members
-      const { data: membersData, error: membersError } = await supabase
-        .from('team_members')
-        .select('*')
-        .eq('team_id', teamId)
-        .eq('is_active', true);
-
-      if (membersError) throw membersError;
-
-      // Fetch user details
-      const response = await fetch('/api/admin/users');
-      if (!response.ok) {
-        throw new Error('Failed to fetch users');
+      const response = await apiClient.get<AdminTeamMembersApiResponse>(`/api/admin/teams/${teamId}/members`)
+      
+      if (isErrorResponse(response)) {
+        setError(response.error || 'Failed to fetch team members');
+        setTeamMembers([]);
+      } else if (response && response.members) {
+        setTeamMembers(response.members)
+      } else {
+        setTeamMembers([]); // Handle case where response is successful but no members array
       }
-      const users = await response.json() as AuthUser[];
-      // Create a map of user_id to user data
-      const userMap = new Map(users.map((user) => [
-        user.id,
-        {
-          email: isTempEmail(user.email) ? '' : (user.email || ''),
-          name: user.user_metadata?.full_name || 'Unknown'
-        }
-      ]));
-
-      // Fetch roles for each team member
-      const { data: rolesData, error: rolesError } = await supabase
-        .from('team_member_roles')
-        .select('team_member_id, role')
-        .in('team_member_id', membersData.map(m => m.id));
-
-      if (rolesError) throw rolesError;
-
-      // Create a map of team_member_id to roles
-      const rolesMap = new Map<string, string[]>();
-      rolesData.forEach(role => {
-        const currentRoles = rolesMap.get(role.team_member_id) || [];
-        rolesMap.set(role.team_member_id, [...currentRoles, role.role]);
-      });
-
-      // Combine the data
-      const membersWithUserData = membersData.map(member => ({
-        ...member,
-        user_email: userMap.get(member.user_id)?.email || '',
-        user_name: userMap.get(member.user_id)?.name || 'Unknown',
-        roles: rolesMap.get(member.id) || []
-      }));
-
-      setTeamMembers(membersWithUserData);
     } catch (error: any) {
-      console.error('Error fetching team members:', error);
-      setError(error.message || 'Failed to fetch team members');
+      console.error('Error fetching team members:', error)
+      setError(error.message || 'Failed to fetch team members')
+      setTeamMembers([]);
     }
-  }, [teamId]);
+  }, [teamId])
 
-  useEffect(() => {
-    const fetchTeams = async () => {
-      try {
-        const { data: teamsData, error: teamsError } = await supabase
-          .from('teams')
-          .select('id, name, club_affiliation')
-          .order('name');
-
-        if (teamsError) throw teamsError;
-        setTeams(teamsData);
-
-        // If we have a teamId in the URL, make sure it's in the teams list
-        if (teamId && !teamsData.some(team => team.id === teamId)) {
-          // If not, fetch the specific team
-          const { data: teamData, error: teamError } = await supabase
-            .from('teams')
-            .select('id, name, club_affiliation')
-            .eq('id', teamId)
-            .single();
-
-          if (!teamError && teamData) {
-            setTeams(prev => [...prev, teamData]);
+  const fetchTeams = async () => {
+    setError(null);
+    try {
+      // Use AdminListTeamsApiResponseForTeamsPage for consistency, assuming it lists all teams for admin
+      const response = await apiClient.get<AdminListTeamsApiResponseForTeamsPage>('/api/admin/teams/list')
+      
+      if (isErrorResponse(response)) {
+        setError(response.error || 'Failed to fetch teams');
+        setTeams([]);
+      } else if (response && response.teams) {
+        setTeams(response.teams)
+        // If a teamId is in the URL and not in the list, fetch it specifically (AdminTeamApiResponse)
+        if (teamId && !response.teams.some((t: Team) => t.id === teamId)) {
+          const teamDetailsResponse = await apiClient.get<AdminTeamApiResponse>(`/api/admin/teams/${teamId}`);
+          if (!isErrorResponse(teamDetailsResponse) && teamDetailsResponse.team) {
+            setTeams(prev => [...prev, teamDetailsResponse.team]);
           }
         }
-      } catch (error: any) {
-        console.error('Error fetching teams:', error);
-        setError(error.message || 'Failed to fetch teams');
+      } else {
+        setTeams([]);
       }
-    };
-
-    fetchTeams();
-  }, [teamId]);
+    } catch (error: any) {
+      console.error('Error fetching teams:', error)
+      setError(error.message || 'Failed to fetch teams')
+      setTeams([]);
+    }
+  }
 
   const fetchParentChildRelationships = useCallback(async () => {
-    if (!teamId) return;
-
+    if (!teamId) return
+    setError(null);
     try {
-      const { data: relationships, error: relError } = await supabase
-        .from('player_parent_relationships')
-        .select(`
-          player_team_member_id,
-          parent_team_member_id,
-          team_members!player_team_member_id(id, user_id),
-          parent_team_members:team_members!parent_team_member_id(id, user_id)
-        `)
-        .eq('team_members.team_id', teamId)
-        .eq('parent_team_members.team_id', teamId);
-
-      if (relError) throw relError;
-
-      // Create a map of player IDs to their parent IDs
-      const relationshipMap: {[key: string]: string[]} = {};
-      relationships?.forEach(rel => {
-        if (!relationshipMap[rel.player_team_member_id]) {
-          relationshipMap[rel.player_team_member_id] = [];
-        }
-        relationshipMap[rel.player_team_member_id].push(rel.parent_team_member_id);
-      });
-
-      setParentChildRelationships(relationshipMap);
-    } catch (error) {
-      console.error('Error fetching parent-child relationships:', error);
+      const response = await apiClient.get<AdminTeamRelationshipsApiResponse>(`/api/admin/teams/${teamId}/relationships`)
+      
+      if (isErrorResponse(response)) {
+        setError(response.error || 'Failed to fetch relationships');
+        setParentChildRelationships({});
+      } else if (response && response.relationships) {
+        const relationshipMap: {[key: string]: string[]} = {}
+        response.relationships.forEach((rel: Relationship) => {
+          if (!relationshipMap[rel.player_team_member_id]) {
+            relationshipMap[rel.player_team_member_id] = []
+          }
+          relationshipMap[rel.player_team_member_id].push(rel.parent_team_member_id)
+        })
+        setParentChildRelationships(relationshipMap)
+      } else {
+        setParentChildRelationships({});
+      }
+    } catch (error: any) {
+      console.error('Error fetching parent-child relationships:', error)
+      setError(error.message || 'Failed to fetch relationships');
+      setParentChildRelationships({});
     }
-  }, [teamId]);
+  }, [teamId])
 
   useEffect(() => {
     if (!teamId) {
@@ -369,21 +377,26 @@ function TeamMembersPage() {
     const fetchTeamAndMembers = async () => {
       try {
         setLoading(true);
+        setError(null);
         // Fetch team details
-        const { data: teamData, error: teamError } = await supabase
-          .from('teams')
-          .select('id, name, club_affiliation')
-          .eq('id', teamId)
-          .single();
+        const teamDetailsResponse = await apiClient.get<AdminTeamApiResponse>(`/api/admin/teams/${teamId}`)
 
-        if (teamError) throw teamError;
-        setTeam(teamData);
+        if (isErrorResponse(teamDetailsResponse)) {
+          throw new Error(teamDetailsResponse.error || 'Failed to fetch team details');
+        }
+        if (teamDetailsResponse && teamDetailsResponse.team) {
+           setTeam(teamDetailsResponse.team); 
+        } else {
+           throw new Error('Invalid team data received');
+        }
 
+        // Parallel fetch for members and relationships might be possible if independent
         await fetchTeamMembers();
         await fetchParentChildRelationships();
       } catch (error: any) {
         console.error('Error fetching team data:', error);
         setError(error.message || 'Failed to fetch team data');
+        setTeam(null); // Clear team data on error
       } finally {
         setLoading(false);
       }
@@ -392,103 +405,58 @@ function TeamMembersPage() {
     fetchTeamAndMembers();
   }, [teamId, fetchTeamMembers, fetchParentChildRelationships]);
 
-  useEffect(() => {
-    const fetchRoles = async () => {
-      try {
-        const { data, error } = await supabase
-          .rpc('get_team_member_roles')
-
-        if (error) {
-          console.error('Error fetching roles:', error)
-          return
-        }
-
-        if (data) {
-          setAvailableRoles(data)
-        }
-      } catch (error) {
-        console.error('Error in fetchRoles:', error)
+  const fetchRoles = async () => {
+    setError(null);
+    try {
+      const response = await apiClient.get<AdminListRolesApiResponse>('/api/admin/roles/list') // Assuming this new endpoint
+      
+      if (isErrorResponse(response)) {
+        setError(response.error || 'Failed to fetch roles');
+        setAvailableRoles([]);
+      } else if (response && response.roles) {
+        setAvailableRoles(response.roles.map(r => r.name)) // Assuming Role type has a name property
+      } else {
+        setAvailableRoles([]);
       }
+    } catch (err: any) {
+      console.error('Exception fetching roles:', err)
+      setError(err.message || 'An unexpected error occurred');
+      setAvailableRoles([]);
     }
+  }
 
+  useEffect(() => {
     fetchRoles()
-  }, [])
+  }, []) // Removed fetchPendingRequests from here, will call it separately or ensure it's in a relevant useEffect
 
   const fetchPendingRequests = useCallback(async () => {
+    setError(null);
     try {
-      // Fetch team join requests
-      const { data: joinRequests, error: joinError } = await supabase
-        .from('team_member_requests')
-        .select('*, teams:team_id(name)')
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false });
+      // Assuming a single endpoint that returns both types of requests, or separate if needed.
+      // For this example, using the AdminPendingRequestsApiResponse which expects a flat list.
+      const response = await apiClient.get<AdminPendingRequestsApiResponse>('/api/admin/pending-requests');
 
-      if (joinError) throw joinError;
-
-      // Fetch role requests
-      const { data: roleRequests, error: roleError } = await supabase
-        .from('team_member_role_requests')
-        .select(`
-          *,
-          team_members!inner(
-            user_id,
-            team_id,
-            teams!inner(name)
-          )
-        `)
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false });
-
-      if (roleError) throw roleError;
-
-      // Fetch user details for all requests
-      const userIds = new Set([
-        ...(joinRequests?.map(r => r.user_id) || []),
-        ...(roleRequests?.map(r => r.team_members.user_id) || [])
-      ]);
-
-      const response = await fetch('/api/admin/users');
-      if (!response.ok) {
-        throw new Error('Failed to fetch users');
+      if (isErrorResponse(response)) {
+        setError(response.error || 'Failed to fetch pending requests');
+        setPendingRequests({ join: [], role: [] });
+      } else if (response && response.requests) {
+        // Categorize requests if the API returns a flat list
+        const joinRequests = response.requests.filter(r => r.request_type === 'join');
+        const roleRequests = response.requests.filter(r => r.request_type === 'role');
+        setPendingRequests({ join: joinRequests, role: roleRequests });
+      } else {
+        setPendingRequests({ join: [], role: [] });
       }
-      const users = await response.json() as AuthUser[];
-      const userMap = new Map(users.map(user => [user.id, user]));
-
-      // Format join requests
-      const formattedJoinRequests = joinRequests?.map(request => ({
-        ...request,
-        request_type: 'join' as const,
-        user_email: userMap.get(request.user_id)?.email,
-        user_name: userMap.get(request.user_id)?.user_metadata?.full_name || 'Unknown',
-        team_name: request.teams?.name,
-        additional_info: request.additional_info
-      })) || [];
-
-      // Format role requests
-      const formattedRoleRequests = roleRequests?.map(request => ({
-        id: request.id,
-        user_id: request.team_members.user_id,
-        team_id: request.team_members.team_id,
-        requested_roles: [request.requested_role],
-        status: request.status,
-        created_at: request.created_at,
-        request_type: 'role' as const,
-        user_email: userMap.get(request.team_members.user_id)?.email,
-        user_name: userMap.get(request.team_members.user_id)?.user_metadata?.full_name || 'Unknown',
-        team_name: request.team_members.teams.name,
-        additional_info: request.additional_info
-      })) || [];
-
-      setPendingRequests([...formattedJoinRequests, ...formattedRoleRequests]);
-    } catch (error) {
-      console.error('Error fetching pending requests:', error);
-      toast.error('Failed to fetch pending requests');
+    } catch (err: any) {
+      console.error('Exception fetching pending requests:', err);
+      setError(err.message || 'An unexpected error occurred while fetching requests');
+      setPendingRequests({ join: [], role: [] });
     }
-  }, []);
+  }, []); // useCallback dependencies might be needed if it uses state/props that change
 
   useEffect(() => {
-    fetchPendingRequests()
-  }, [fetchPendingRequests])
+    fetchPendingRequests();
+  }, [fetchPendingRequests]);
 
   const handleTeamChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newTeamId = e.target.value
@@ -529,324 +497,109 @@ function TeamMembersPage() {
   const checkExistingUser = async (email: string) => {
     if (!email || email.length < 3) {
       setExistingUserFound(false)
+      setExistingUser(null); // Clear existing user data
       return
     }
 
     setIsCheckingEmail(true)
+    setError(null);
     try {
-      const response = await fetch('/api/admin/check-user', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          email,
-          teamId
-        }),
-      })
+      const response = await apiClient.post<CheckUserApiResponse>('/api/admin/check-user', {
+        email,
+        teamId: teamId // Pass current teamId to check if user is already a member of THIS team
+      });
 
-      const data = await response.json()
-      
-      if (!response.ok) {
-        if (data.isTeamMember) {
-          toast.error('This user is already a member of this team')
-          setFormData(prev => ({ ...prev, email: '' }))
+      if (isErrorResponse(response)) {
+        if (response.error.includes('already a member')) { // More specific error check
+            toast.error(response.error);
+            setFormData(prev => ({ ...prev, email: '' })); // Clear email if already member
         } else {
-          toast.error(data.error || 'Failed to check user')
+            toast.error(response.error || 'Failed to check user');
         }
-        setExistingUserFound(false)
-        return
+        setExistingUserFound(false);
+        setExistingUser(null);
+        return;
       }
       
-      if (data.exists) {
-        setExistingUserFound(true)
+      // If CheckUserResponse itself can contain an error property for business logic errors
+      if (response.error) { 
+        toast.error(response.error);
+        setExistingUserFound(false);
+        setExistingUser(null);
+        return;
+      }
+
+      if (response.exists) {
+        setExistingUserFound(true);
+        // Assuming response.user is UserWithRole compatible or parts of it.
+        // The CheckUserResponse schema has user: {id, email, name}. Ensure this maps to UserWithRole if needed elsewhere.
+        // For now, just setting name in formData.
         setFormData(prev => ({
           ...prev,
-          name: data.user.name || ''
-        }))
+          name: response.user?.name || '' 
+        }));
+        // setExistingUser(response.user); // If you need to store the full user object
       } else {
-        setExistingUserFound(false)
+        setExistingUserFound(false);
+        setExistingUser(null);
       }
-    } catch (error) {
-      console.error('Error checking existing user:', error)
-      toast.error('Failed to check existing user')
+    } catch (error: any) {
+      console.error('Error checking existing user:', error);
+      toast.error(error.message || 'Failed to check existing user');
+      setExistingUserFound(false);
+      setExistingUser(null);
     } finally {
       setIsCheckingEmail(false)
     }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault()
     
     if (formData.roles.length === 0) {
-      setRoleError(true);
-      return;
+      setRoleError(true)
+      return
     }
-
-    // Check for duplicate jersey number if player role is selected
-    if (formData.roles.includes('player') && formData.jersey_number) {
-      const { data: existingMembers, error: checkError } = await supabase
-        .from('team_members')
-        .select('id, jersey_number')
-        .eq('team_id', formData.team_id)
-        .eq('jersey_number', formData.jersey_number)
-        .eq('is_active', true);
-
-      if (checkError) {
-        toast.error('Error checking for duplicate jersey number');
-        return;
-      }
-
-      // If editing, exclude the current member from the check
-      const isDuplicate = existingMembers?.some(member => 
-        !editingMember || member.id !== editingMember.id
-      );
-
-      if (isDuplicate) {
-        toast.error('This jersey number is already in use by another team member');
-        return;
-      }
-    }
+    setRoleError(false); // Clear error if roles are selected
+    setIsInviting(true); // Use isInviting as a generic loading state for submit
+    setError(null);
 
     try {
-      let userId = formData.user_id;
+      const requestBody: AdminManageTeamMemberRequest = {
+        team_id: teamId!,
+        user_id: editingMember ? editingMember.user_id : (existingUser ? existingUser.id : undefined),
+        email: (!editingMember || !hasRealEmail(editingMember)) && formData.email ? formData.email : undefined,
+        name: (!editingMember || !hasRealEmail(editingMember)) && formData.name ? formData.name : (editingMember?.user_name || undefined),
+        roles: formData.roles,
+        jersey_number: formData.jersey_number || null,
+        position: formData.position || null,
+      };
 
-      // Only check for existing user if we're not editing and have an email
-      if (!editingMember && formData.email) {
-        const response = await fetch('/api/admin/check-user', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ 
-            email: formData.email,
-            teamId
-          }),
-        });
-
-        const data = await response.json();
-        
-        if (!response.ok) {
-          if (data.isTeamMember) {
-            toast.error('This user is already a member of this team');
-            return;
-          } else {
-            throw new Error(data.error || 'Failed to check user');
-          }
-        }
-        
-        if (data.exists) {
-          // Use the existing user's ID
-          userId = data.user.id;
-          
-          // Send team notification email to existing user
-          const notifyResponse = await fetch('/api/admin/notify-team-member', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              email: formData.email,
-              team_id: formData.team_id,
-              team_name: team?.name || 'Your Team'
-            }),
-          });
-
-          if (!notifyResponse.ok) {
-            const error = await notifyResponse.json();
-            console.error('Failed to send team notification email:', error);
-            // Continue anyway, don't throw an error
-          }
-        } else {
-          // Only create a new user if they don't exist
-          const createResponse = await fetch('/api/admin/create-user', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              email: formData.email,
-              password: Math.random().toString(36).slice(-8),
-              metadata: { 
-                name: formData.name,
-                ...(formData.email ? {} : { disabled: true })
-              },
-              display_name: formData.name
-            }),
-          });
-
-          if (!createResponse.ok) {
-            const error = await createResponse.json();
-            throw new Error(error.message || 'Failed to create user');
-          }
-
-          const { user } = await createResponse.json();
-          console.log('Created user:', user);
-          userId = user.user.id;
-
-          // Send invitation email for new users
-          const inviteResponse = await fetch('/api/admin/invite-user', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              email: formData.email,
-              team_id: formData.team_id,
-              team_name: team?.name || 'Your Team'
-            }),
-          });
-
-          if (!inviteResponse.ok) {
-            const error = await inviteResponse.json();
-            console.error('Failed to send invitation email:', error);
-            // Continue anyway, don't throw an error
-          }
-        }
-      } else if (!editingMember && !formData.email) {
-        // Create a temporary user for team members without email
-        const createResponse = await fetch('/api/admin/create-user', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            email: `temp_${Date.now()}@placeholder.com`,
-            password: Math.random().toString(36).slice(-8),
-            metadata: { 
-              name: formData.name,
-              disabled: true
-            },
-            display_name: formData.name
-          }),
-        });
-
-        if (!createResponse.ok) {
-          const error = await createResponse.json();
-          throw new Error(error.message || 'Failed to create user');
-        }
-
-        const { user } = await createResponse.json();
-        console.log('Created temporary user:', user);
-        userId = user.user.id;
-      }
-
-      if (!userId) {
-        throw new Error('Failed to get user ID');
-      }
-
-      let teamMemberId;
+      // Determine if it's an update (editingMember exists) or add
+      // The backend endpoint /api/admin/team-members/manage should handle creation or update based on user_id/email
+      const response = await apiClient.post<AdminManageTeamMemberApiResponse>('/api/admin/team-members/manage', requestBody);
       
-      if (editingMember) {
-        // We're editing an existing team member
-        // Update the team member with the new user_id and other details
-        const { error: updateError } = await supabase
-          .from('team_members')
-          .update({
-            user_id: userId,
-            jersey_number: formData.jersey_number,
-            position: formData.position
-          })
-          .eq('id', editingMember.id);
-          
-        if (updateError) throw updateError;
-        
-        teamMemberId = editingMember.id;
-        
-        // Delete existing roles for this team member
-        const { error: deleteRolesError } = await supabase
-          .from('team_member_roles')
-          .delete()
-          .eq('team_member_id', teamMemberId);
-          
-        if (deleteRolesError) throw deleteRolesError;
-      } else {
-        // Check if the user was previously a member of this team but is inactive
-        const { data: existingMember, error: checkError } = await supabase
-          .from('team_members')
-          .select('id')
-          .eq('team_id', formData.team_id)
-          .eq('user_id', userId)
-          .eq('is_active', false)
-          .maybeSingle();
-        
-        if (checkError) {
-          console.error('Error checking for existing inactive member:', checkError);
-          // Continue with creating a new member
-        }
-        
-        if (existingMember) {
-          // Reactivate the existing team member
-          const { error: reactivateError } = await supabase
-            .from('team_members')
-            .update({
-              is_active: true,
-              jersey_number: formData.jersey_number,
-              position: formData.position,
-              // Update joined_date to current date
-              joined_date: new Date().toISOString().split('T')[0]
-            })
-            .eq('id', existingMember.id);
-            
-          if (reactivateError) throw reactivateError;
-          
-          teamMemberId = existingMember.id;
-          
-          // Delete existing roles for this team member
-          const { error: deleteRolesError } = await supabase
-            .from('team_member_roles')
-            .delete()
-            .eq('team_member_id', teamMemberId);
-            
-          if (deleteRolesError) throw deleteRolesError;
-        } else {
-          // Create a new team member
-          const { data: member, error: memberError } = await supabase
-            .from('team_members')
-            .insert([{
-              team_id: formData.team_id,
-              user_id: userId,
-              jersey_number: formData.jersey_number,
-              position: formData.position,
-              joined_date: new Date().toISOString().split('T')[0]
-            }])
-            .select()
-            .single();
-
-          if (memberError) throw memberError;
-          teamMemberId = member.id;
-        }
+      if (isErrorResponse(response)) {
+        throw new Error(response.error);
       }
 
-      // Add roles
-      const roleInserts = formData.roles.map(role => ({
-        team_member_id: teamMemberId,
-        role
-      }));
-
-      const { error: roleError } = await supabase
-        .from('team_member_roles')
-        .insert(roleInserts);
-
-      if (roleError) throw roleError;
-
-      // Show success message
       toast.success(
         editingMember
           ? 'Team member updated successfully!'
-          : (formData.email 
-              ? 'Team member added and invitation sent!' 
-              : 'Team member added successfully!')
+          : 'Team member added/invited successfully!' 
       );
 
-      // Close modal and refresh data
       handleCloseModal();
-      fetchTeamMembers();
+      fetchTeamMembers(); // Refresh member list
+
     } catch (error: any) {
-      console.error('Error:', error);
-      toast.error(error.message || 'An error occurred');
+      console.error('Error submitting team member data:', error);
+      setError(error.message || 'An error occurred while saving team member.');
+      toast.error(error.message || 'An error occurred while saving team member.');
+    } finally {
+      setIsInviting(false);
     }
-  };
+  }
 
   const handleAddClick = () => {
     setEditingMember(null)
@@ -862,58 +615,66 @@ function TeamMembersPage() {
   }
 
   const handleSendEmail = async (member: TeamMember) => {
+    if (!member.user_email || !team?.name || !member.team_id) {
+      toast.error('Missing required information to send email.');
+      return;
+    }
+    setError(null);
+    // It seems isInviting is used as a general loading state for this kind of operation
+    setIsInviting(true); 
+
     try {
-      console.log('Sending email to:', {
-        email: member.user_email,
-        team_id: member.team_id,
-        team_name: team?.name
-      });
+      // Determine if this is a new or existing user by calling check-user
+      const checkUserRequestBody = { email: member.user_email, teamId: member.team_id };
+      const checkUserResponse = await apiClient.post<CheckUserApiResponse>('/api/admin/check-user', checkUserRequestBody);
 
-      // Determine if this is a new or existing user
-      const response = await fetch('/api/admin/check-user', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          email: member.user_email,
-          teamId: member.team_id
-        }),
-      });
-      
-      const data = await response.json();
-      
-      // Choose the correct endpoint based on user status
-      const endpoint = data.exists 
-        ? '/api/admin/notify-team-member' 
-        : '/api/admin/invite-user';
-      
-      const emailResponse = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: member.user_email,
-          team_id: member.team_id,
-          team_name: team?.name || 'Your Team'
-        }),
-      });
+      let endpoint = '';
+      let emailRequestBody: InviteUserRequest | NotifyTeamMemberRequest | null = null;
+      let successMessage = '';
 
-      console.log('API Response status:', emailResponse.status);
-      const emailData = await emailResponse.json();
-      console.log('API Response data:', emailData);
+      if (isErrorResponse(checkUserResponse)) {
+        // If check-user itself fails, but not because user is already member (which is a business logic handled by response.isTeamMember)
+        if (!checkUserResponse.error.includes('already a member')) {
+             throw new Error(checkUserResponse.error || 'Failed to check user status before sending email.');
+        }
+        // If error is 'already a member', proceed as if user exists for notification purposes.
+        // This case implies user exists and is part of the team.
+        endpoint = '/api/admin/notify-team-member';
+        emailRequestBody = { email: member.user_email, team_id: member.team_id, team_name: team.name };
+        successMessage = 'Team notification email sent successfully!';
 
-      if (!emailResponse.ok) {
-        throw new Error(emailData.error || 'Failed to send email');
+      } else if (checkUserResponse.exists) {
+        endpoint = '/api/admin/notify-team-member';
+        emailRequestBody = { email: member.user_email, team_id: member.team_id, team_name: team.name };
+        successMessage = 'Team notification email sent successfully!';
+      } else {
+        endpoint = '/api/admin/invite-user';
+        emailRequestBody = { email: member.user_email, team_id: member.team_id, team_name: team.name };
+        successMessage = 'Invitation email sent successfully!';
+      }
+      
+      if (!emailRequestBody) { // Should not happen if logic is correct
+          throw new Error('Could not determine email request details.');
       }
 
-      toast.success(data.exists 
-        ? 'Team notification email sent successfully!' 
-        : 'Invitation email sent successfully!');
+      // Call the determined email endpoint
+      // The response type here could be InviteUserApiResponse or NotifyTeamMemberApiResponse
+      const emailResponse = await apiClient.post<InviteUserApiResponse | NotifyTeamMemberApiResponse>(endpoint, emailRequestBody);
+
+      if (isErrorResponse(emailResponse) || (emailResponse && (emailResponse as any).error && !(emailResponse as any).messageId)) {
+        // Checking for error property in the response body itself if not caught by isErrorResponse
+        const errorMsg = isErrorResponse(emailResponse) ? emailResponse.error : ((emailResponse as any)?.error || 'Failed to send email');
+        throw new Error(errorMsg);
+      }
+
+      toast.success(successMessage);
+
     } catch (error: any) {
       console.error('Error sending email:', error);
+      setError(error.message || 'Failed to send email');
       toast.error(error.message || 'Failed to send email');
+    } finally {
+      setIsInviting(false);
     }
   };
 
@@ -923,27 +684,32 @@ function TeamMembersPage() {
   }
 
   const handleRemoveConfirm = async () => {
-    if (!memberToRemove) return
+    if (!memberToRemove || !teamId) return;
 
-    setIsRemoving(true)
+    setIsRemoving(true);
+    setError(null);
     try {
-      // Update team member to inactive
-      const { error: updateError } = await supabase
-        .from('team_members')
-        .update({ is_active: false })
-        .eq('id', memberToRemove.id)
+      const requestBody: AdminRemoveTeamMemberRequest = {
+        team_id: teamId,
+        user_id: memberToRemove.user_id // Assuming memberToRemove.user_id is the ID of the user to remove
+      };
+      const response = await apiClient.post<AdminRemoveTeamMemberApiResponse>('/api/admin/team-members/remove', requestBody);
 
-      if (updateError) throw updateError
-
-      toast.success('Team member removed successfully')
-      setIsRemoveModalOpen(false)
-      setMemberToRemove(null)
-      fetchTeamMembers()
-    } catch (error: any) {
-      console.error('Error removing team member:', error)
-      toast.error(error.message || 'Failed to remove team member')
+      if (isErrorResponse(response) || (response && response.success === false)) {
+        const errorMsg = isErrorResponse(response) ? response.error : (response?.message || 'Failed to remove team member');
+        throw new Error(errorMsg);
+      }
+      
+      toast.success(response?.message || 'Team member removed successfully');
+      fetchTeamMembers(); // Refresh the list
+      setIsRemoveModalOpen(false);
+      setMemberToRemove(null);
+    } catch (err: any) {
+      console.error('Error removing team member:', err);
+      setError(err.message || 'Failed to remove team member');
+      toast.error(err.message || 'Failed to remove team member');
     } finally {
-      setIsRemoving(false)
+      setIsRemoving(false);
     }
   }
 
@@ -952,7 +718,7 @@ function TeamMembersPage() {
     setMemberToRemove(null)
   }
 
-  const handleRequestClick = (request: TeamMemberRequest) => {
+  const handleRequestClick = (request: AdminDisplayTeamRequest) => {
     setSelectedRequest(request)
     // Initialize the player name edit field if this is a parent role request
     if (request.requested_roles.includes('parent') && request.additional_info?.playerName) {
@@ -964,8 +730,9 @@ function TeamMembersPage() {
   }
 
   const handleRoleCheckboxChange = (requestId: string, role: string, checked: boolean) => {
-    setPendingRequests(prev => 
-      prev.map(request => {
+    setPendingRequests(prev => ({
+      ...prev,
+      join: prev.join.map(request => {
         if (request.id === requestId) {
           const updatedRoles = checked 
             ? [...request.requested_roles, role]
@@ -975,261 +742,78 @@ function TeamMembersPage() {
         }
         return request;
       })
-    );
+    }));
   };
 
-  const handleApproveDirectly = async (request: TeamMemberRequest) => {
+  const handleApproveDirectly = async (request: AdminDisplayTeamRequest) => {
+    setIsProcessingRequest(true);
+    setError(null);
     try {
-      setIsProcessingRequest(true);
-      
-      // Get the playerName from either the edit field or the original request
-      const playerName = editPlayerName || request.additional_info?.playerName;
-      
-      if (request.request_type === 'join') {
-        // Create team member record
-        const { data: member, error: memberError } = await supabase
-          .from('team_members')
-          .insert({
-            team_id: request.team_id,
-            user_id: request.user_id,
-            is_active: true,
-            joined_date: new Date().toISOString()
-          })
-          .select()
-          .single();
+      const requestBody: ProcessTeamRequest = {
+        requestId: request.id,
+        action: 'approve',
+        team_id: request.team_id,
+        user_id: request.user_id,
+        roles: request.requested_roles,
+        // If approving a parent role, player name might be needed.
+        // The AdminDisplayTeamRequest has additional_info.playerName if set in UI.
+        // The backend /api/admin/requests/process should handle this if necessary.
+        additional_info: editPlayerName && request.requested_roles.includes('parent') ? { playerName: editPlayerName } : request.additional_info
+      };
 
-        if (memberError) throw memberError;
+      const response = await apiClient.post<ProcessTeamRequestApiResponse>('/api/admin/requests/process', requestBody);
 
-        // Add roles (only the ones that are still checked)
-        if (request.requested_roles.length > 0) {
-          const roleInserts = request.requested_roles.map(role => ({
-            team_member_id: member.id,
-            role
-          }));
-
-          const { error: rolesError } = await supabase
-            .from('team_member_roles')
-            .insert(roleInserts);
-
-          if (rolesError) throw rolesError;
-          
-          // If this is a parent role with a player name, try to create the relationship
-          if (request.requested_roles.includes('parent') && playerName) {
-            await createParentPlayerRelationship(request.team_id, request.user_id, member.id, playerName);
-          }
-        }
-
-        // Update request status
-        const { error: updateError } = await supabase
-          .from('team_member_requests')
-          .update({ status: 'approved' })
-          .eq('id', request.id);
-
-        if (updateError) throw updateError;
-      } else {
-        // Handle role request
-        // First get the team member record
-        const { data: member, error: memberError } = await supabase
-          .from('team_members')
-          .select('id')
-          .eq('team_id', request.team_id)
-          .eq('user_id', request.user_id)
-          .single();
-
-        if (memberError) throw memberError;
-
-        // Add new roles (only the ones that are still checked)
-        if (request.requested_roles.length > 0) {
-          const roleInserts = request.requested_roles.map(role => ({
-            team_member_id: member.id,
-            role
-          }));
-
-          const { error: rolesError } = await supabase
-            .from('team_member_roles')
-            .insert(roleInserts);
-
-          if (rolesError) throw rolesError;
-          
-          // If this is a parent role with a player name, try to create the relationship
-          if (request.requested_roles.includes('parent') && playerName) {
-            await createParentPlayerRelationship(request.team_id, request.user_id, member.id, playerName);
-          }
-        }
-
-        // Update request status
-        const { error: updateError } = await supabase
-          .from('team_member_role_requests')
-          .update({ status: 'approved' })
-          .eq('id', request.id);
-
-        if (updateError) throw updateError;
+      if (isErrorResponse(response) || (response && response.success === false)) {
+        const errorMsg = isErrorResponse(response) ? response.error : (response?.message || 'Failed to approve request');
+        throw new Error(errorMsg);
       }
 
-      // Send email notification
-      await fetch('/api/admin/notify-approval', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: request.user_email,
-          team_name: request.team_name,
-          team_id: request.team_id,
-          roles: request.requested_roles,
-          request_type: request.request_type
-        }),
-      });
-
-      toast.success('Request approved successfully');
-      fetchTeamMembers();
-      fetchPendingRequests();
+      toast.success(response?.message || 'Request approved successfully');
+      fetchPendingRequests(); // Refresh requests
+      fetchTeamMembers();   // Refresh team members as one might have been added/updated
       setIsRequestModalOpen(false);
-    } catch (error) {
-      console.error('Error approving request:', error);
-      toast.error('Failed to approve request');
+      setSelectedRequest(null);
+      setEditPlayerName(''); // Reset player name field
+    } catch (err: any) {
+      console.error('Error approving request:', err);
+      setError(err.message || 'Failed to approve request');
+      toast.error(err.message || 'Failed to approve request');
     } finally {
       setIsProcessingRequest(false);
     }
-  };
+  }
 
-  const handleRejectDirectly = async (request: TeamMemberRequest) => {
+  const handleRejectDirectly = async (request: AdminDisplayTeamRequest) => {
+    setIsProcessingRequest(true);
+    setError(null);
     try {
-      setIsProcessingRequest(true);
-      
-      const table = request.request_type === 'join' ? 'team_member_requests' : 'team_member_role_requests';
-      const { error } = await supabase
-        .from(table)
-        .update({ status: 'rejected' })
-        .eq('id', request.id);
+      const requestBody: ProcessTeamRequest = {
+        requestId: request.id,
+        action: 'reject',
+        team_id: request.team_id, // Include these for context if backend needs them
+        user_id: request.user_id,
+        roles: request.requested_roles
+      };
+      const response = await apiClient.post<ProcessTeamRequestApiResponse>('/api/admin/requests/process', requestBody);
 
-      if (error) throw error;
+      if (isErrorResponse(response) || (response && response.success === false)) {
+        const errorMsg = isErrorResponse(response) ? response.error : (response?.message || 'Failed to reject request');
+        throw new Error(errorMsg);
+      }
 
-      // Send email notification
-      await fetch('/api/admin/notify-rejection', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: request.user_email,
-          team_name: request.team_name,
-          roles: request.requested_roles,
-          request_type: request.request_type
-        }),
-      });
-
-      toast.success('Request rejected');
-      fetchPendingRequests();
-    } catch (error) {
-      console.error('Error rejecting request:', error);
-      toast.error('Failed to reject request');
+      toast.success(response?.message || 'Request rejected successfully');
+      fetchPendingRequests(); // Refresh requests
+      setIsRequestModalOpen(false);
+      setSelectedRequest(null);
+      setEditPlayerName('');
+    } catch (err: any) {
+      console.error('Error rejecting request:', err);
+      setError(err.message || 'Failed to reject request');
+      toast.error(err.message || 'Failed to reject request');
     } finally {
       setIsProcessingRequest(false);
     }
-  };
-
-  const createParentPlayerRelationship = async (teamId: string, parentUserId: string, parentTeamMemberId: string, playerName: string) => {
-    try {
-      console.log(`Attempting to create parent-player relationship for player "${playerName}"`);
-      
-      // Find player team members in the same team
-      const { data: playerMembers, error: playerError } = await supabase
-        .from('team_members')
-        .select(`
-          id, 
-          user_id,
-          team_member_roles(role)
-        `)
-        .eq('team_id', teamId)
-        .not('user_id', 'eq', parentUserId)
-        .eq('is_active', true);
-      
-      if (playerError) {
-        console.error('Error fetching potential player matches:', playerError);
-        return;
-      }
-      
-      if (!playerMembers || playerMembers.length === 0) {
-        console.log('No team members found to match with');
-        return;
-      }
-      
-      // Get player team members who have the "player" role
-      const playersWithRole = playerMembers.filter(member => 
-        member.team_member_roles?.some(r => r.role === 'player')
-      );
-      
-      if (playersWithRole.length === 0) {
-        console.log('No team members with player role found');
-        return;
-      }
-      
-      // Get user details to match by name
-      const response = await fetch('/api/admin/users');
-      if (!response.ok) {
-        console.error('Error fetching user details for players:', response.statusText);
-        return;
-      }
-      const users = await response.json();
-      
-      if (!Array.isArray(users)) {
-        console.error('Invalid response format from /api/admin/users');
-        return;
-      }
-      
-      // Find player that matches the name
-      const matchedPlayer = playersWithRole.find(member => {
-        const user = users.find((u: any) => u.id === member.user_id);
-        if (!user) return false;
-        
-        // Normalize names for comparison
-        const normalizedPlayerName = playerName.toLowerCase().trim();
-        
-        // Check different name fields
-        const fullName = user.user_metadata?.full_name || '';
-        const firstName = user.user_metadata?.first_name || '';
-        const lastName = user.user_metadata?.last_name || '';
-        const displayName = user.user_metadata?.name || '';
-        
-        const possibleNames = [
-          fullName.toLowerCase().trim(),
-          `${firstName} ${lastName}`.toLowerCase().trim(),
-          displayName.toLowerCase().trim()
-        ];
-        
-        // Check for exact match
-        return possibleNames.some(name => name === normalizedPlayerName);
-      });
-      
-      if (!matchedPlayer) {
-        console.log('No exact matching player found for:', playerName);
-        return;
-      }
-      
-      console.log('Found matching player:', matchedPlayer.id);
-      
-      // Create the parent-player relationship
-      const { data: relationship, error: relationshipError } = await supabase
-        .from('player_parent_relationships')
-        .insert({
-          player_team_member_id: matchedPlayer.id,
-          parent_team_member_id: parentTeamMemberId,
-          relationship_type: 'parent',
-          is_primary_contact: true
-        })
-        .select();
-        
-      if (relationshipError) {
-        console.error('Failed to create parent-player relationship:', relationshipError);
-      } else {
-        console.log('Successfully created parent-player relationship:', relationship);
-        toast.success('Parent-player relationship created');
-      }
-    } catch (error) {
-      console.error('Error in createParentPlayerRelationship:', error);
-    }
-  };
+  }
 
   const togglePlayerExpansion = (playerId: string) => {
     setExpandedPlayers(prev => ({
@@ -1372,16 +956,16 @@ function TeamMembersPage() {
         </div>
 
         {/* Pending Requests Section */}
-        {pendingRequests.length > 0 && (
+        {pendingRequests.join.length > 0 && (
           <div className="mb-8">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold">Pending Requests</h2>
               <div className="flex gap-2">
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800`}>
-                  {pendingRequests.filter(r => r.request_type === 'join').length} team request{pendingRequests.filter(r => r.request_type === 'join').length !== 1 ? 's' : ''}
+                  {pendingRequests.join.length} team request{pendingRequests.join.length !== 1 ? 's' : ''}
                 </span>
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800`}>
-                  {pendingRequests.filter(r => r.request_type === 'role').length} role request{pendingRequests.filter(r => r.request_type === 'role').length !== 1 ? 's' : ''}
+                  {pendingRequests.role.length} role request{pendingRequests.role.length !== 1 ? 's' : ''}
                 </span>
               </div>
             </div>
@@ -1422,77 +1006,68 @@ function TeamMembersPage() {
                   </tr>
                 </thead>
                 <tbody className={`divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'}`}>
-                  {pendingRequests.map(request => (
-                    (
-                      <tr key={request.id} className={isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-50'}>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className={`text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>{request.user_name}</div>
-                          <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{request.user_email}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>{request.team_name}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${request.request_type === 'join' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'}`}>{request.request_type === 'join' ? 'Join Team' : 'New Role'}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className={`flex flex-wrap gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}> 
-                            {availableRoles.filter(role => request.request_type === 'join' ? true : request.requested_roles.includes(role)).map(role => (
-                              <label key={`${request.id}-${role}`} className="flex items-center space-x-2">
-                                <input
-                                  type="checkbox"
-                                  checked={request.requested_roles.includes(role)}
-                                  onChange={(e) => handleRoleCheckboxChange(request.id, role, e.target.checked)}
-                                  className={`rounded ${isDarkMode ? 'border-gray-600 bg-gray-700 text-blue-500' : 'border-gray-300 bg-white text-blue-600'}`}
-                                />
-                                <span className="text-sm">{role.charAt(0).toUpperCase() + role.slice(1)}</span>
-                              </label>
-                            ))}
-                            {/* Display player name for parent role requests */}
-                            {request.requested_roles.includes('parent') && request.additional_info?.playerName && (
-                              <div className="w-full mt-1 flex items-center">
-                                <span className={`text-xs ${isDarkMode ? 'text-blue-400' : 'text-blue-600'} mr-2`}>Player name:</span>
-                                <span className="text-sm font-medium">{request.additional_info.playerName}</span>
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>{new Date(request.created_at).toLocaleDateString()}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={() => handleRejectDirectly(request)}
-                              disabled={isProcessingRequest}
-                              className={`p-2 rounded-md ${isDarkMode ? 'text-red-400 hover:bg-gray-700' : 'text-red-600 hover:bg-gray-100'}`}
-                              title="Reject request"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => handleRequestClick(request)}
-                              disabled={isProcessingRequest}
-                              className={`p-2 rounded-md ${isDarkMode ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'}`}
-                              title="Review request details"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                              </svg>
-                            </button>
-                            <button
-                              onClick={() => handleApproveDirectly(request)}
-                              disabled={isProcessingRequest}
-                              className={`p-2 rounded-md ${isDarkMode ? 'text-green-400 hover:bg-gray-700' : 'text-green-600 hover:bg-gray-100'}`}
-                              title="Approve request"
-                            >
-                              <Check className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
+                  {pendingRequests.join.map((request: AdminDisplayTeamRequest) => (
+                    <tr key={request.id} className={isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-50'}>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className={`text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>{request.user_name}</div>
+                        <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{request.user_email}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>{request.team_name}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${'bg-blue-100 text-blue-800'}`}>Join Team</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className={`flex flex-wrap gap-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}> 
+                          {availableRoles.filter((role: string) => request.requested_roles.includes(role)).map((role: string) => (
+                            <label key={`${request.id}-${role}`} className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                checked={request.requested_roles.includes(role)}
+                                onChange={(e) => handleRoleCheckboxChange(request.id, role, e.target.checked)}
+                                className={`rounded ${isDarkMode ? 'border-gray-600 bg-gray-700 text-blue-500' : 'border-gray-300 bg-white text-blue-600'}`}
+                              />
+                              <span className="text-sm">{role.charAt(0).toUpperCase() + role.slice(1)}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>{new Date(request.created_at).toLocaleDateString()}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => handleRejectDirectly(request)}
+                            disabled={isProcessingRequest}
+                            className={`p-2 rounded-md ${isDarkMode ? 'text-red-400 hover:bg-gray-700' : 'text-red-600 hover:bg-gray-100'}`}
+                            title="Reject request"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleRequestClick(request)}
+                            disabled={isProcessingRequest}
+                            className={`p-2 rounded-md ${isDarkMode ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'}`}
+                            title="Review request details"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => handleApproveDirectly(request)}
+                            disabled={isProcessingRequest}
+                            className={`p-2 rounded-md ${isDarkMode ? 'text-green-400 hover:bg-gray-700' : 'text-green-600 hover:bg-gray-100'}`}
+                            title="Approve request"
+                          >
+                            <Check className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
                   ))}
                 </tbody>
               </table>
@@ -1678,338 +1253,4 @@ function TeamMembersPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className={`block text-sm font-medium mb-1 ${
-                    isDarkMode ? 'text-gray-300' : 'text-gray-700'
-                  }`}>
-                    Name
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                    disabled={!!editingMember}
-                    className={`w-full rounded-md border ${
-                      isDarkMode
-                        ? 'bg-gray-700 border-gray-600 text-gray-200'
-                        : 'bg-white border-gray-300 text-gray-900'
-                    } px-3 py-2`}
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className={`block text-sm font-medium mb-1 ${
-                    isDarkMode ? 'text-gray-300' : 'text-gray-700'
-                  }`}>
-                    Email {!editingMember && <span className="text-gray-500">(optional)</span>}
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="email"
-                      value={formData.email}
-                      onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))}
-                      onBlur={e => {
-                        if ((!editingMember || !hasRealEmail(editingMember)) && e.target.value) {
-                          checkExistingUser(e.target.value)
-                        }
-                      }}
-                      disabled={!!editingMember && hasRealEmail(editingMember)}
-                      className={`w-full rounded-md border ${
-                        isDarkMode
-                          ? 'bg-gray-700 border-gray-600 text-gray-200'
-                          : 'bg-white border-gray-300 text-gray-900'
-                      } px-3 py-2`}
-                    />
-                    {isCheckingEmail && (
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
-                      </div>
-                    )}
-                  </div>
-                  {!editingMember && existingUserFound && (
-                    <p className={`mt-1 text-sm ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>
-                      Existing user found
-                    </p>
-                  )}
-                  {editingMember && existingUserFound && !hasRealEmail(editingMember) && (
-                    <p className={`mt-1 text-sm ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>
-                      Existing user found
-                    </p>
-                  )}
-                </div>
-
-                {hasRealEmail(editingMember) && (
-                  <div className="col-span-2 text-center">
-                    <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                      Name and Email cannot be changed
-                    </p>
-                  </div>
-                )}
-
-                <div className="col-span-2">
-                  <label className={`block text-sm font-medium mb-1 ${
-                    isDarkMode ? 'text-gray-300' : 'text-gray-700'
-                  }`}>
-                    Roles
-                  </label>
-                  <div className={`flex flex-wrap gap-3 p-3 rounded-md border ${
-                    isDarkMode
-                      ? 'bg-gray-700 border-gray-600'
-                      : 'bg-white border-gray-300'
-                  } ${roleError ? 'border-red-500' : ''}`}>
-                    {availableRoles.map(role => (
-                      <label key={role} className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          checked={formData.roles.includes(role)}
-                          onChange={(e) => {
-                            setRoleError(false)
-                            setFormData(prev => ({
-                              ...prev,
-                              roles: e.target.checked
-                                ? [...prev.roles, role]
-                                : prev.roles.filter(r => r !== role)
-                            }))
-                          }}
-                          className={`rounded ${
-                            isDarkMode
-                              ? 'border-gray-600 bg-gray-800 text-blue-500'
-                              : 'border-gray-300 bg-white text-blue-600'
-                          }`}
-                        />
-                        <span className={`text-sm ${
-                          isDarkMode ? 'text-gray-200' : 'text-gray-700'
-                        }`}>
-                          {role.charAt(0).toUpperCase() + role.slice(1)}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                  {roleError && (
-                    <p className={`mt-1 text-sm ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>
-                      Please select at least one role
-                    </p>
-                  )}
-                </div>
-
-                {formData.roles.includes('player') && (
-                  <>
-                    <div>
-                      <label className={`block text-sm font-medium mb-1 ${
-                        isDarkMode ? 'text-gray-300' : 'text-gray-700'
-                      }`}>
-                        Jersey Number
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.jersey_number}
-                        onChange={e => setFormData(prev => ({ ...prev, jersey_number: e.target.value }))}
-                        className={`w-full rounded-md border ${
-                          isDarkMode
-                            ? 'bg-gray-700 border-gray-600 text-gray-200'
-                            : 'bg-white border-gray-300 text-gray-900'
-                        } px-3 py-2`}
-                      />
-                    </div>
-
-                    <div>
-                      <label className={`block text-sm font-medium mb-1 ${
-                        isDarkMode ? 'text-gray-300' : 'text-gray-700'
-                      }`}>
-                        Position
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.position}
-                        onChange={e => setFormData(prev => ({ ...prev, position: e.target.value }))}
-                        className={`w-full rounded-md border ${
-                          isDarkMode
-                            ? 'bg-gray-700 border-gray-600 text-gray-200'
-                            : 'bg-white border-gray-300 text-gray-900'
-                        } px-3 py-2`}
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <div className="mt-4 flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={handleCloseModal}
-                  className={`px-4 py-2 rounded-md ${
-                    isDarkMode
-                      ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className={`px-4 py-2 rounded-md ${
-                    isDarkMode
-                      ? 'bg-blue-600 text-white hover:bg-blue-700'
-                      : 'bg-blue-500 text-white hover:bg-blue-600'
-                  }`}
-                >
-                  {isInviting ? 'Processing...' : (editingMember ? 'Update' : 'Add')}
-                </button>
-              </div>
-            </form>
-          </Dialog.Panel>
-        </div>
-      </Dialog>
-
-      <Dialog
-        open={isRemoveModalOpen}
-        onClose={handleRemoveCancel}
-        className="relative z-50"
-      >
-        <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
-
-        <div className="fixed inset-0 flex items-center justify-center p-4">
-          <Dialog.Panel className={`mx-auto w-full max-w-md rounded-lg p-6 ${
-            isDarkMode ? 'bg-gray-800' : 'bg-white'
-          }`}>
-            <Dialog.Title className={`text-lg font-medium mb-4 ${
-              isDarkMode ? 'text-gray-200' : 'text-gray-900'
-            }`}>
-              Remove Team Member
-            </Dialog.Title>
-
-            <div className={`mb-4 ${
-              isDarkMode ? 'text-gray-300' : 'text-gray-600'
-            }`}>
-              <p>Are you sure you want to remove {memberToRemove?.user_name || 'this team member'} from the team?</p>
-              <p className="mt-2 text-sm">This action cannot be undone.</p>
-            </div>
-
-            <div className="flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={handleRemoveCancel}
-                className={`px-4 py-2 rounded-md ${
-                  isDarkMode
-                    ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-                disabled={isRemoving}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleRemoveConfirm}
-                className={`px-4 py-2 rounded-md ${
-                  isDarkMode
-                    ? 'bg-red-600 text-white hover:bg-red-700'
-                    : 'bg-red-500 text-white hover:bg-red-600'
-                }`}
-                disabled={isRemoving}
-              >
-                {isRemoving ? 'Removing...' : 'Remove'}
-              </button>
-            </div>
-          </Dialog.Panel>
-        </div>
-      </Dialog>
-
-      {/* Request Review Modal */}
-      <Dialog
-        open={isRequestModalOpen}
-        onClose={() => !isProcessingRequest && setIsRequestModalOpen(false)}
-        className="relative z-50"
-      >
-        <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
-        <div className="fixed inset-0 flex items-center justify-center p-4">
-          <Dialog.Panel className={`mx-auto max-w-sm rounded-lg p-6 ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
-            <Dialog.Title className="text-lg font-medium mb-4">
-              Review {selectedRequest?.request_type === 'join' ? 'Team Join' : 'Role'} Request
-            </Dialog.Title>
-            {selectedRequest && (
-              <div className="space-y-4">
-                <div>
-                  <p className="text-sm font-medium">User</p>
-                  <p className="text-sm">{selectedRequest.user_name} ({selectedRequest.user_email})</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium">Team</p>
-                  <p className="text-sm">{selectedRequest.team_name}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium">Request Type</p>
-                  <p className="text-sm">
-                    {selectedRequest.request_type === 'join' ? 'Join Team' : 'New Role'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium">Requested Roles</p>
-                  <p className="text-sm">
-                    {selectedRequest.requested_roles.map(role => role.charAt(0).toUpperCase() + role.slice(1)).join(', ')}
-                  </p>
-                </div>
-                
-                {/* Player name field for parent role requests */}
-                {selectedRequest.requested_roles.includes('parent') && (
-                  <div>
-                    <label className="text-sm font-medium">
-                      Player Name
-                      <input
-                        type="text"
-                        value={editPlayerName}
-                        onChange={(e) => setEditPlayerName(e.target.value)}
-                        className={`mt-1 block w-full rounded-md ${
-                          isDarkMode 
-                            ? 'bg-gray-700 border-gray-600 text-white' 
-                            : 'border-gray-300 text-gray-900'
-                          } shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm`}
-                        placeholder="Player's name"
-                      />
-                    </label>
-                    <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                      This will be used to link the parent to their player
-                    </p>
-                  </div>
-                )}
-                
-                <div>
-                  <p className="text-sm font-medium">Requested On</p>
-                  <p className="text-sm">{new Date(selectedRequest.created_at).toLocaleDateString()}</p>
-                </div>
-                <div className="flex justify-end space-x-3 mt-6">
-                  <button
-                    onClick={() => handleRejectDirectly(selectedRequest)}
-                    disabled={isProcessingRequest}
-                    className={`px-4 py-2 rounded-md ${
-                      isDarkMode
-                        ? 'bg-red-600 hover:bg-red-700 text-white'
-                        : 'bg-red-100 hover:bg-red-200 text-red-800'
-                    }`}
-                  >
-                    <X className="h-4 w-4 inline-block mr-1" />
-                    Reject
-                  </button>
-                  <button
-                    onClick={() => handleApproveDirectly(selectedRequest)}
-                    disabled={isProcessingRequest}
-                    className={`px-4 py-2 rounded-md ${
-                      isDarkMode
-                        ? 'bg-green-600 hover:bg-green-700 text-white'
-                        : 'bg-green-100 hover:bg-green-200 text-green-800'
-                    }`}
-                  >
-                    <CheckIcon className="h-4 w-4 inline-block mr-1" />
-                    Approve
-                  </button>
-                </div>
-              </div>
-            )}
-          </Dialog.Panel>
-        </div>
-      </Dialog>
-    </div>
-  )
-}
-
-export default withAdminAuth(TeamMembersPage, "Team Member Management")
+                  <label className={`

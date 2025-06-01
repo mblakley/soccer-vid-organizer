@@ -5,10 +5,12 @@ import { useTheme } from '@/contexts/ThemeContext'
 import AppLayout from '@/components/AppLayout'
 import { toast } from 'react-toastify'
 import { useAuth } from '@/lib/hooks/useAuth'
-import { supabase } from '@/lib/supabaseClient'
 import { FilmReviewSessionWithClips } from '@/lib/types'
 import { ArrowLeft, Play, Pause, SkipBack, SkipForward, MessageSquare } from 'lucide-react'
 import VideoPlayer, { VideoPlayerControls } from '@/components/VideoPlayer'
+import { Video } from '@/lib/types/videos'
+import { ReviewApiResponse, ErrorResponse as ReviewErrorResponse } from '@/lib/types/reviews'
+import apiClient from '@/lib/apiClient'
 
 function FilmReviewSessionPageContent() {
   const router = useRouter()
@@ -24,6 +26,57 @@ function FilmReviewSessionPageContent() {
   const [currentClipIndex, setCurrentClipIndex] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
+  const [review, setReview] = useState<Video | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [isAuthorized, setIsAuthorized] = useState(false)
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const response = await fetch('/api/auth/session')
+        if (!response.ok) {
+          throw new Error('Failed to fetch session')
+        }
+        const data = await response.json()
+        if (!data.session?.user) {
+          router.push('/login')
+          return
+        }
+        setIsAuthorized(true)
+      } catch (error) {
+        console.error('Error checking auth:', error)
+        router.push('/login')
+      }
+    }
+
+    if (id) {
+      checkAuth()
+    }
+  }, [id, router])
+
+  useEffect(() => {
+    const fetchReview = async () => {
+      if (!id || !isAuthorized) return
+
+      try {
+        const response = await apiClient.get<ReviewApiResponse>(`/api/videos/reviews/${id}`);
+        
+        if (response && (response as ReviewErrorResponse).error) {
+          throw new Error((response as ReviewErrorResponse).error || 'Failed to fetch review');
+        }
+        // Assuming if no error, it's a ReviewResponse
+        const successfulResponse = response as { review: Video }; // Adjust if ReviewResponse has a different structure for single review
+        setReview(successfulResponse.review)
+      } catch (error) {
+        console.error('Error fetching review:', error)
+        setError('Failed to load review')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchReview()
+  }, [id, isAuthorized])
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -39,34 +92,35 @@ function FilmReviewSessionPageContent() {
       try {
         console.log('Fetching session with ID:', id)
         
-        const { data: { session: authSession }, error: sessionError } = await supabase.auth.getSession()
-        if (sessionError || !authSession) {
-          console.error('Auth session error:', sessionError)
+        const response = await fetch('/api/auth/session')
+        if (!response.ok) {
+          throw new Error('Not authenticated')
+        }
+        const { session: authSession } = await response.json()
+        if (!authSession) {
           throw new Error('Not authenticated')
         }
 
         console.log('Got auth session, fetching review session...')
 
-        const response = await fetch(`/api/reviews/${id}`, {
-          headers: {
-            'Authorization': `Bearer ${authSession.access_token}`
-          }
-        })
+        const reviewResponse = await apiClient.get<ReviewApiResponse>(`/api/reviews/${id}`);
 
-        const data = await response.json()
-
-        if (!response.ok) {
-          console.error('API error response:', data)
-          throw new Error(data.error || data.message || 'Failed to fetch session')
+        if (reviewResponse && (reviewResponse as ReviewErrorResponse).error) {
+          console.error('API error response:', (reviewResponse as ReviewErrorResponse).error);
+          throw new Error((reviewResponse as ReviewErrorResponse).error || 'Failed to fetch session');
         }
+        
+        // Assuming if no error, it's a ReviewResponse containing the session data
+        // and that FilmReviewSessionWithClips is compatible with the structure within ReviewResponse.review
+        const successfulResponse = reviewResponse as { review: FilmReviewSessionWithClips }; 
 
         console.log('Successfully fetched session:', {
-          id: data.id,
-          title: data.title,
-          clipCount: data.clips?.length || 0
+          id: successfulResponse.review.id,
+          title: successfulResponse.review.title,
+          clipCount: successfulResponse.review.clips?.length || 0
         })
 
-        setSession(data)
+        setSession(successfulResponse.review)
       } catch (error: any) {
         console.error('Error fetching session:', error)
         toast.error(error.message || 'Failed to fetch session')
@@ -388,9 +442,9 @@ const formatTime = (seconds: number) => {
   return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`
 }
 
-export default function FilmReviewSessionPage() {
+export default function VideoReviewPage() {
   return (
-    <AppLayout title="Film Review Session">
+    <AppLayout title="Video Review">
       <FilmReviewSessionPageContent />
     </AppLayout>
   )

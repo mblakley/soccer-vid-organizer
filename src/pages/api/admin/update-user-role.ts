@@ -1,33 +1,34 @@
-import { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
+import type { NextApiRequest, NextApiResponse } from 'next'
+import { getSupabaseClient } from '@/lib/supabaseClient'
+import type { UpdateUserRoleApiResponse, ErrorResponse, UpdateUserRoleRequest } from '@/lib/types/auth'
+import { updateUserRoleSchema } from '@/lib/types/auth'
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<UpdateUserRoleApiResponse>
+) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed' })
+    const errorResponse: ErrorResponse = {
+      error: 'Method not allowed'
+    }
+    return res.status(405).json(errorResponse)
   }
 
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    const supabase = getSupabaseClient(req.headers.authorization)
 
-    if (!supabaseUrl || !supabaseServiceKey) {
-      throw new Error('Missing Supabase environment variables')
+    // Get the current user
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError) {
+      console.error('Error getting user:', userError)
+      throw new Error(userError.message)
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
-
-    // Get the session from the request
-    const authHeader = req.headers.authorization
-    if (!authHeader) {
-      return res.status(401).json({ message: 'No authorization header' })
-    }
-
-    const token = authHeader.replace('Bearer ', '')
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-
-    if (authError || !user) {
-      console.error('Auth error:', authError)
-      return res.status(401).json({ message: 'Invalid session' })
+    if (!user) {
+      const errorResponse: ErrorResponse = {
+        error: 'Unauthorized'
+      }
+      return res.status(401).json(errorResponse)
     }
 
     // Check if the current user is an admin
@@ -38,22 +39,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .single()
 
     if (roleError) {
-      console.error('Error fetching current user role:', roleError)
-      return res.status(500).json({ message: 'Error checking admin status' })
+      console.error('Error checking admin role:', roleError)
+      throw new Error(roleError.message)
     }
 
     if (!currentUserRole?.is_admin) {
-      console.error('User is not an admin:', user.id)
-      return res.status(403).json({ message: 'Forbidden: Admin access required' })
+      const errorResponse: ErrorResponse = {
+        error: 'Forbidden: Admin access required'
+      }
+      return res.status(403).json(errorResponse)
     }
 
-    const { id, isAdmin } = req.body
-    console.log('Updating user role:', { id, isAdmin })
-
-    if (!id || typeof isAdmin !== 'boolean') {
-      console.error('Invalid request parameters:', { id, isAdmin })
-      return res.status(400).json({ message: 'Invalid request parameters' })
-    }
+    // Validate request body
+    const updateRequest = updateUserRoleSchema.parse(req.body)
+    const { id, isAdmin } = updateRequest
 
     // Update the user_roles table
     const { error: updateError } = await supabase
@@ -63,20 +62,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (updateError) {
       console.error('Error updating user role:', updateError)
-      return res.status(500).json({ 
-        message: 'Failed to update user role',
-        error: updateError.message,
-        details: updateError
-      })
+      throw new Error(updateError.message)
     }
 
-    return res.status(200).json({ message: 'User role updated successfully' })
-  } catch (error: any) {
-    console.error('Error in update-user-role:', error)
-    return res.status(500).json({ 
-      message: error.message || 'Internal server error',
-      error: error.toString(),
-      stack: error.stack
-    })
+    return res.status(200).json({ success: true })
+  } catch (error) {
+    if (error instanceof Error) {
+      const errorResponse: ErrorResponse = {
+        error: error.message
+      }
+      return res.status(400).json(errorResponse)
+    }
+    console.error('Error in update-user-role handler:', error)
+    const errorResponse: ErrorResponse = {
+      error: 'An unknown error occurred'
+    }
+    return res.status(500).json(errorResponse)
   }
 }

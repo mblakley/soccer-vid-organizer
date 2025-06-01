@@ -2,11 +2,15 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import Link from 'next/link'
-import { supabase } from '@/lib/supabaseClient'
 import { withAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import { PlusCircle, Search, Calendar } from 'lucide-react'
+import { apiClient } from '@/lib/api/client'
+import { Review } from '@/lib/types' // Import Review from types
 
+/*
+// Removed local type definitions, assuming Review is now in src/lib/types.ts
+// and DatabaseReview are obsolete.
 interface Review {
   id: string
   title: string
@@ -24,19 +28,17 @@ interface DatabaseReview {
     count: number
   }[]
 }
+*/
 
-interface SupabaseResponse {
-  data: {
-    id: string
-    title: string
-    description: string
-    created_at: string
-    film_review_session_clips: {
-      count: number
-    }[]
-  }[] | null
-  error: any
-  count: number | null
+// Define the expected API response structure for listing reviews
+// This should align with what /api/reviews actually returns.
+// For now, assuming it returns an array of Review objects directly or an object with a reviews property.
+interface ListReviewsApiResponse {
+  reviews: Review[]; // Assuming the API returns an object with a 'reviews' key
+  // or if it returns Review[] directly, adjust fetchReviews accordingly.
+  message?: string;
+  count?: number; // If pagination/total count is returned
+  totalPages?: number;
 }
 
 function ReviewsPage() {
@@ -47,62 +49,44 @@ function ReviewsPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
-  const itemsPerPage = 10
+  // const itemsPerPage = 10; // This was defined but not used, consider if pagination is handled by API
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchReviews()
-  }, [page, searchTerm])
+    fetchReviews(page, searchTerm) // Pass page and searchTerm
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, searchTerm]) // searchTerm was missing from dependencies
 
-  const fetchReviews = async () => {
+  const fetchReviews = async (currentPage: number, currentSearchTerm: string) => {
+    setLoading(true)
+    setError(null)
     try {
-      setLoading(true)
+      // Adjust query parameters as needed by your API endpoint for search and pagination
+      const params = new URLSearchParams();
+      params.append('page', currentPage.toString());
+      params.append('limit', '10'); // Assuming itemsPerPage is 10
+      if (currentSearchTerm) {
+        params.append('search', currentSearchTerm);
+      }
       
-      // Get the current session
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-      if (sessionError || !session) {
-        throw new Error('Not authenticated')
+      const response = await apiClient.get<ListReviewsApiResponse>(`/api/reviews?${params.toString()}`)
+      
+      if (response && response.reviews) {
+        setReviews(response.reviews)
+        // Assuming the API might also return totalPages or count to calculate it
+        setTotalPages(response.totalPages || Math.ceil((response.count || 0) / 10) || 1);
+      } else {
+        console.warn('No reviews data received or data is in unexpected format:', response)
+        setReviews([])
+        setTotalPages(1)
+        // Optionally set an error if the response structure is not as expected but no error was thrown
+        // setError(response.message || 'Failed to fetch reviews or no reviews found.');
       }
-
-      let query = supabase
-        .from('film_review_sessions')
-        .select(`
-          id,
-          title,
-          description,
-          created_at,
-          film_review_session_clips(count)
-        `, { count: 'exact' })
-        .order('created_at', { ascending: false })
-        .range((page - 1) * itemsPerPage, page * itemsPerPage - 1)
-
-      if (searchTerm) {
-        query = query.ilike('title', `%${searchTerm}%`)
-      }
-
-      console.log('Executing Supabase query...')
-      const { data, error, count } = await query
-
-      if (error) {
-        console.error('Supabase query error:', {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code
-        })
-        throw new Error(`Failed to fetch reviews: ${error.message}`)
-      }
-
-      const formattedReviews = (data as DatabaseReview[] | null)?.map(review => ({
-        id: review.id,
-        title: review.title,
-        description: review.description,
-        created_at: review.created_at,
-        clip_count: review.film_review_session_clips?.[0]?.count || 0
-      })) || []
-      setReviews(formattedReviews)
-      setTotalPages(Math.ceil((count || 0) / itemsPerPage))
-    } catch (err) {
+    } catch (err: any) {
       console.error('Exception fetching reviews:', err)
+      setError(err.message || 'An unexpected error occurred')
+      setReviews([])
+      setTotalPages(1)
     } finally {
       setLoading(false)
     }
@@ -114,6 +98,34 @@ function ReviewsPage() {
       month: 'short',
       day: 'numeric'
     })
+  }
+
+  const handleCreateReview = async (reviewData: any) => {
+    try {
+      const { error } = await apiClient.post('/api/reviews/create', reviewData)
+      
+      if (error) throw error
+      
+      fetchReviews(1, '')
+    } catch (err: any) {
+      console.error('Error creating review:', err)
+      setError(err.message || 'Failed to create review')
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this review?')) return
+    
+    try {
+      const { error } = await apiClient.post(`/api/reviews/${id}`, null)
+      
+      if (error) throw error
+      
+      fetchReviews(1, '')
+    } catch (err: any) {
+      console.error('Error deleting review:', err)
+      setError(err.message || 'Failed to delete review')
+    }
   }
 
   return (

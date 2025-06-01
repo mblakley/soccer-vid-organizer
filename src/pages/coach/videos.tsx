@@ -1,10 +1,12 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabaseClient'
 import { withAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import { VideoSourceType, YouTubeSource } from '@/lib/video-sources/types'
-import { toast } from 'react-toastify'; // Import toast for success messages
+import { toast } from 'react-toastify'
+import { apiClient } from '@/lib/api/client'
+import { Video } from '@/lib/types'
+import { ErrorResponse } from '@/lib/types/auth'
 
 // Import video sources
 import YouTubeSourceModule from '@/lib/video-sources/youtube'
@@ -30,7 +32,6 @@ const VIDEO_SOURCE_OPTIONS = Object.values(VIDEO_SOURCES).map(source => ({
   name: source.name
 }));
 
-
 function VideoManager({ user }: { user: any }) {
   const [videos, setVideos] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -44,66 +45,74 @@ function VideoManager({ user }: { user: any }) {
     message: string;
     type: 'success' | 'info' | 'error';
   } | null>(null)
-  const [pageError, setPageError] = useState<string | null>(null); // For errors like delete, fetch
+  const [pageError, setPageError] = useState<string | null>(null)
   const { isDarkMode } = useTheme()
 
   // Temporary code to debug role issues
   useEffect(() => {
     const checkRole = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      console.log('Current user:', user);
-      console.log('Session:', session);
       try {
-        const jwt = session?.access_token ? JSON.parse(atob(session.access_token.split('.')[1])) : null;
-        console.log('JWT claims:', jwt);
-      } catch (e) {
-        console.error('Error parsing JWT:', e);
+        const response = await fetch('/api/auth/session')
+        if (!response.ok) {
+          throw new Error('Failed to fetch session')
+        }
+        const { session } = await response.json()
+        console.log('Current user:', user)
+        console.log('Session:', session)
+        if (session?.access_token) {
+          try {
+            const jwt = JSON.parse(atob(session.access_token.split('.')[1]))
+            console.log('JWT claims:', jwt)
+          } catch (e) {
+            console.error('Error parsing JWT:', e)
+          }
+        }
+      } catch (error) {
+        console.error('Error checking role:', error)
       }
-    };
-    checkRole();
-  }, [user]);
+    }
+    checkRole()
+  }, [user])
 
   useEffect(() => {
     // On mount, check for a stored Veo API token
-    const stored = localStorage.getItem('veoApiToken');
+    const stored = localStorage.getItem('veoApiToken')
     if (stored) {
       try {
-        const { token, expiresAt } = JSON.parse(stored);
+        const { token, expiresAt } = JSON.parse(stored)
         if (token && expiresAt && Date.now() < expiresAt) {
-          setVeoApiToken(token);
+          setVeoApiToken(token)
         } else {
-          localStorage.removeItem('veoApiToken');
+          localStorage.removeItem('veoApiToken')
         }
       } catch {
-        localStorage.removeItem('veoApiToken');
+        localStorage.removeItem('veoApiToken')
       }
     }
-  }, []);
+  }, [])
 
   useEffect(() => {
     // When veoApiToken changes, store it with a 20-hour expiry
     if (veoApiToken && veoApiToken.trim()) {
-      const expiresAt = Date.now() + 20 * 60 * 60 * 1000; // 20 hours
-      localStorage.setItem('veoApiToken', JSON.stringify({ token: veoApiToken, expiresAt }));
+      const expiresAt = Date.now() + 20 * 60 * 60 * 1000 // 20 hours
+      localStorage.setItem('veoApiToken', JSON.stringify({ token: veoApiToken, expiresAt }))
     }
-  }, [veoApiToken]);
+  }, [veoApiToken])
 
   const fetchVideos = async () => {
-    setPageError(null); // Clear error on fetch
+    setLoading(true)
     try {
-      setLoading(true)
-      const response = await fetch('/api/videos/list')
-      if (!response.ok) {
-        // throw new Error('Failed to fetch videos')
-        const errorText = await response.text();
-        setPageError(`Failed to fetch videos: ${response.status} ${errorText || response.statusText}`);
-        return;
+      const response = await apiClient.get<{ videos: Video[] } | ErrorResponse>('/api/videos/list')
+      
+      if ('error' in response) {
+        console.error('Error fetching videos:', response.error)
+        setPageError(response.error)
+      } else {
+        setVideos(response.videos || [])
       }
-      const videosData = await response.json()
-      setVideos(videosData)
     } catch (err: any) {
       console.error('Exception fetching videos:', err)
-      setPageError(err.message || 'An unexpected error occurred while fetching videos.');
+      setPageError(err.message || 'An unexpected error occurred')
     } finally {
       setLoading(false)
     }
@@ -114,59 +123,68 @@ function VideoManager({ user }: { user: any }) {
   }, [])
 
   const handleImportVideo = async () => {
-    if (!videoUrl.trim() && importMode === 'single') return;
+    if (!videoUrl.trim() && importMode === 'single') return
     
     try {
-      setImporting(true);
-      setImportSummary(null);
+      setImporting(true)
+      setImportSummary(null)
+      
+      const response = await fetch('/api/auth/session')
+      if (!response.ok) {
+        throw new Error('Not authenticated')
+      }
+      const { session } = await response.json()
+      if (!session) {
+        throw new Error('Not authenticated')
+      }
       
       if (videoSource === 'youtube') {
-        const youtubeSource = VIDEO_SOURCES['youtube'] as YouTubeSource;
+        const youtubeSource = VIDEO_SOURCES['youtube'] as YouTubeSource
         
         if (importMode === 'playlist') {
-          const playlistId = youtubeSource.extractPlaylistId(videoUrl);
+          const playlistId = youtubeSource.extractPlaylistId(videoUrl)
           if (!playlistId) {
             setImportSummary({
               message: 'Invalid YouTube playlist URL. Please check and try again.',
               type: 'error'
-            });
-            return;
+            })
+            return
           }
           
-          const result = await youtubeSource.importPlaylist(playlistId, user.id);
+          const result = await youtubeSource.importPlaylist(playlistId, user.id)
           
           // Show summary of changes
-          const summary = [];
-          if (result.added > 0) summary.push(`Added ${result.added} new videos`);
-          if (result.updated > 0) summary.push(`Updated ${result.updated} existing videos`);
-          if (result.removed > 0) summary.push(`Marked ${result.removed} videos as removed`);
+          const summary = []
+          if (result.added > 0) summary.push(`Added ${result.added} new videos`)
+          if (result.updated > 0) summary.push(`Updated ${result.updated} existing videos`)
+          if (result.removed > 0) summary.push(`Marked ${result.removed} videos as removed`)
           
           setImportSummary({
             message: summary.length > 0 
               ? `Playlist sync complete: ${summary.join(', ')}`
               : 'No changes needed - playlist is up to date',
             type: 'success'
-          });
+          })
         } else {
           // Single video import
-          const videoId = youtubeSource.extractVideoId(videoUrl);
+          const videoId = youtubeSource.extractVideoId(videoUrl)
           if (!videoId) {
             setImportSummary({
               message: 'Invalid YouTube video URL. Please check and try again.',
               type: 'error'
-            });
-            return;
+            })
+            return
           }
           
-          await youtubeSource.importSingleVideo(videoId, videoUrl, user.id);
+          await youtubeSource.importSingleVideo(videoId, videoUrl, user.id)
           setImportSummary({
             message: 'Video imported successfully!',
             type: 'success'
-          });
+          })
         }
       } else if (videoSource === 'veo') {
         // Handle Veo video import
-        const sourceHandler = VIDEO_SOURCES['veo'];
+        const sourceHandler = VIDEO_SOURCES['veo']
         
         if (importMode === 'playlist') {
           // Import all Veo videos
@@ -174,18 +192,18 @@ function VideoManager({ user }: { user: any }) {
             setImportSummary({
               message: 'Please provide a Veo API token to import all videos.',
               type: 'error'
-            });
-            return;
+            })
+            return
           }
           try {
-            let allRecordings: any[] = [];
-            let nextPageToken: string | undefined = undefined;
-            let page = 1;
+            let allRecordings: any[] = []
+            let nextPageToken: string | undefined = undefined
+            let page = 1
             do {
-              const url = new URL('https://api.veo.co/recordings');
-              url.searchParams.set('page_size', '20');
+              const url = new URL('https://api.veo.co/recordings')
+              url.searchParams.set('page_size', '20')
               if (nextPageToken) {
-                url.searchParams.set('page_token', nextPageToken);
+                url.searchParams.set('page_token', nextPageToken)
               }
               const response = await fetch(url.toString(), {
                 headers: {
@@ -193,175 +211,134 @@ function VideoManager({ user }: { user: any }) {
                   'Accept': 'application/json',
                   'X-Request-Id': 'veo-api-explorer/0.18.6/ce07c1479e6aa8'
                 }
-              });
+              })
               if (!response.ok) {
-                const errorText = await response.text();
+                const errorText = await response.text()
                 console.error('Veo API error:', {
                   status: response.status,
                   statusText: response.statusText,
                   body: errorText
-                });
+                })
                 setImportSummary({
                   message: `Failed to fetch Veo recordings (page ${page}): ${response.status} ${response.statusText}\n${errorText}`,
                   type: 'error'
-                });
-                return;
+                })
+                return
               }
-              const data = await response.json();
-              const recordings = data.items || [];
-              allRecordings = allRecordings.concat(recordings);
-              nextPageToken = data.next_page_token;
-              page++;
-            } while (nextPageToken);
-            let successCount = 0;
-            let updateCount = 0;
-            let errorCount = 0;
-            let skippedCount = 0;
+              const data = await response.json()
+              const recordings = data.items || []
+              allRecordings = allRecordings.concat(recordings)
+              nextPageToken = data.next_page_token
+              page++
+            } while (nextPageToken)
+            let successCount = 0
+            let updateCount = 0
+            let errorCount = 0
+            let skippedCount = 0
             for (const item of allRecordings) {
               try {
-                const videoId = item.id;
+                const videoId = item.id
                 // Use the web link as the video URL
-                const videoUrl = item.links?.find((l: any) => l.rel === 'web')?.href || `https://app.veo.co/matches/${videoId}`;
+                const videoUrl = item.links?.find((l: any) => l.rel === 'web')?.href || `https://app.veo.co/matches/${videoId}`
                 // Try to get the direct stream link from followcam
-                const streamUrl = item.followcam?.links?.find((l: any) => l.rel === 'stream' && l.type === 'video/mp4')?.href;
+                const streamUrl = item.followcam?.links?.find((l: any) => l.rel === 'stream' && l.type === 'video/mp4')?.href
                 if (!streamUrl) {
-                  skippedCount++;
-                  continue;
+                  skippedCount++
+                  continue
                 }
                 // Try to import or update
                 try {
-                  const result = await (sourceHandler as any).importSingleVideo(videoId, videoUrl, user.id, veoApiToken);
+                  const result = await (sourceHandler as any).importSingleVideo(videoId, videoUrl, user.id, veoApiToken)
                   if (result && result.status === 'updated') {
-                    updateCount++;
+                    updateCount++
                   } else if (result && result.status === 'existing') {
                     // Should not happen anymore, but count as update
-                    updateCount++;
+                    updateCount++
                   } else {
-                    successCount++;
+                    successCount++
                   }
                 } catch (error: any) {
                   // Handle 409 conflict (duplicate)
                   if (error?.code === '23505' || (error?.message && error.message.includes('duplicate key value'))) {
-                    updateCount++;
+                    updateCount++
                   } else {
-                    errorCount++;
-                    console.error('Error importing Veo video:', error);
+                    errorCount++
+                    console.error('Error importing Veo video:', error)
                   }
                 }
               } catch (error) {
-                errorCount++;
-                console.error('Error processing Veo recording:', error);
+                errorCount++
+                console.error('Error processing Veo recording:', error)
               }
             }
+            const summary = []
+            if (successCount > 0) summary.push(`Added ${successCount} new videos`)
+            if (updateCount > 0) summary.push(`Updated ${updateCount} existing videos`)
+            if (errorCount > 0) summary.push(`Failed to import ${errorCount} videos`)
+            if (skippedCount > 0) summary.push(`Skipped ${skippedCount} videos without stream URLs`)
             setImportSummary({
-              message: `Imported ${successCount} new, Updated ${updateCount}, Skipped ${skippedCount} (no stream), Failed ${errorCount}.`,
-              type: 'success'
-            });
-          } catch (error) {
-            console.error('Unexpected error during Veo import:', error);
+              message: summary.length > 0 
+                ? `Veo import complete: ${summary.join(', ')}`
+                : 'No videos were imported',
+              type: summary.length > 0 ? 'success' : 'info'
+            })
+          } catch (error: any) {
+            console.error('Error importing Veo videos:', error)
             setImportSummary({
-              message: `Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
+              message: `Failed to import Veo videos: ${error.message}`,
               type: 'error'
-            });
+            })
           }
         } else {
           // Single Veo video import
-          const videoId = sourceHandler.extractVideoId(videoUrl);
-          if (!videoId) {
+          if (!veoApiToken.trim()) {
             setImportSummary({
-              message: `Invalid Veo URL. Please check and try again.`,
+              message: 'Please provide a Veo API token to import videos.',
               type: 'error'
-            });
-            return;
-          }
-          if (!videoTitle.trim()) {
-            setImportSummary({
-              message: 'Please enter a title for the video',
-              type: 'error'
-            });
-            return;
+            })
+            return
           }
           try {
-            await (sourceHandler as any).importSingleVideo(videoId, videoUrl, user.id, veoApiToken || undefined);
+            const videoId = videoUrl.split('/').pop()
+            if (!videoId) {
+              setImportSummary({
+                message: 'Invalid Veo video URL. Please check and try again.',
+                type: 'error'
+              })
+              return
+            }
+            const result = await (sourceHandler as any).importSingleVideo(videoId, videoUrl, user.id, veoApiToken)
+            if (result && result.status === 'updated') {
+              setImportSummary({
+                message: 'Video updated successfully!',
+                type: 'success'
+              })
+            } else {
+              setImportSummary({
+                message: 'Video imported successfully!',
+                type: 'success'
+              })
+            }
+          } catch (error: any) {
+            console.error('Error importing Veo video:', error)
             setImportSummary({
-              message: 'Veo video imported successfully!',
-              type: 'success'
-            });
-          } catch (error) {
-            setImportSummary({
-              message: error instanceof Error ? error.message : 'Failed to import Veo video',
+              message: `Failed to import video: ${error.message}`,
               type: 'error'
-            });
+            })
           }
-        }
-      } else {
-        // Handle other video sources
-        const sourceHandler = VIDEO_SOURCES[videoSource as VideoSourceType];
-        if (!sourceHandler) {
-          setImportSummary({
-            message: `Unsupported video source: ${videoSource}`,
-            type: 'error'
-          });
-          return;
-        }
-
-        const videoId = sourceHandler.extractVideoId(videoUrl);
-        if (!videoId) {
-          setImportSummary({
-            message: `Invalid ${getSourceName(videoSource)} URL. Please check and try again.`,
-            type: 'error'
-          });
-          return;
-        }
-
-        // For non-YouTube videos, we need a title
-        if (!videoTitle.trim()) {
-          setImportSummary({
-            message: 'Please enter a title for the video',
-            type: 'error'
-          });
-          return;
-        }
-
-        try {
-          // Generic video import
-          const { data, error } = await supabase.from('videos').insert({
-            title: videoTitle,
-            url: videoUrl,
-            video_id: videoId,
-            source: videoSource,
-            status: 'active',
-            last_synced: new Date().toISOString(),
-            created_by: user.id
-          });
-
-          if (error) throw error;
-
-          setImportSummary({
-            message: 'Video imported successfully!',
-            type: 'success'
-          });
-
-          console.log('Video import response:', { data, error }); // Add logging
-        } catch (error) {
-          console.error('Database error:', error); // Detailed error logging
-          throw error; // Re-throw to be caught by outer catch block
         }
       }
       
-      // Refresh the video list
-      await fetchVideos();
-      // Clear the form
-      setVideoUrl('');
-      setVideoTitle('');
-    } catch (error) {
-      console.error('Error importing video:', error);
+      // Refresh the video list after import
+      await fetchVideos()
+    } catch (error: any) {
+      console.error('Error importing video:', error)
       setImportSummary({
-        message: error instanceof Error ? error.message : 'Failed to import video',
+        message: error.message || 'Failed to import video',
         type: 'error'
-      });
+      })
     } finally {
-      setImporting(false);
+      setImporting(false)
     }
   }
 
@@ -371,18 +348,16 @@ function VideoManager({ user }: { user: any }) {
       return;
     }
     try {
-      const response = await fetch(`/api/videos/delete?id=${id}`, { method: 'DELETE' })
-      if (!response.ok) {
-        // throw new Error('Failed to delete video');
-        const errorText = await response.text();
-        setPageError(`Failed to delete video: ${response.status} ${errorText || response.statusText}`);
-        return;
+      const response = await apiClient.post<ErrorResponse>(`/api/videos/${id}`, null)
+      
+      if ('error' in response) {
+        throw new Error(response.error)
       }
+      
       toast.success('Video deleted successfully!');
       fetchVideos() // Refresh the list
     } catch (error: any) {
       console.error('Error deleting video:', error)
-      // alert('Failed to delete video. Please try again.');
       setPageError(error.message || 'Failed to delete video. Please try again.');
     }
   }

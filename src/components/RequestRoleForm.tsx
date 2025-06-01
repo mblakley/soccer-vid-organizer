@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useTheme } from '@/contexts/ThemeContext'
-import { supabase } from '@/lib/supabaseClient'
 
 interface RequestRoleFormProps {
   userRoles?: string[];
@@ -28,24 +27,18 @@ export default function RequestRoleForm({ userRoles = [], pendingRoles = [], tea
   useEffect(() => {
     const fetchRoles = async () => {
       try {
-        const { data, error } = await supabase
-          .rpc('get_team_member_roles')
-
-        if (error) {
-          console.error('Error fetching roles:', error)
-          return
+        const response = await fetch('/api/roles/list')
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || 'Failed to fetch roles')
         }
-
-        if (data) {
-          // Convert role values to proper format with labels
-          const formattedRoles = data.map((role: string) => ({
-            value: role,
-            label: role.charAt(0).toUpperCase() + role.slice(1)
-          }))
-          setAvailableRoles(formattedRoles)
+        const data = await response.json()
+        if (data.roles) {
+          setAvailableRoles(data.roles)
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error in fetchRoles:', error)
+        setError(error.message || 'Could not load available roles.')
       }
     }
 
@@ -88,8 +81,13 @@ export default function RequestRoleForm({ userRoles = [], pendingRoles = [], tea
     
     try {
       // Get the session
-      const { data: sessionData } = await supabase.auth.getSession()
-      if (!sessionData.session) {
+      const sessionResponse = await fetch('/api/auth/session');
+      if (!sessionResponse.ok) {
+        throw new Error('Failed to fetch session')
+      }
+      const sessionData = await sessionResponse.json()
+
+      if (!sessionData.session?.access_token) {
         setError('Not authenticated. Please log in again.')
         return
       }

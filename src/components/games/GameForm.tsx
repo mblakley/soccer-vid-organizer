@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { toast } from 'react-toastify'
-import { supabase } from '@/lib/supabaseClient'
+import { apiClient } from '@/lib/api/client'
 
 interface Game {
   id: string
@@ -98,42 +98,21 @@ export default function GameForm({
   // Load team data when editing a game
   const loadTeamsForGame = async (game: Game) => {
     try {
-      // Get home team details
-      const { data: homeTeam, error: homeError } = await supabase
-        .from('teams')
-        .select('id, name, club_affiliation, season, age_group, gender')
-        .eq('id', game.home_team)
-        .single()
-        
-      if (homeError) throw homeError
-      
-      // Get away team details
-      const { data: awayTeam, error: awayError } = await supabase
-        .from('teams')
-        .select('id, name, club_affiliation, season, age_group, gender')
-        .eq('id', game.away_team)
-        .single()
-        
-      if (awayError) throw awayError
-      
-      // Set the team search state
+      const { data: homeTeam, error: homeError } = await apiClient.get(`/api/teams/${game.home_team}`);
+      if (homeError) throw homeError;
+      const { data: awayTeam, error: awayError } = await apiClient.get(`/api/teams/${game.away_team}`);
+      if (awayError) throw awayError;
       if (homeTeam) {
         setTeamSearchQuery(prev => ({ ...prev, home: homeTeam.name }))
         setSelectedTeams(prev => ({ ...prev, home: homeTeam }))
       }
-      
       if (awayTeam) {
         setTeamSearchQuery(prev => ({ ...prev, away: awayTeam.name }))
         setSelectedTeams(prev => ({ ...prev, away: awayTeam }))
       }
     } catch (error: any) {
       console.error('Error fetching details:', error)
-      // If we fail to get team details, we still want to show the game form
-      // We'll just use the IDs as the search query
-      setTeamSearchQuery({ 
-        home: game.home_team_name, 
-        away: game.away_team_name 
-      })
+      setTeamSearchQuery({ home: game.home_team_name, away: game.away_team_name })
     }
   }
 
@@ -166,11 +145,7 @@ export default function GameForm({
 
     setIsSearching(prev => ({ ...prev, [type]: true }))
     try {
-      const { data, error } = await supabase
-        .from('teams')
-        .select('id, name, club_affiliation, season, age_group, gender')
-        .ilike('name', `%${query}%`)
-        .limit(5)
+      const { data, error } = await apiClient.get(`/api/teams?name=${query}&type=${type}&limit=5`)
 
       if (error) throw error
       
@@ -234,19 +209,13 @@ export default function GameForm({
 
       if (game && game.id) {
         // Update existing game
-        const { error } = await supabase
-          .from('games')
-          .update(gameData)
-          .eq('id', game.id)
+        const { error } = await apiClient.put(`/api/games/${game.id}`, gameData)
 
         if (error) throw error
         gameId = game.id;
       } else {
         // Create new game
-        const { data, error } = await supabase
-          .from('games')
-          .insert([gameData])
-          .select()
+        const { data, error } = await apiClient.post('/api/games', gameData)
 
         if (error) throw error
         if (!data || data.length === 0) throw new Error('Failed to create game')
@@ -256,33 +225,23 @@ export default function GameForm({
       // Now handle flight/division in the junction tables
       if (leagueId) {
         // First check if the game-league connection already exists
-        const { data: existingConnection, error: checkError } = await supabase
-          .from('league_games')
-          .select('*')
-          .eq('league_id', leagueId)
-          .eq('game_id', gameId)
-          
+        const { data: existingConnection, error: checkError } = await apiClient.get(`/api/league_games?league_id=${leagueId}&game_id=${gameId}`)
+        
         if (checkError) throw checkError
         
         if (existingConnection && existingConnection.length > 0) {
           // Update the existing connection with the division
-          const { error: updateError } = await supabase
-            .from('league_games')
-            .update({ division: newGame.flight }) // Using flight field for division value
-            .eq('league_id', leagueId)
-            .eq('game_id', gameId)
-            
+          const { error: updateError } = await apiClient.put(`/api/league_games/${existingConnection[0].id}`, { division: newGame.flight })
+          
           if (updateError) throw updateError
         } else {
           // Create new connection with the division
-          const { error: insertError } = await supabase
-            .from('league_games')
-            .insert([{ 
-              league_id: leagueId, 
-              game_id: gameId,
-              division: newGame.flight // Using flight field for division value
-            }])
-            
+          const { error: insertError } = await apiClient.post('/api/league_games', { 
+            league_id: leagueId, 
+            game_id: gameId,
+            division: newGame.flight
+          })
+          
           if (insertError) throw insertError
         }
       }
@@ -307,11 +266,7 @@ export default function GameForm({
     }
 
     // Try to find an existing team with this exact name
-    const { data: existingTeams, error: searchError } = await supabase
-      .from('teams')
-      .select('id')
-      .eq('name', teamName.trim())
-      .limit(1)
+    const { data: existingTeams, error: searchError } = await apiClient.get(`/api/teams?name=${teamName.trim()}&type=${type}&limit=1`)
 
     if (searchError) throw searchError
 
@@ -321,13 +276,9 @@ export default function GameForm({
     }
 
     // Otherwise create a new team
-    const { data: createdTeam, error: createError } = await supabase
-      .from('teams')
-      .insert([{
-        name: teamName.trim()
-      }])
-      .select('id')
-      .single()
+    const { data: createdTeam, error: createError } = await apiClient.post('/api/teams', {
+      name: teamName.trim()
+    })
 
     if (createError) throw createError
     

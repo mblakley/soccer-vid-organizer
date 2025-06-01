@@ -3,8 +3,6 @@ import { useRouter } from 'next/router'
 import { useTeam } from '@/contexts/TeamContext'
 import AppLayout from '@/components/AppLayout'
 import { useTheme } from '@/contexts/ThemeContext'
-import { supabase } from '@/lib/supabaseClient'
-import { getSupabaseClient } from '@/lib/supabaseClient'
 
 interface TeamStats {
   wins: number
@@ -50,27 +48,13 @@ export default function TeamDashboard() {
       setLoading(true)
       setError(null)
       try {
-        // Fetch team stats
-        const { data: statsData, error: statsError } = await supabase
-          .from('team_stats')
-          .select('*')
-          .eq('team_id', selectedTeamId)
-          .single()
-
-        if (statsError) throw statsError
-        if (statsData) setTeamStats(statsData)
-
-        // Fetch injuries
-        const { data: injuriesData, error: injuriesError } = await supabase
-          .from('team_injuries')
-          .select('*')
-          .eq('team_id', selectedTeamId)
-          .eq('status', 'active')
-          .order('expected_return_date', { ascending: true })
-
-        if (injuriesError) throw injuriesError
-        if (injuriesData) setInjuries(injuriesData)
-
+        const response = await fetch(`/api/team/stats?teamId=${selectedTeamId}`)
+        if (!response.ok) {
+          throw new Error('Failed to fetch team data')
+        }
+        const data = await response.json()
+        setTeamStats(data.stats)
+        setInjuries(data.injuries)
       } catch (err: any) {
         console.error('Error fetching team data:', err)
         setError(err.message)

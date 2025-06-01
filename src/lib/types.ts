@@ -109,4 +109,160 @@ export interface LibraryClip {
   end_time: number;
   created_by: string | null;
   created_at: string;
+}
+
+// Define the Video type based on usage in videos.tsx
+export interface Video {
+  id: string; // Or number, depending on your DB schema
+  title: string;
+  url?: string | null;
+  source?: string | null; // e.g., 'youtube', 'veo', 'hudl'
+  video_id?: string | null; // Specific ID from the source (e.g., YouTube video ID)
+  duration?: number | null; // Duration in seconds
+  metadata?: { 
+    thumbnailUrl?: string | null;
+    [key: string]: any; // For other metadata properties
+  } | null;
+  created_at?: string | null; // ISO date string
+  // Add any other relevant fields from your 'videos' table
+}
+
+// Define the Review type based on usage in src/pages/videos/reviews/index.tsx
+export interface Review {
+  id: string;
+  title: string;
+  description: string;
+  created_at: string; 
+  clip_count: number; 
+}
+
+// Define the Tournament type
+// Based on src/pages/admin/tournaments.tsx
+export interface Tournament {
+  id: string;
+  name: string;
+  description: string | null; 
+  start_date: string | null; 
+  end_date: string | null;   
+  location?: string | null; // Added
+  status?: 'upcoming' | 'in_progress' | 'completed' | 'cancelled' | string | null; // Added & widened
+  format?: string | null; // Added
+  // flight?: string | null; // Consider if this top-level flight is needed or if it's only via junction tables
+  age_group?: string | null; // Added
+  additional_info?: Record<string, any> | null; // Added, typed as object or null
+  created_at?: string | null; 
+  updated_at?: string | null; // Added
+}
+
+// Define the Game type
+// Based on src/pages/admin/leagues.tsx and general needs for game details
+export interface Game {
+  id: string;
+  home_team_id?: string; 
+  away_team_id?: string; 
+  home_team_name?: string; // Can be joined/derived
+  away_team_name?: string; // Can be joined/derived
+  game_date: string | null; 
+  start_time: string | null; // Consider renaming to game_time if that's the actual DB column
+  location?: string | null;
+  type?: 'league' | 'tournament' | string | null; // Added from games/index.tsx
+  league_id?: string | null; 
+  tournament_id?: string | null; 
+  status?: 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'postponed' | string; // Consolidated statuses
+  score_home?: number | null;
+  score_away?: number | null;
+  flight?: string | null; // Often related to tournaments
+  notes?: string | null; 
+  created_at?: string | null;
+  updated_at?: string | null;
+  // Add other relevant fields from your 'games' table as needed
+  // e.g., video_url, referee_id, weather_conditions
+}
+
+// Define the Player type based on src/pages/rosters/[gameId].tsx
+export interface Player {
+  id: string; // Typically UUID from users table or a dedicated players table
+  name: string; // Or first_name, last_name depending on your schema
+  user_id?: string | null; // Link to the auth.users table if players are also users
+  // Fields from original interface in roster page:
+  position: string | null; // Allow null if position isn't always set
+  jersey_number: number | null; // Allow null if jersey number isn't always set
+  // Add other relevant player details, e.g.:
+  // date_of_birth?: string | null;
+  // teams?: string[]; // If a player can be on multiple teams (IDs)
+  // is_active?: boolean;
+  // profile_image_url?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+// Define the RosterEntry type based on src/pages/rosters/[gameId].tsx
+export interface RosterEntry {
+  id: string; 
+  player_id: string; 
+  game_id: string;   
+  team_id?: string | null; 
+  is_starter?: boolean | null;
+  is_attending?: boolean | null; 
+  notes?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  // player?: Player; 
+}
+
+// Define the Clip type
+// Based on LibraryClip and usage in src/pages/index.tsx and api/clips/list.ts
+export interface Clip {
+  id: string; 
+  title: string | null; 
+  video_id: string; 
+  start_time: number; 
+  end_time: number;   
+  created_by: string | null; 
+  created_at: string; 
+  tags?: string[] | null; 
+  description?: string | null; 
+  videos?: Partial<Video> & { url?: string }; 
+}
+
+// Define the Comment type
+// Based on usage in src/pages/index.tsx and api/comments/list.ts
+export interface Comment {
+  id: string; 
+  clip_id: string; 
+  user_id: string; 
+  text: string; 
+  created_at: string; 
+  updated_at?: string | null; 
+  parent_comment_id?: string | null; 
+}
+
+// Define the League type
+// Based on src/pages/leagues/index.tsx
+export interface League {
+  id: string; // UUID
+  name: string;
+  description?: string | null;
+  season: string; // e.g., "2023-2024", "Summer 2024"
+  age_group?: string | null;
+  gender?: string | null; // e.g., 'boys', 'girls', 'co-ed'
+  start_date?: string | null; // ISO date string
+  end_date?: string | null;   // ISO date string
+  created_at?: string | null; // ISO date string
+  updated_at?: string | null; // ISO date string
+  // Potentially other fields like sport, region, registration_deadline etc.
+}
+
+// You might also want a type for a league that includes its games for detailed views
+export interface LeagueWithGames extends League {
+  games: Game[]; // Assuming Game type is already defined
+}
+
+export interface TournamentGameEntry {
+  id: string; // UUID
+  tournament_id: string; // UUID
+  game_id: string; // UUID
+  flight?: string | null;
+  created_at?: string; // ISO date string
+  updated_at?: string; // ISO date string
 } 

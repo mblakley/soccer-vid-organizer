@@ -1,5 +1,5 @@
 import { jwtDecode, JwtPayload } from 'jwt-decode'
-import { supabase } from './supabaseClient'
+import { apiClient } from '@/lib/api/client'
 import { JWTCustomClaims, TeamRole, TeamRolesMap } from './types'
 
 export interface User {
@@ -20,7 +20,7 @@ interface CustomJwtPayload extends JwtPayload {
 export async function refreshUserSession(): Promise<User | null> {
   try {
     console.log('[Auth] Refreshing user session...');
-    const { data, error } = await supabase.auth.refreshSession();
+    const { data, error } = await apiClient.post('/api/auth/refresh-session');
     
     if (error) {
       console.error('[Auth] Error refreshing session:', error);
@@ -46,7 +46,7 @@ export async function refreshUserSession(): Promise<User | null> {
 export async function getCurrentUser(): Promise<User | null> {
   try {
     console.log('[Auth] Getting current user...');
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    const { data: { session }, error: sessionError } = await apiClient.get('/api/auth/session');
     if (sessionError) {
       console.error('[Auth] Error getting session:', sessionError);
       return null;
@@ -57,7 +57,7 @@ export async function getCurrentUser(): Promise<User | null> {
     }
 
     // Get the JWT claims
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const { data: { user }, error: userError } = await apiClient.get('/api/auth/user');
     if (userError) {
       console.error('[Auth] Error getting user:', userError);
       return null;

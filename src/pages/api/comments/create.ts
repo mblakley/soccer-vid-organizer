@@ -1,48 +1,92 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '@/lib/supabaseClient'
+import type { CreateCommentApiResponse, ErrorResponse } from '@/lib/types/comments'
+import { createCommentRequestSchema, createCommentResponseSchema } from '@/lib/types/comments'
+import { z } from 'zod'
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<CreateCommentApiResponse>
+) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed' })
+    const errorResponse: ErrorResponse = {
+      error: 'Method not allowed'
+    }
+    res.setHeader('Allow', ['POST'])
+    return res.status(405).json(errorResponse)
   }
 
   try {
-    const { clip_id, content, user_id, role_visibility } = req.body
+    const supabase = getSupabaseClient(req.headers.authorization)
 
-    if (!clip_id || !content || !user_id || !role_visibility) {
-      return res.status(400).json({ message: 'Missing required fields' })
+    // Get the current user
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError) {
+      console.error('Error getting user:', userError)
+      throw new Error(userError.message)
     }
-    
-    // Get auth token from header
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      return res.status(401).json({ message: 'Missing authorization header' });
+
+    if (!user) {
+      const errorResponse: ErrorResponse = {
+        error: 'Unauthorized'
+      }
+      return res.status(401).json(errorResponse)
     }
-    
-    // Get authenticated Supabase client
-    const supabase = getSupabaseClient(authHeader);
-    
-    // Create the comment
-    const { data, error } = await supabase
+
+    // Validate request body
+    const commentRequest = createCommentRequestSchema.parse(req.body)
+    const { clip_id, content, role_visibility } = commentRequest
+
+    const commentToInsert = {
+      clip_id,
+      user_id: user.id,
+      content,
+      role_visibility,
+    }
+
+    const { data: createdComment, error: insertError } = await supabase
       .from('comments')
-      .insert({
-        clip_id,
-        user_id,
-        content,
-        role_visibility,
-        created_at: new Date().toISOString()
-      })
+      .insert(commentToInsert)
       .select()
-      .single();
+      .single()
 
-    if (error) {
-      console.error('Error creating comment:', error);
-      return res.status(500).json({ message: error.message });
+    if (insertError) {
+      console.error('Error creating comment:', insertError)
+      if (insertError.code === '23503') {
+        const errorResponse: ErrorResponse = { error: 'Invalid clip_id or user_id.' }
+        return res.status(400).json(errorResponse)
+      }
+      throw new Error(insertError.message)
     }
 
-    return res.status(200).json({ id: data.id, ...data });
-  } catch (err: any) {
-    console.error('Error in comments/create API:', err);
-    return res.status(500).json({ message: err.message || 'Internal server error' });
+    if (!createdComment) {
+      throw new Error('Comment creation did not return data.')
+    }
+
+    const validatedResponse = createCommentResponseSchema.parse(createdComment)
+    
+    return res.status(201).json(validatedResponse)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const errorResponse: ErrorResponse = {
+        error: 'Invalid request body'
+      }
+      return res.status(400).json(errorResponse)
+    }
+    if (error instanceof Error) {
+      const errorResponse: ErrorResponse = {
+        error: error.message
+      }
+      const statusCode =
+        (error.message.includes('Unauthorized')) ? 401 :
+        (error.message.includes('Invalid clip_id')) ? 400 :
+        500
+      return res.status(statusCode).json(errorResponse)
+    }
+    console.error('Error in create comment handler:', error)
+    const errorResponse: ErrorResponse = {
+      error: 'An unknown error occurred'
+    }
+    return res.status(500).json(errorResponse)
   }
 } 

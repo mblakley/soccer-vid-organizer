@@ -1,59 +1,87 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseClient } from '@/lib/supabaseClient'
+import type { UsersWithRolesApiResponse, ErrorResponse } from '@/lib/types/auth'
+import { usersWithRolesResponseSchema } from '@/lib/types/auth'
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  try {
-    console.log('Starting /api/admin/users-with-roles handler')
-    
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  
-    
-    if (!supabaseUrl || !supabaseServiceKey) {
-      throw new Error('Missing Supabase environment variables')
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<UsersWithRolesApiResponse>
+) {
+  if (req.method !== 'GET') {
+    const errorResponse: ErrorResponse = {
+      error: 'Method not allowed'
     }
-    
-    // Initialize Supabase client with admin privileges
-    console.log('Initializing Supabase client')
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
-    
+    return res.status(405).json(errorResponse)
+  }
+
+  try {
+    const supabase = getSupabaseClient(req.headers.authorization)
+
+    // Get the current user
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError) {
+      console.error('Error getting user:', userError)
+      throw new Error(userError.message)
+    }
+
+    if (!user) {
+      const errorResponse: ErrorResponse = {
+        error: 'Unauthorized'
+      }
+      return res.status(401).json(errorResponse)
+    }
+
+    // Check if the current user is an admin
+    const { data: currentUserRole, error: roleError } = await supabase
+      .from('user_roles')
+      .select('is_admin')
+      .eq('user_id', user.id)
+      .single()
+
+    if (roleError) {
+      console.error('Error checking admin role:', roleError)
+      throw new Error(roleError.message)
+    }
+
+    if (!currentUserRole?.is_admin) {
+      const errorResponse: ErrorResponse = {
+        error: 'Forbidden: Admin access required'
+      }
+      return res.status(403).json(errorResponse)
+    }
+
     // Fetch all users with admin status from user_roles table
-    console.log('Fetching user roles from database')
-    const { data: roleData, error: roleError } = await supabaseAdmin
+    const { data: roleData, error: roleFetchError } = await supabase
       .from('user_roles')
       .select('user_id, is_admin')
 
-    console.log('Role data fetch result:', { 
-      success: !roleError, 
-      count: roleData?.length || 0,
-      error: roleError ? roleError.message : null
-    })
-
-    if (roleError) {
-      throw new Error(`Failed to fetch roles: ${roleError.message}`)
+    if (roleFetchError) {
+      console.error('Error fetching roles:', roleFetchError)
+      throw new Error(roleFetchError.message)
     }
 
     // If no users with roles, return empty array
     if (!roleData || roleData.length === 0) {
-      console.log('No user roles found, returning empty array')
-      return res.status(200).json([])
+      return res.status(200).json({ users: [] })
     }
 
     // Get all users from auth.users
-    const { data: users, error: usersError } = await supabaseAdmin.auth.admin.listUsers()
-    
+    const { data: users, error: usersError } = await supabase.auth.admin.listUsers()
+
     if (usersError) {
-      throw new Error(`Failed to fetch users: ${usersError.message}`)
+      console.error('Error fetching users:', usersError)
+      throw new Error(usersError.message)
     }
 
     // Fetch team members to check for associations
-    const { data: teamMembers, error: teamMembersError } = await supabaseAdmin
+    const { data: teamMembers, error: teamMembersError } = await supabase
       .from('team_members')
       .select('user_id')
       .eq('is_active', true)
 
     if (teamMembersError) {
-      throw new Error(`Failed to fetch team members: ${teamMembersError.message}`)
+      console.error('Error fetching team members:', teamMembersError)
+      throw new Error(teamMembersError.message)
     }
 
     // Create a set of user IDs that are associated with team members
@@ -73,17 +101,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const userRole = roleData?.find(r => r.user_id === user.id)
         return {
           id: user.id,
-          email: user.email,
+          email: user.email || null,
           is_admin: userRole?.is_admin || false,
           created_at: user.created_at,
-          last_sign_in_at: user.last_sign_in_at,
-          user_metadata: user.user_metadata
+          last_sign_in_at: user.last_sign_in_at || null,
+          user_metadata: {
+            full_name: user.user_metadata?.full_name,
+            disabled: user.user_metadata?.disabled
+          }
         }
       })
 
-    res.status(200).json(usersWithRoles)
-  } catch (error: any) {
-    console.error('Error in users-with-roles API:', error)
-    res.status(500).json({ error: 'Internal server error' })
+    const response = { users: usersWithRoles }
+    usersWithRolesResponseSchema.parse(response)
+    return res.status(200).json(response)
+  } catch (error) {
+    if (error instanceof Error) {
+      const errorResponse: ErrorResponse = {
+        error: error.message
+      }
+      return res.status(400).json(errorResponse)
+    }
+    console.error('Error in users-with-roles handler:', error)
+    const errorResponse: ErrorResponse = {
+      error: 'An unknown error occurred'
+    }
+    return res.status(500).json(errorResponse)
   }
 } 

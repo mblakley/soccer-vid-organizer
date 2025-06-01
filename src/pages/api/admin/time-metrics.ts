@@ -1,72 +1,109 @@
-import { NextApiRequest, NextApiResponse } from 'next'
-import { supabase } from '@/lib/supabaseClient'
-import { getCurrentUser } from '@/lib/auth'
+import type { NextApiRequest, NextApiResponse } from 'next'
+import { getSupabaseClient } from '@/lib/supabaseClient'
+import type { TimeMetricsApiResponse } from '@/lib/types/admin'
+import type { ErrorResponse } from '@/lib/types/auth' // Shared ErrorResponse
+import { timeMetricsResponseSchema } from '@/lib/types/admin'
+import { z } from 'zod'
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+// Helper function to check if user is admin - replace with your actual admin check logic
+async function isUserAdmin(userId: string, supabaseClient: any): Promise<boolean> {
+  // Example: Check a 'user_roles' table
+  const { data, error } = await supabaseClient
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', userId)
+    .eq('role', 'admin')
+    .maybeSingle();
+  if (error) {
+    console.error('Error checking admin role:', error);
+    return false;
+  }
+  return !!data;
+  // Or, if using app_metadata: return user.app_metadata?.isAdmin === true;
+}
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<TimeMetricsApiResponse>
+) {
   if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' })
+    const errorResponse: ErrorResponse = { error: 'Method not allowed' };
+    res.setHeader('Allow', ['GET']);
+    return res.status(405).json(errorResponse);
   }
 
   try {
-    // Check if user is admin
-    const user = await getCurrentUser()
-    if (!user?.isAdmin) {
-      return res.status(403).json({ error: 'Unauthorized' })
+    const supabaseUserClient = getSupabaseClient(req.headers.authorization);
+    const { data: { user }, error: authError } = await supabaseUserClient.auth.getUser();
+
+    if (authError || !user) {
+      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+      return res.status(401).json(errorResponse);
     }
 
-    // Get the start of this week
-    const startOfWeek = new Date()
-    startOfWeek.setHours(0, 0, 0, 0)
-    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay())
+    // IMPORTANT: Implement robust admin check here
+    const isAdmin = await isUserAdmin(user.id, supabaseUserClient); // Use user client for role check if RLS allows
+    if (!isAdmin) {
+      const errorResponse: ErrorResponse = { error: 'Forbidden: User is not an admin' };
+      return res.status(403).json(errorResponse);
+    }
 
-    // Convert to ISO string for Supabase queries
-    const startOfWeekISO = startOfWeek.toISOString()
+    const supabaseAdmin = getSupabaseClient(); // Service role client for admin-level queries
 
-    // Get new users this week
-    const { data: newUsers, error: usersError } = await supabase
-      .from('auth.users')
-      .select('created_at')
-      .gte('created_at', startOfWeekISO)
+    const startOfWeek = new Date();
+    startOfWeek.setHours(0, 0, 0, 0);
+    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay() + (startOfWeek.getDay() === 0 ? -6 : 1)); // Adjust to Monday
+    const startOfWeekISO = startOfWeek.toISOString();
 
-    if (usersError) throw usersError
+    const { count: newUsersCount, error: usersError } = await supabaseAdmin
+      .from('users') // Querying your public users table or auth.users directly
+      .select('*' , { count: 'exact', head: true })
+      .gte('created_at', startOfWeekISO);
+    if (usersError) throw usersError;
 
-    // Get new clips this week
-    const { data: newClips, error: clipsError } = await supabase
+    const { count: newClipsCount, error: clipsError } = await supabaseAdmin
       .from('clips')
-      .select('created_by')
-      .gte('created_at', startOfWeekISO)
+      .select('*' , { count: 'exact', head: true })
+      .gte('created_at', startOfWeekISO);
+    if (clipsError) throw clipsError;
 
-    if (clipsError) throw clipsError
-
-    // Get new comments this week
-    const { data: newComments, error: commentsError } = await supabase
+    const { count: newCommentsCount, error: commentsError } = await supabaseAdmin
       .from('comments')
-      .select('created_at')
-      .gte('created_at', startOfWeekISO)
+      .select('*' , { count: 'exact', head: true })
+      .gte('created_at', startOfWeekISO);
+    if (commentsError) throw commentsError;
 
-    if (commentsError) throw commentsError
-
-    // Get unique logins this week (this requires auth.audit_log_entries which might need to be enabled)
-    const { data: logins, error: loginsError } = await supabase
-      .from('auth.audit_log_entries')
+    // For unique logins, this might be slow on large audit logs without proper indexing.
+    // A dedicated table or a more optimized query/materialized view might be better for production.
+    const { data: logins, error: loginsError } = await supabaseAdmin
+      .from('audit_log_entries') // This is auth.audit_log_entries
       .select('actor_id')
-      .eq('action', 'login')
-      .gte('occurred_at', startOfWeekISO)
-      .order('actor_id')
+      .eq('action', 'login') // Ensure this action string is correct
+      .gte('created_at', startOfWeekISO); // Use created_at if that's what you meant, or occurred_at
+      // Note: Supabase might use 'timestamp' for audit logs, adjust field name if needed
+    if (loginsError) throw loginsError;
+    const uniqueLogins = new Set(logins?.map(l => l.actor_id) || []).size;
 
-    if (loginsError) throw loginsError
+    const responseData: TimeMetricsResponse = {
+      newUsers: newUsersCount || 0,
+      newClips: newClipsCount || 0,
+      newComments: newCommentsCount || 0,
+      uniqueLogins
+    };
+    timeMetricsResponseSchema.parse(responseData);
+    return res.status(200).json(responseData);
 
-    // Count unique logins
-    const uniqueLogins = new Set(logins?.map(login => login.actor_id)).size
-
-    return res.status(200).json({
-      newUsers: newUsers?.length || 0,
-      uniqueLogins: uniqueLogins,
-      newClips: newClips?.length || 0,
-      newComments: newComments?.length || 0
-    })
   } catch (error) {
-    console.error('Error fetching time metrics:', error)
-    return res.status(500).json({ error: 'Internal server error' })
+    if (error instanceof z.ZodError) {
+      const errorResponse: ErrorResponse = { error: 'Invalid response data', /* issues: error.issues */ };
+      return res.status(500).json(errorResponse);
+    }
+    if (error instanceof Error) {
+      const errorResponse: ErrorResponse = { error: error.message };
+      return res.status(500).json(errorResponse);
+    }
+    console.error('Error in time-metrics handler:', error);
+    const errorResponse: ErrorResponse = { error: 'An unknown error occurred' };
+    return res.status(500).json(errorResponse);
   }
 } 

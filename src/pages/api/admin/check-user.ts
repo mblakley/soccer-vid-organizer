@@ -1,88 +1,115 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseClient } from '@/lib/supabaseClient'
+import type { ErrorResponse } from '@/lib/types/auth'
+import type { CheckUserApiResponse, CheckUserResponse } from '@/lib/types/admin'
+import { checkUserRequestSchema, checkUserResponseSchema } from '@/lib/types/admin'
+import { z } from 'zod'
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+// Placeholder for admin check - replace with your actual implementation
+async function ensureAdmin(req: NextApiRequest): Promise<{ user: any; error?: ErrorResponse }> {
+  const supabaseUserClient = getSupabaseClient(req.headers.authorization);
+  const { data: { user }, error: authError } = await supabaseUserClient.auth.getUser();
+
+  if (authError || !user) {
+    return { user: null, error: { error: 'Unauthorized' } };
+  }
+  // Example admin check (replace with your logic, e.g., from a user_roles table or custom claims)
+  // This should be a robust check, not just by email in production.
+  if (user.email !== process.env.NEXT_PUBLIC_ADMIN_EMAIL) { 
+      return { user: null, error: { error: 'Forbidden: Not an admin' } };
+  }
+  return { user };
+}
+
+export default async function handler(
+  req: NextApiRequest, 
+  res: NextApiResponse<CheckUserApiResponse>
+) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' })
+    const errorResponse: ErrorResponse = { error: 'Method not allowed' };
+    res.setHeader('Allow', ['POST']);
+    return res.status(405).json(errorResponse);
+  }
+
+  const adminCheck = await ensureAdmin(req);
+  if (adminCheck.error || !adminCheck.user) {
+    return res.status(adminCheck.error?.error === 'Unauthorized' ? 401 : 403).json(adminCheck.error!);
   }
 
   try {
-    console.log('Starting /api/admin/check-user handler')
+    const { email, teamId } = checkUserRequestSchema.parse(req.body);
     
-    const { email, teamId } = req.body
+    const supabaseAdmin = getSupabaseClient(); // Uses service role key by default
     
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' })
+    const { data: usersResponse, error: listUsersError } = await supabaseAdmin.auth.admin.listUsers();
+    
+    if (listUsersError) {
+      console.error('Error fetching users:', listUsersError);
+      throw new Error(`Failed to fetch users: ${listUsersError.message}`);
     }
 
-    if (!teamId) {
-      return res.status(400).json({ error: 'Team ID is required' })
-    }
+    const existingUser = usersResponse.users.find(u => u.email?.toLowerCase() === email.toLowerCase());
+    
+    let responseData: CheckUserResponse;
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    
-    if (!supabaseUrl || !supabaseServiceKey) {
-      throw new Error('Missing Supabase environment variables')
-    }
-    
-    // Initialize Supabase client with admin privileges
-    console.log('Initializing Supabase client')
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
-    
-    // Check if user exists
-    console.log('Checking for existing user:', email)
-    const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers()
-    
-    if (error) {
-      console.error('Error fetching users:', error)
-      throw new Error(`Failed to fetch users: ${error.message}`)
-    }
-
-    const existingUser = users.find(u => u.email?.toLowerCase() === email.toLowerCase())
-    
     if (existingUser) {
-      // Check if user is already a member of the team
       const { data: existingMember, error: memberError } = await supabaseAdmin
         .from('team_members')
         .select('id')
         .eq('team_id', teamId)
         .eq('user_id', existingUser.id)
-        .eq('is_active', true)
-        .single()
+        .eq('is_active', true) // Assuming you only care about active members
+        .maybeSingle(); // Use maybeSingle to handle no rows gracefully
 
-      if (memberError && memberError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
-        console.error('Error checking team membership:', memberError)
-        throw new Error(`Failed to check team membership: ${memberError.message}`)
+      if (memberError) {
+        console.error('Error checking team membership:', memberError);
+        throw new Error(`Failed to check team membership: ${memberError.message}`);
       }
 
       if (existingMember) {
-        return res.status(400).json({ 
-          error: 'User is already a member of this team',
+        responseData = {
           exists: true,
-          isTeamMember: true
-        })
+          isTeamMember: true,
+          user: {
+            id: existingUser.id,
+            email: existingUser.email!,
+            name: existingUser.user_metadata?.full_name || existingUser.email?.split('@')[0] || 'N/A'
+          }
+        };
+      } else {
+        responseData = {
+          exists: true,
+          isTeamMember: false,
+          user: {
+            id: existingUser.id,
+            email: existingUser.email!,
+            name: existingUser.user_metadata?.full_name || existingUser.email?.split('@')[0] || 'N/A'
+          }
+        };
       }
-
-      console.log('Found existing user:', existingUser.id)
-      return res.json({
-        exists: true,
-        isTeamMember: false,
-        user: {
-          id: existingUser.id,
-          email: existingUser.email,
-          name: existingUser.user_metadata?.full_name || existingUser.email?.split('@')[0]
-        }
-      })
+    } else {
+      responseData = { 
+        exists: false,
+        isTeamMember: false
+      };
     }
+    checkUserResponseSchema.parse(responseData); // Validate response before sending
+    return res.status(200).json(responseData);
 
-    console.log('No existing user found')
-    return res.json({ 
-      exists: false,
-      isTeamMember: false
-    })
-  } catch (error: any) {
-    console.error('Error in check-user API:', error)
-    return res.status(500).json({ error: error.message || 'Internal server error' })
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const errorResponse: ErrorResponse = { 
+        error: 'Invalid request body',
+        // issues: error.issues 
+      };
+      return res.status(400).json(errorResponse);
+    }
+    if (error instanceof Error) {
+      const errorResponse: ErrorResponse = { error: error.message };
+      return res.status(500).json(errorResponse); // Default to 500 for other internal errors
+    }
+    console.error('Error in check-user API:', error);
+    const errorResponse: ErrorResponse = { error: 'An unknown internal server error occurred' };
+    return res.status(500).json(errorResponse);
   }
 } 

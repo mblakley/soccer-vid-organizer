@@ -1,294 +1,313 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabaseClient'
-import { withAuth } from '@/components/auth'
+import { useEffect, useState, useCallback } from 'react'
+import { withAuth, User } from '@/components/auth' // Ensure User is imported
 import { useTheme } from '@/contexts/ThemeContext'
 import { toast } from 'react-toastify'
+import { apiClient } from '@/lib/api/client'
+import { Clip, Video } from '@/lib/types' // Import Clip and Video types
+import { PlusCircle, Edit, Trash2, AlertTriangle, RefreshCw, Loader2 } from 'lucide-react'
 
-function CoachClipManager({ user }: { user: any }) {
-  const [clips, setClips] = useState<any[]>([])
-  const [videos, setVideos] = useState<any[]>([])
+interface CoachClipManagerProps { // Define props for type safety
+  user: User;
+}
+
+interface ListVideosApiResponse { // For fetching videos
+  videos?: Video[];
+  message?: string;
+}
+
+interface ListClipsApiResponse { // For fetching clips
+  clips?: Clip[];
+  message?: string;
+}
+
+// Define structure for API responses from clip create/update/delete if they return the clip or a message
+interface MutateClipResponse {
+    clip?: Clip;
+    message?: string;
+}
+
+function CoachClipManager({ user }: CoachClipManagerProps) {
+  const [clips, setClips] = useState<Clip[]>([])
+  const [videos, setVideos] = useState<Video[]>([])
   const [title, setTitle] = useState('')
-  const [videoId, setVideoId] = useState('')
-  const [selectedVideo, setSelectedVideo] = useState('')
-  const [start, setStart] = useState(0)
-  const [end, setEnd] = useState(0)
-  const [editId, setEditId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [selectedVideoId, setSelectedVideoId] = useState<string>(''); // Stores the ID of the video from the videos table
+  const [startTime, setStartTime] = useState<number>(0)
+  const [endTime, setEndTime] = useState<number>(0)
+  const [editClipId, setEditClipId] = useState<string | null>(null)
+  
+  const [clipsLoading, setClipsLoading] = useState(true)
   const [videosLoading, setVideosLoading] = useState(true)
-  const [actionError, setActionError] = useState<string | null>(null); // For form/action errors
-  const [fetchError, setFetchError] = useState<string | null>(null); // For clip fetching errors
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const { isDarkMode } = useTheme()
 
-  useEffect(() => {
-    // Load clips as soon as the component mounts
-    const fetchClips = async () => {
-      setFetchError(null);
-      setLoading(true);
-      try {
-        console.log('Fetching clips')
-        const { data, error } = await supabase.from('clips').select('*')
-        
-        if (error) {
-          console.error('Error fetching clips:', error)
-          setFetchError(error.message || 'Could not fetch clips.');
-        } else {
-          console.log(`Fetched ${data?.length || 0} clips`)
-          setClips(data || [])
-        }
-      } catch (err: any) {
-        console.error('Exception fetching clips:', err)
-        setFetchError(err.message || 'An unexpected error occurred while fetching clips.');
-      } finally {
-        setLoading(false)
-      }
-    }
-    
-    const fetchVideos = async () => {
-      // Errors for fetching videos are handled by inline messages or disabling form elements already
-      setVideosLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from('videos')
-          .select('id, title, video_id, source')
-          .order('title')
-        
-        if (error) {
-          console.error('Error fetching videos:', error)
-        } else {
-          setVideos(data || [])
-        }
-      } catch (err) {
-        console.error('Exception fetching videos:', err)
-      } finally {
-        setVideosLoading(false)
-      }
-    }
-    
-    fetchClips()
-    fetchVideos()
-  }, []) // Only run once on mount
-
-  const refreshClips = async () => {
+  const fetchClips = useCallback(async () => {
     setFetchError(null);
-    setLoading(true);
+    setClipsLoading(true);
     try {
-      const { data, error } = await supabase.from('clips').select('*')
-      if (error) {
-        console.error('Error refreshing clips:', error)
-        setFetchError(error.message || 'Could not refresh clips.');
+      const response = await apiClient.get<ListClipsApiResponse>('/api/clips/list'); // Use the generic list endpoint
+      if (response?.clips) {
+        setClips(response.clips);
       } else {
-        setClips(data || [])
+        setClips([]);
+        if (response?.message) setFetchError(response.message); 
       }
     } catch (err: any) {
-      console.error('Exception refreshing clips:', err)
-      setFetchError(err.message || 'An unexpected error occurred while refreshing clips.');
+      console.error('Exception fetching clips:', err);
+      setFetchError(err.message || 'An unexpected error occurred while fetching clips.');
+      setClips([]);
     } finally {
-      setLoading(false);
+      setClipsLoading(false);
     }
-  }
-
-  const handleAddOrUpdateClip = async () => {
-    setActionError(null); // Clear previous action error
+  }, []);
+  
+  const fetchVideos = useCallback(async () => {
+    setVideosLoading(true);
     try {
-      // Use selected video's video_id if available, otherwise use direct videoId input
-      const clipVideoId = selectedVideo ? 
-        videos.find(v => v.id === selectedVideo)?.video_id : 
-        videoId
-      
-      if (!clipVideoId) {
-        // toast.warn('Please select a video or enter a video ID')
-        setActionError('Please select a video from the list or enter a Video ID directly.');
-        return
-      }
-      
-      if (editId) {
-        const { error } = await supabase.from('clips').update({
-          title,
-          video_id: clipVideoId,
-          start_time: start,
-          end_time: end,
-        }).eq('id', editId)
-        if (error) throw error;
-        toast.success('Clip updated successfully!');
+      // Fetch specific fields and order by title
+      const response = await apiClient.get<ListVideosApiResponse>('/api/videos/list?select=id,title,video_id,source&orderBy=title&orderAscending=true');
+      if (response?.videos) {
+        setVideos(response.videos);
       } else {
-        const { error } = await supabase.from('clips').insert({
-          title,
-          video_id: clipVideoId,
-          start_time: start,
-          end_time: end,
-          created_by: user.id // Add the user ID as the creator
-        })
-        if (error) throw error;
-        toast.success('Clip added successfully!');
+        setVideos([]);
+        // Optionally set an error if needed, or rely on UI to show "no videos"
       }
-      setTitle('')
-      setVideoId('')
-      setSelectedVideo('')
-      setStart(0)
-      setEnd(0)
-      setEditId(null)
-      refreshClips()
-    } catch (error: any) {
-      console.error('Error adding/updating clip:', error)
-      // toast.error('Failed to save clip. Please try again.')
-      setActionError(error.message || 'Failed to save clip. Please try again.');
+    } catch (err: any) {
+      console.error('Exception fetching videos:', err);
+      // Optionally set an error state for videos list
+      setVideos([]);
+    } finally {
+      setVideosLoading(false);
     }
-  }
+  }, []);
 
-  const handleEdit = (clip: any) => {
-    setActionError(null); // Clear error when starting an edit
-    setEditId(clip.id)
-    setTitle(clip.title)
-    setVideoId(clip.video_id)
-    // Try to find this video in our videos list
-    const existingVideo = videos.find(v => v.video_id === clip.video_id)
-    if (existingVideo) {
-      setSelectedVideo(existingVideo.id)
-    } else {
-      setSelectedVideo('')
+  useEffect(() => {
+    fetchClips();
+    fetchVideos();
+  }, [fetchClips, fetchVideos]);
+
+  const resetForm = () => {
+    setTitle('');
+    setSelectedVideoId('');
+    setStartTime(0);
+    setEndTime(0);
+    setEditClipId(null);
+    setActionError(null);
+  };
+
+  const handleAddOrUpdateClip = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setActionError(null);
+    setIsSubmitting(true);
+
+    if (!selectedVideoId) {
+      setActionError('Please select a video from the list.');
+      setIsSubmitting(false);
+      return;
     }
-    setStart(clip.start_time)
-    setEnd(clip.end_time)
-  }
+    if (endTime <= startTime) {
+        setActionError('End time must be after start time.');
+        setIsSubmitting(false);
+        return;
+    }
+
+    const videoDetails = videos.find(v => v.id === selectedVideoId);
+    if (!videoDetails || !videoDetails.video_id) { // video_id from the source (e.g. YouTube ID)
+        setActionError('Selected video details are incomplete. Cannot create clip.');
+        setIsSubmitting(false);
+        return;
+    }
+
+    const clipData = {
+      title: title || `Clip from ${videoDetails.title || 'video'}`,
+      video_id: videoDetails.video_id, // This is the actual ID of the video (e.g. YouTube video ID)
+      // video_table_id: videoDetails.id, // Optionally, if your API/DB needs the PK of the 'videos' table
+      start_time: startTime,
+      end_time: endTime,
+      created_by: user.id,
+    };
+
+    try {
+      let response: MutateClipResponse | undefined;
+      if (editClipId) {
+        response = await apiClient.put<MutateClipResponse>(`/api/clips/${editClipId}`, clipData); // Assuming PUT for update
+        toast.success(response?.message || 'Clip updated successfully!');
+      } else {
+        response = await apiClient.post<MutateClipResponse>('/api/clips/create', clipData);
+        toast.success(response?.message || 'Clip added successfully!');
+      }
+      resetForm();
+      fetchClips(); // Refresh the clips list
+    } catch (error: any) {
+      console.error('Error adding/updating clip:', error);
+      const apiErrorMessage = error.response?.data?.message || error.message;
+      setActionError(apiErrorMessage || 'Failed to save clip. Please try again.');
+      toast.error(apiErrorMessage || 'Failed to save clip.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleEdit = (clip: Clip) => {
+    setActionError(null);
+    setEditClipId(clip.id);
+    setTitle(clip.title || '');
+    
+    // Find the video in the local videos list that corresponds to the clip's video_id (source video ID)
+    const videoForClip = videos.find(v => v.video_id === clip.video_id);
+    setSelectedVideoId(videoForClip?.id || ''); // Set the PK of the video in the select dropdown
+    
+    setStartTime(clip.start_time);
+    setEndTime(clip.end_time);
+    window.scrollTo({ top: 0, behavior: 'smooth' }); // Scroll to form for editing
+  };
 
   const handleDelete = async (id: string) => {
-    setActionError(null); // Clear previous action error
+    setActionError(null);
     if (!confirm("Are you sure you want to delete this clip?")) return;
+    setIsSubmitting(true); // Indicate loading state for delete
     try {
-      const { error } = await supabase.from('clips').delete().eq('id', id)
-      if (error) throw error;
-      toast.success('Clip deleted successfully!');
-      refreshClips()
+      const response = await apiClient.delete<MutateClipResponse>(`/api/clips/${id}`); // Assuming DELETE request
+      toast.success(response?.message || 'Clip deleted successfully!');
+      fetchClips(); // Refresh list
+      if (editClipId === id) resetForm(); // If deleting the clip currently being edited, reset form
     } catch (error: any) {
-      console.error('Error deleting clip:', error)
-      // toast.error('Failed to delete clip. Please try again.')
-      setActionError(error.message || 'Failed to delete clip. Please try again.');
+      console.error('Error deleting clip:', error);
+      const apiErrorMessage = error.response?.data?.message || error.message;
+      setActionError(apiErrorMessage || 'Failed to delete clip. Please try again.');
+      toast.error(apiErrorMessage || 'Failed to delete clip.');
+    } finally {
+      setIsSubmitting(false);
     }
-  }
+  };
+  
+  const inputClasses = `w-full border px-3 py-2 rounded-md ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'} focus:ring-blue-500 focus:border-blue-500`;
+  const labelClasses = `block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`;
+  const buttonClasses = (color: string) => `px-4 py-2 rounded-md font-medium text-white transition-colors disabled:opacity-50 flex items-center justify-center ${isSubmitting ? 'cursor-not-allowed' : ''}`;
 
   return (
-    <div className="p-8 space-y-4">
-      {actionError && (
-        <div className={`mb-4 p-3 text-sm rounded ${isDarkMode ? 'bg-red-800 text-red-200' : 'bg-red-100 text-red-700'}`} role="alert">
-          {actionError}
+    <div className={`p-4 md:p-8 space-y-6 ${isDarkMode ? 'bg-gray-800 text-gray-100' : 'bg-gray-100 text-gray-800'}`}>
+      <h1 className="text-3xl font-bold">Manage Clips</h1>
+
+      <form onSubmit={handleAddOrUpdateClip} className={`p-6 rounded-lg shadow-md space-y-4 ${isDarkMode ? 'bg-gray-700' : 'bg-white'}`}>
+        <h2 className="text-xl font-semibold">{editClipId ? 'Edit Clip' : 'Add New Clip'}</h2>
+        {actionError && (
+          <div className={`p-3 border rounded text-sm ${isDarkMode ? 'bg-red-800 border-red-600 text-red-200' : 'bg-red-100 border-red-300 text-red-700'}`} role="alert">
+            <AlertTriangle size={18} className="inline mr-2" />{actionError}
+          </div>
+        )}
+        <div>
+          <label htmlFor="clipTitle" className={labelClasses}>Clip Title (Optional)</label>
+          <input id="clipTitle" className={inputClasses} placeholder="E.g., Great Goal, Defensive Error" value={title} onChange={e => setTitle(e.target.value)} />
         </div>
-      )}
-      <div className={`grid gap-2 max-w-md ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-        <input 
-          className={`border px-4 py-2 rounded ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`} 
-          placeholder="Title" 
-          value={title} 
-          onChange={e => setTitle(e.target.value)} 
-        />
         
-        {videosLoading ? (
-          <div className="py-2">Loading videos...</div>
-        ) : videos.length > 0 ? (
-          <div>
-            <label className="block mb-1">Select Video:</label>
+        <div>
+          <label htmlFor="videoSelect" className={labelClasses}>Select Video <span className="text-red-500">*</span></label>
+          {videosLoading ? (
+            <div className="flex items-center text-sm"><Loader2 size={16} className="animate-spin mr-2" />Loading videos...</div>
+          ) : videos.length > 0 ? (
             <select 
-              className={`w-full px-4 py-2 border rounded ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
-              value={selectedVideo}
-              onChange={e => {
-                setSelectedVideo(e.target.value)
-                // Clear direct videoId input when selecting from library
-                setVideoId('')
-              }}
+              id="videoSelect"
+              className={inputClasses}
+              value={selectedVideoId}
+              onChange={e => setSelectedVideoId(e.target.value)}
+              required
             >
-              <option value="">-- Select Video --</option>
+              <option value="">-- Select a Video --</option>
               {videos.map(video => (
                 <option key={video.id} value={video.id}>
-                  {video.title} {video.source !== 'youtube' ? `(${video.source})` : ''}
+                  {video.title} {video.source && video.source !== 'youtube' && video.source !== 'upload' ? `(${video.source})` : ''}
                 </option>
               ))}
             </select>
-          </div>
-        ) : (
-          <div className="py-2">
-            <p>No videos in library. <a href="/coach/videos" className="text-blue-500 underline">Add videos first</a></p>
-          </div>
-        )}
-        
-        <div>
-          <label className="block mb-1">Or enter YouTube Video ID directly:</label>
-          <input 
-            className={`w-full border px-4 py-2 rounded ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`} 
-            placeholder="Video ID" 
-            value={videoId} 
-            onChange={e => {
-              setVideoId(e.target.value)
-              // Clear selected video when entering direct videoId
-              setSelectedVideo('')
-            }} 
-          />
+          ) : (
+            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>No videos found in library. <a href="/coach/videos" className="underline">Add videos</a> to create clips.</p>
+          )}
         </div>
-        
-        <input 
-          type="number" 
-          className={`border px-4 py-2 rounded ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`} 
-          placeholder="Start Time (s)" 
-          value={start} 
-          onChange={e => setStart(Number(e.target.value))} 
-        />
-        <input 
-          type="number" 
-          className={`border px-4 py-2 rounded ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`} 
-          placeholder="End Time (s)" 
-          value={end} 
-          onChange={e => setEnd(Number(e.target.value))} 
-        />
-        <div className="space-x-2">
+                
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="startTime" className={labelClasses}>Start Time (seconds) <span className="text-red-500">*</span></label>
+            <input id="startTime" type="number" className={inputClasses} placeholder="0" value={startTime} onChange={e => setStartTime(Number(e.target.value))} required />
+          </div>
+          <div>
+            <label htmlFor="endTime" className={labelClasses}>End Time (seconds) <span className="text-red-500">*</span></label>
+            <input id="endTime" type="number" className={inputClasses} placeholder="10" value={endTime} onChange={e => setEndTime(Number(e.target.value))} required />
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-3 pt-2">
           <button 
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded" 
-            onClick={handleAddOrUpdateClip}
+            type="submit"
+            className={`${buttonClasses('green')} ${isDarkMode ? 'bg-green-600 hover:bg-green-500' : 'bg-green-500 hover:bg-green-600'}`}
+            disabled={isSubmitting || videosLoading || (videos.length === 0 && !selectedVideoId)}
           >
-            {editId ? 'Update' : 'Add'} Clip
+            {isSubmitting ? <Loader2 size={18} className="animate-spin mr-2"/> : (editClipId ? <Edit size={18} className="mr-2"/> : <PlusCircle size={18} className="mr-2"/>)}
+            {editClipId ? 'Update Clip' : 'Add Clip'}
           </button>
-          {editId && (
+          {editClipId && (
             <button 
-              className={`px-4 py-2 rounded ${isDarkMode ? 'bg-gray-600 text-white' : 'bg-gray-300 text-gray-800'}`} 
-              onClick={() => { setEditId(null); setTitle(''); setVideoId(''); setSelectedVideo(''); setStart(0); setEnd(0); }}
+              type="button"
+              className={`${buttonClasses('gray')} ${isDarkMode ? 'bg-gray-500 hover:bg-gray-400' : 'bg-gray-400 hover:bg-gray-500'}`}
+              onClick={resetForm}
+              disabled={isSubmitting}
             >
-              Cancel
+              Cancel Edit
             </button>
           )}
         </div>
-      </div>
-      
-      <h2 className="text-xl font-semibold">Existing Clips</h2>
-      {fetchError && (
-         <div className={`my-2 p-3 text-sm rounded ${isDarkMode ? 'bg-red-800 text-red-200' : 'bg-red-100 text-red-700'}`} role="alert">
-          {fetchError}
+      </form>
+
+      <div className="mt-8">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-semibold">Existing Clips</h2>
+          <button onClick={fetchClips} disabled={clipsLoading || isSubmitting} className={`p-2 rounded-md ${isDarkMode ? 'hover:bg-gray-600' : 'hover:bg-gray-200'}`} title="Refresh Clips">
+            {clipsLoading ? <Loader2 size={20} className="animate-spin" /> : <RefreshCw size={20} />}
+          </button>
         </div>
-      )}
-      {loading ? (
-        <p>Loading clips...</p>
-      ) : clips.length === 0 ? (
-        <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>No clips found. Add your first clip above.</p>
-      ) : (
-        <ul className="space-y-2">
-          {clips.map(c => (
-            <li key={c.id} className={`flex justify-between items-center border-b pb-1 ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-              <span>{c.title} – {c.video_id} [{c.start_time}-{c.end_time}s]</span>
-              <span className="space-x-2">
-                <button className={`${isDarkMode ? 'text-blue-400' : 'text-blue-600'} hover:underline`} onClick={() => handleEdit(c)}>Edit</button>
-                <button className={`${isDarkMode ? 'text-red-400' : 'text-red-600'} hover:underline`} onClick={() => handleDelete(c.id)}>Delete</button>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
+        {fetchError && (
+           <div className={`p-3 mb-4 border rounded text-sm ${isDarkMode ? 'bg-red-800 border-red-600 text-red-200' : 'bg-red-100 border-red-300 text-red-700'}`} role="alert">
+            <AlertTriangle size={18} className="inline mr-2" />{fetchError}
+          </div>
+        )}
+        {clipsLoading ? (
+          <div className="text-center py-6"><Loader2 size={24} className="animate-spin mx-auto" /> <p className="mt-2 text-sm">Loading clips...</p></div>
+        ) : clips.length === 0 && !fetchError ? (
+          <p className={`text-center py-6 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>No clips created yet. Use the form above to add your first clip.</p>
+        ) : (
+          <div className="space-y-3">
+            {clips.map(clip => (
+              <div key={clip.id} className={`p-4 rounded-lg shadow ${isDarkMode ? 'bg-gray-700' : 'bg-white'}`}>
+                <div className="flex flex-col sm:flex-row justify-between items-start">
+                  <div>
+                    <h3 className="text-lg font-semibold">{clip.title || 'Untitled Clip'}</h3>
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Video ID: {clip.video_id} (Source)</p>
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Duration: {clip.start_time}s - {clip.end_time}s</p>
+                     {clip.videos?.title && <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Video Title: {clip.videos.title}</p>}
+                  </div>
+                  <div className="flex space-x-2 mt-3 sm:mt-0 flex-shrink-0">
+                    <button onClick={() => handleEdit(clip)} className={`p-2 rounded-md hover:bg-opacity-80 ${isDarkMode ? 'bg-yellow-500 text-gray-900' : 'bg-yellow-400 text-gray-800'}`} title="Edit Clip" disabled={isSubmitting}><Edit size={16}/></button>
+                    <button onClick={() => handleDelete(clip.id)} className={`p-2 rounded-md hover:bg-opacity-80 ${isDarkMode ? 'bg-red-600 text-white' : 'bg-red-500 text-white'}`} title="Delete Clip" disabled={isSubmitting}><Trash2 size={16}/></button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
-// Only allow coach and admin roles to access this page
 export default withAuth(
   CoachClipManager, 
   {
     teamId: 'any',
-    roles: ['coach']
-  }, 
-  'Manage Clips'
-)
+    roles: ['coach'],
+    requireRole: true,
+  },
+  'CoachClipManager'
+);

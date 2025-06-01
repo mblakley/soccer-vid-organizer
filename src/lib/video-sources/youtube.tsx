@@ -1,6 +1,6 @@
 import React, { ReactElement } from 'react';
 import { VideoMetadata, YouTubeSource } from './types';
-import { supabase } from '@/lib/supabaseClient';
+import { apiClient } from '@/lib/api/client';
 
 export interface YouTubePlaylistVideo {
   videoId: string;
@@ -99,20 +99,8 @@ const YouTubeSourceImpl: YouTubeSource = {
   },
 
   async importSingleVideo(videoId: string, originalUrl: string, userId: string) {
-    // Get auth token from Supabase
-    const { data: { session }, error: authError } = await supabase.auth.getSession();
-    if (authError || !session?.access_token) {
-      throw new Error('Not authenticated');
-    }
-
     // Check if video already exists
-    const { data: existingVideo } = await supabase
-      .from('videos')
-      .select('id')
-      .eq('video_id', videoId)
-      .eq('source', 'youtube')
-      .single();
-    
+    const { data: existingVideo } = await apiClient.get(`/api/videos?video_id=${videoId}&source=youtube`);
     if (existingVideo) {
       throw new Error('This video is already in your library.');
     }
@@ -140,7 +128,7 @@ const YouTubeSourceImpl: YouTubeSource = {
     }
 
     // Save to database
-    const { error } = await supabase.from('videos').insert({
+    const { error } = await apiClient.post('/api/videos', {
       title: videoDetails.snippet.title,
       url: originalUrl,
       video_id: videoId,
@@ -168,12 +156,6 @@ const YouTubeSourceImpl: YouTubeSource = {
   }> {
     console.log(`Starting import of playlist ${playlistId}`);
     
-    // Get auth token from Supabase
-    const { data: { session }, error: authError } = await supabase.auth.getSession();
-    if (authError || !session?.access_token) {
-      throw new Error('Not authenticated');
-    }
-
     // Get YouTube API key
     const apiKey = process.env.NEXT_PUBLIC_YOUTUBE_API_KEY;
     if (!apiKey) {
@@ -269,11 +251,7 @@ const YouTubeSourceImpl: YouTubeSource = {
 
     // Get all videos from this playlist in our DB
     console.log(`Fetching existing videos for playlist ${playlistId} from database`);
-    const { data: existingVideos, error: fetchError } = await supabase
-      .from('videos')
-      .select('*')
-      .eq('source', 'youtube')
-      .eq('playlist_metadata->>playlistId', playlistId);
+    const { data: existingVideos, error: fetchError } = await apiClient.get(`/api/videos?source=youtube&playlist_metadata->>playlistId=${playlistId}`);
 
     if (fetchError) throw fetchError;
 
@@ -302,14 +280,12 @@ const YouTubeSourceImpl: YouTubeSource = {
     console.log(`Videos to mark as removed: ${removedVideos.length}`);
 
     if (removedVideos.length > 0) {
-      console.log(`Marking videos as removed: ${removedVideos.map(v => v.video_id).join(', ')}`);
-      await supabase
-        .from('videos')
-        .update({ 
-          status: 'removed',
-          last_synced: new Date().toISOString()
-        })
-        .in('id', removedVideos.map(v => v.id));
+      console.log(`Marking videos as removed: ${removedVideos.map((v: DbVideo) => v.video_id).join(', ')}`);
+      await apiClient.post('/api/videos/update', {
+        ids: removedVideos.map((v: DbVideo) => v.id),
+        status: 'removed',
+        last_synced: new Date().toISOString()
+      });
     }
 
     // 2. Update existing videos with new metadata
@@ -337,9 +313,7 @@ const YouTubeSourceImpl: YouTubeSource = {
 
     if (updates.length > 0) {
       console.log(`Updating videos: ${updates.map(u => u.id).join(', ')}`);
-      const { error } = await supabase
-        .from('videos')
-        .upsert(updates);
+      const { error } = await apiClient.post('/api/videos/update', updates);
       
       if (error) {
         console.error('Error updating videos:', error);
@@ -381,9 +355,7 @@ const YouTubeSourceImpl: YouTubeSource = {
 
     if (newVideos.length > 0) {
       console.log(`Inserting videos: ${Array.from(newVideoIds).join(', ')}`);
-      const { error } = await supabase
-        .from('videos')
-        .insert(newVideos);
+      const { error } = await apiClient.post('/api/videos', newVideos);
         
       if (error) {
         console.error('Error inserting videos:', error);

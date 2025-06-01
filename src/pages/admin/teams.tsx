@@ -18,53 +18,30 @@ import {
   useReactTable,
   SortingState,
 } from '@tanstack/react-table'
+import { apiClient } from '@/lib/api/client'
+import { Team, TeamMember, TeamCreateRequest } from '@/lib/types/teams'
+import { UserWithRole } from '@/lib/types/auth'
+import {
+  AdminListTeamsApiResponseForTeamsPage,
+  AdminCreateTeamRequest,
+  AdminCreateTeamApiResponse,
+  AdminUpdateTeamRequest,
+  AdminUpdateTeamApiResponse,
+  AdminDeleteApiResponse,
+  AdminTeamMembersApiResponse,
+  ErrorResponse
+} from '@/lib/types/admin'
 
-interface AuthUser {
-  id: string
-  email?: string
-  user_metadata?: {
-    full_name?: string
-  }
-}
-
-interface Team {
-  id: string
-  name: string
-  club_affiliation: string | null
-  season: string | null
-  age_group: string | null
-  gender?: 'Male' | 'Female' | 'Co-ed' | 'Other' | null
-  additional_info: Record<string, any> | null
-  created_by: string | null
-  created_at: string | null
-  updated_at: string | null
-}
-
-interface TeamMember {
-  id: string
-  team_id: string
-  user_id: string
-  roles: string[]
-  jersey_number?: string
-  position?: string
-  joined_date: string
-  left_date?: string
-  is_active: boolean
-  user_email?: string
-  user_name?: string
+function isErrorResponse(response: any): response is ErrorResponse {
+  return response && typeof response.error === 'string';
 }
 
 const columnHelper = createColumnHelper<Team>()
 
 function TeamsPage() {
   const router = useRouter()
-  const [newTeam, setNewTeam] = useState({
+  const [newTeam, setNewTeam] = useState<AdminCreateTeamRequest>({
     name: '',
-    club_affiliation: '',
-    season: '',
-    age_group: '',
-    gender: '',
-    additional_info: {}
   })
   const { isDarkMode } = useTheme()
   const [teams, setTeams] = useState<Team[]>([])
@@ -77,6 +54,7 @@ function TeamsPage() {
   const [pageError, setPageError] = useState<string | null>(null);
   const [sorting, setSorting] = useState<SortingState>([])
   const [showTeamModal, setShowTeamModal] = useState(false)
+  const [error, setError] = useState<string | null>(null);
 
   const columns = [
     columnHelper.accessor('name', {
@@ -143,107 +121,130 @@ function TeamsPage() {
     fetchTeams()
   }, [])
 
-  const handleCreateTeam = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setFormError(null);
-    try {
-      const { data, error } = await supabase
-        .from('teams')
-        .insert([{
-          name: newTeam.name,
-          club_affiliation: newTeam.club_affiliation || null,
-          season: newTeam.season || null,
-          age_group: newTeam.age_group || null,
-          gender: newTeam.gender || null,
-          additional_info: newTeam.additional_info
-        }])
-        .select()
-        .single()
-
-      if (error) throw error
-
-      // Reset form after successful creation
-      setNewTeam({
-        name: '',
-        club_affiliation: '',
-        season: '',
-        age_group: '',
-        gender: '',
-        additional_info: {}
-      })
-
-      // Refresh the teams list
-      await fetchTeams()
-
-      toast.success('Team created successfully!')
-    } catch (error: any) {
-      console.error('Error creating team:', error)
-      setFormError(error.message || 'Failed to create team. Please try again.');
-    }
-  }
-
   const fetchTeams = async () => {
+    setLoading(true);
     setPageError(null);
-    setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('teams')
-        .select()
-        .neq('club_affiliation', 'System')
-
-      if (error) throw error
-
-      setTeams(data)
+      const response = await apiClient.get<AdminListTeamsApiResponseForTeamsPage>('/api/admin/teams/list')
+      
+      if (isErrorResponse(response)) {
+        toast.error(response.error || 'Failed to fetch teams');
+        setPageError(response.error || 'Failed to fetch teams');
+        setTeams([]);
+      } else if (response && response.teams) {
+        setTeams(response.teams)
+      } else {
+        toast.error('Failed to fetch teams: Invalid response');
+        setPageError('Failed to fetch teams: Invalid response');
+        setTeams([]);
+      }
     } catch (error: any) {
-      console.error('Error fetching teams:', error)
-      setPageError(error.message || 'Failed to fetch teams.');
+      toast.error(error.message || 'Failed to fetch teams')
+      setPageError(error.message || 'Failed to fetch teams');
+      setTeams([]);
     } finally {
       setLoading(false)
     }
   }
 
-  const handleTeamClick = async (team: Team) => {
-    setSelectedTeam(team)
-    setLoadingMembers(true)
+  const createTeam = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    // newTeam state is already AdminCreateTeamRequest
+    if (!newTeam.name) {
+      setFormError("Team name is required.");
+      return;
+    }
     try {
-      // First fetch team members
-      const { data: membersData, error: membersError } = await supabase
-        .from('team_members')
-        .select('*')
-        .eq('team_id', team.id)
-        .eq('is_active', true)
-
-      if (membersError) throw membersError
-
-      // Then fetch all users from our API endpoint
-      const response = await fetch('/api/admin/users')
-      if (!response.ok) {
-        throw new Error('Failed to fetch users')
+      const response = await apiClient.post<AdminCreateTeamApiResponse>('/api/admin/teams/create', newTeam);
+      if (isErrorResponse(response)) {
+        throw new Error(response.error);
       }
-      const users = await response.json() as AuthUser[]
+      toast.success('Team created successfully');
+      setNewTeam({ name: '' }); // Reset form, ensure all fields of AdminCreateTeamRequest are reset
+      fetchTeams();
+      setShowTeamModal(false); // Close modal on success
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to create team');
+      setFormError(error.message || 'Failed to create team');
+    }
+  }
 
-      // Create a map of user_id to user data
-      const userMap = new Map(users.map((user) => [
-        user.id, 
-        { 
-          email: user.email,
-          name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Unknown'
-        }
-      ]))
+  const handleDeleteTeam = async (teamId: string) => {
+    if (!confirm('Are you sure you want to delete this team?')) return
+    setError(null); // Use general page error or a specific delete error state
+    try {
+      const response = await apiClient.delete<AdminDeleteApiResponse>(`/api/admin/teams/${teamId}/delete`);
+      
+      if (isErrorResponse(response) || (response && response.success === false)) {
+        const errorMsg = isErrorResponse(response) ? response.error : (response?.message || 'Failed to delete team');
+        throw new Error(errorMsg);
+      }
+      
+      toast.success(response?.message || 'Team deleted successfully');
+      fetchTeams(); // Refresh the list
+    } catch (err: any) {
+      console.error('Error deleting team:', err);
+      setError(err.message || 'Failed to delete team');
+      toast.error(err.message || 'Failed to delete team');
+    }
+  }
 
-      // Combine the data
-      const membersWithUserData = membersData.map(member => ({
-        ...member,
-        user_email: userMap.get(member.user_id)?.email,
-        user_name: userMap.get(member.user_id)?.name
-      }))
+  // This function seems to be unused in the provided snippet. Assuming it might be called from a modal save.
+  // If it's indeed called, its body would need to be updated similarly.
+  // For now, an example of how it would look if `editingTeamId` and `newTeam` (as AdminUpdateTeamRequest) are used.
+  const handleUpdateTeam = async (teamId: string, updates: AdminUpdateTeamRequest) => {
+    setError(null);
+    try {
+      const response = await apiClient.put<AdminUpdateTeamApiResponse>(`/api/admin/teams/${teamId}/update`, updates);
+      
+      if (isErrorResponse(response)) {
+        throw new Error(response.error);
+      }
+      
+      toast.success('Team updated successfully');
+      fetchTeams(); // Refresh the list
+      setShowTeamModal(false); // Close modal
+      setEditingTeamId(null);
+    } catch (err: any) {
+      console.error('Error updating team:', err);
+      setError(err.message || 'Failed to update team');
+      toast.error(err.message || 'Failed to update team');
+    }
+  }
 
-      setTeamMembers(membersWithUserData)
-    } catch (error) {
-      console.error('Error fetching team members:', error)
-      setTeamMembers([])
+  const handleTeamClick = async (team: Team) => {
+    setSelectedTeam(team);
+    setLoadingMembers(true);
+    setTeamMembers([]); // Clear previous members
+    try {
+      // Fetch team members for the selected team using the new API endpoint
+      const membersResponse = await apiClient.get<AdminTeamMembersApiResponse>(`/api/admin/teams/${team.id}/members`);
+
+      if (isErrorResponse(membersResponse)) {
+        throw new Error(membersResponse.error);
+      }
+      
+      // The AdminTeamMembersResponse already contains TeamMember[] which includes user_email and user_name.
+      // So, no separate fetching of all users and mapping is needed if the API provides this directly.
+      // If the API /api/admin/teams/:teamId/members only returns basic team_member rows without user details,
+      // then the old logic of fetching all users and mapping would still be needed, but it should use apiClient for users.
+
+      // Assuming /api/admin/teams/:teamId/members returns members with pre-joined user_name and user_email
+      // as per teamMemberSchema in src/lib/types/teams.ts
+      if (membersResponse && membersResponse.members) {
+        setTeamMembers(membersResponse.members);
+      } else {
+        setTeamMembers([]);
+        // Optionally, show a toast or message if no members found or response was empty
+      }
+
+    } catch (error: any) {
+      console.error('Error fetching team members:', error);
+      toast.error(error.message || 'Failed to fetch team members');
+      setTeamMembers([]);
     } finally {
-      setLoadingMembers(false)
+      setLoadingMembers(false);
     }
   }
 
@@ -297,21 +298,12 @@ function TeamsPage() {
 
       if (editingTeamId) {
         // Update existing team
-        const { error } = await supabase
-          .from('teams')
-          .update(teamData)
-          .eq('id', editingTeamId)
-        if (error) throw error
+        await handleUpdateTeam(editingTeamId, teamData)
         toast.success('Team updated successfully!');
         setEditingTeamId(null); // Exit edit mode
       } else {
         // Create new team
-        const { data, error } = await supabase
-          .from('teams')
-          .insert([teamData])
-          .select()
-          .single()
-        if (error) throw error
+        await createTeam(e)
         toast.success('Team created successfully!');
       }
 
@@ -330,6 +322,10 @@ function TeamsPage() {
       console.error('Error saving team:', error)
       setFormError(error.message || 'Failed to save team. Please try again.');
     }
+  }
+
+  if (loading) {
+    return <div>Loading...</div>;
   }
 
   return (
@@ -353,131 +349,46 @@ function TeamsPage() {
           </Link>
         </div>
 
-        {/* Teams List */}
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold">All Teams</h2>
-            <button
-              onClick={handleCreateClick}
-              className={`px-4 py-2 rounded-md ${
-                isDarkMode
-                  ? 'bg-blue-600 text-white hover:bg-blue-700'
-                  : 'bg-blue-500 text-white hover:bg-blue-600'
+        <h1 className={`text-2xl font-bold mb-6 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+          Teams
+        </h1>
+
+        <form onSubmit={createTeam} className="mb-8">
+          <div className="flex gap-4">
+            <input
+              type="text"
+              value={newTeam.name}
+              onChange={e => setNewTeam({ name: e.target.value })}
+              placeholder="Team name"
+              className={`flex-1 px-4 py-2 rounded border ${
+                isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'
               }`}
+            />
+            <button
+              type="submit"
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
             >
-              Create New Team
+              Create Team
             </button>
           </div>
-          {pageError && (
-            <div className={`mb-4 p-3 text-sm rounded ${isDarkMode ? 'bg-red-800 text-red-200' : 'bg-red-100 text-red-700'}`} role="alert">
-              {pageError}
-            </div>
-          )}
-          {loading ? (
-            <div className="flex justify-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className={`min-w-full divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'}`}>
-                <thead className={isDarkMode ? 'bg-gray-800' : 'bg-gray-50'}>
-                  {table.getHeaderGroups().map(headerGroup => (
-                    <tr key={headerGroup.id}>
-                      {headerGroup.headers.map(header => (
-                        <th
-                          key={header.id}
-                          className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${
-                            isDarkMode ? 'text-gray-300' : 'text-gray-500'
-                          }`}
-                        >
-                          {header.isPlaceholder ? null : (
-                            <div
-                              {...{
-                                className: header.column.getCanSort()
-                                  ? 'cursor-pointer select-none'
-                                  : '',
-                                onClick: header.column.getToggleSortingHandler(),
-                              }}
-                            >
-                              {flexRender(
-                                header.column.columnDef.header,
-                                header.getContext()
-                              )}
-                              {{
-                                asc: ' 🔼',
-                                desc: ' 🔽',
-                              }[header.column.getIsSorted() as string] ?? null}
-                            </div>
-                          )}
-                        </th>
-                      ))}
-                    </tr>
-                  ))}
-                </thead>
-                <tbody className={`divide-y ${isDarkMode ? 'divide-gray-700 bg-gray-900' : 'divide-gray-200 bg-white'}`}>
-                  {table.getRowModel().rows.map(row => (
-                    <tr key={row.id}>
-                      {row.getVisibleCells().map(cell => (
-                        <td
-                          key={cell.id}
-                          className={`px-6 py-4 whitespace-nowrap text-sm ${
-                            isDarkMode ? 'text-gray-300' : 'text-gray-500'
-                          }`}
-                        >
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+        </form>
 
-          <div className="mt-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <button
-                className={`px-3 py-1 rounded ${
-                  isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'
-                }`}
-                onClick={() => table.setPageIndex(0)}
-                disabled={!table.getCanPreviousPage()}
-              >
-                {'<<'}
-              </button>
-              <button
-                className={`px-3 py-1 rounded ${
-                  isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'
-                }`}
-                onClick={() => table.previousPage()}
-                disabled={!table.getCanPreviousPage()}
-              >
-                {'<'}
-              </button>
-              <button
-                className={`px-3 py-1 rounded ${
-                  isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'
-                }`}
-                onClick={() => table.nextPage()}
-                disabled={!table.getCanNextPage()}
-              >
-                {'>'}
-              </button>
-              <button
-                className={`px-3 py-1 rounded ${
-                  isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'
-                }`}
-                onClick={() => table.setPageIndex(table.getPageCount() - 1)}
-                disabled={!table.getCanNextPage()}
-              >
-                {'>>'}
-              </button>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {teams.map(team => (
+            <div
+              key={team.id}
+              className={`p-4 rounded-lg border ${
+                isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+              }`}
+            >
+              <h2 className={`text-lg font-semibold mb-2 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                {team.name}
+              </h2>
+              <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                Created: {new Date(team.created_at || '').toLocaleDateString()}
+              </p>
             </div>
-            <span className="text-sm text-gray-700 dark:text-gray-300">
-              Page {table.getState().pagination.pageIndex + 1} of{' '}
-              {table.getPageCount()}
-            </span>
-          </div>
+          ))}
         </div>
 
         {/* Team Form Modal */}

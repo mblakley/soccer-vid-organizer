@@ -1,15 +1,19 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import RequestRoleForm from '@/components/RequestRoleForm'
 import { withAuth } from '@/components/auth'
-import { getCurrentUser, refreshUserSession } from '@/lib/auth'
+import { getCurrentUser, refreshUserSession, User } from '@/lib/auth'
 import { useTheme } from '@/contexts/ThemeContext'
+import { apiClient } from '@/lib/api/client'
+import { TeamRole, TeamRolesResponse } from '@/lib/types/teams'
 
 function ProfilePage() {
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [selectedTeam, setSelectedTeam] = useState<{ id: string, name: string } | null>(null)
+  const [pendingRolesForSelectedTeam, setPendingRolesForSelectedTeam] = useState<TeamRole[]>([])
+  const [fetchingPendingRoles, setFetchingPendingRoles] = useState(false)
   const { isDarkMode, toggleTheme } = useTheme()
 
   useEffect(() => {
@@ -40,6 +44,35 @@ function ProfilePage() {
 
     loadUser()
   }, [])
+
+  // Callback to fetch pending roles for a selected team
+  const fetchPendingRoles = useCallback(async (teamId: string, userId: string) => {
+    if (!teamId || !userId) return;
+    setFetchingPendingRoles(true);
+    try {
+      const rolesData = await apiClient.get<TeamRolesResponse>(`/api/teams/roles?teamId=${teamId}&userId=${userId}`);
+      if (rolesData && rolesData.pendingRoles) {
+        setPendingRolesForSelectedTeam(rolesData.pendingRoles as TeamRole[]);
+      } else {
+        console.error('Error fetching pending roles: Invalid data', rolesData);
+        setPendingRolesForSelectedTeam([]);
+      }
+    } catch (error) {
+      console.error('Error fetching pending roles:', error);
+      setPendingRolesForSelectedTeam([]);
+    } finally {
+      setFetchingPendingRoles(false);
+    }
+  }, []);
+
+  // Effect to fetch pending roles when selectedTeam changes
+  useEffect(() => {
+    if (selectedTeam && user) {
+      fetchPendingRoles(selectedTeam.id, user.id);
+    } else {
+      setPendingRolesForSelectedTeam([]); // Clear if no team selected or no user
+    }
+  }, [selectedTeam, user, fetchPendingRoles]);
 
   if (loading) return <div className="p-8">Loading...</div>
   if (!user) return <div className="p-8">User not found. Please log in again.</div>
@@ -92,7 +125,7 @@ function ProfilePage() {
         )}
 
         {/* Team Roles */}
-        {hasTeamRoles && Object.entries(user.teamRoles).map(([teamId, teamData]: [string, any]) => {
+        {hasTeamRoles && Object.entries(user.teamRoles).map(([teamId, teamData]: [string, { name: string; roles: TeamRole[] }]) => {
           const teamIdentifier = teamData.name || `Team ID: ${teamId.substring(0, 6)}...`;
           
           return (
@@ -135,14 +168,21 @@ function ProfilePage() {
         )}
 
         {/* Role Request Form - Only shown when a team is selected */}
-        {selectedTeam && (
+        {selectedTeam && user && (
           <div className="mt-6">
-            <RequestRoleForm 
-              userRoles={user.teamRoles?.[selectedTeam.id]?.roles || []} 
-              pendingRoles={[]} // We'd need to fetch these from the backend
-              teamId={selectedTeam.id}
-              teamName={selectedTeam.name}
-            />
+            <h3 className="text-lg font-semibold mb-3">
+              Request Roles for: {selectedTeam.name}
+            </h3>
+            {fetchingPendingRoles ? (
+              <p>Loading role information...</p>
+            ) : (
+              <RequestRoleForm 
+                userRoles={user.teamRoles?.[selectedTeam.id]?.roles || []} 
+                pendingRoles={pendingRolesForSelectedTeam}
+                teamId={selectedTeam.id}
+                teamName={selectedTeam.name}
+              />
+            )}
           </div>
         )}
       </div>

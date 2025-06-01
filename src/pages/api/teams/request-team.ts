@@ -1,59 +1,80 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseClient } from '@/lib/supabaseClient'
+import type { RequestTeamApiResponse, ErrorResponse } from '@/lib/types/teams'
+import { requestTeamRequestSchema, requestTeamResponseSchema } from '@/lib/types/teams'
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+const PENDING_TEAM_ID = '00000000-0000-0000-0000-000000000000'; // Consider if this is still the best approach
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<RequestTeamApiResponse>
+) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' })
+    const errorResponse: ErrorResponse = { error: 'Method not allowed' };
+    return res.status(405).json(errorResponse);
   }
 
   try {
-    const { user_id, team_name, description } = req.body
+    const supabase = getSupabaseClient(req.headers.authorization);
 
-    if (!user_id || !team_name) {
-      return res.status(400).json({ error: 'Missing required fields' })
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      console.error('Authentication error for request-team:', authError);
+      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+      return res.status(401).json(errorResponse);
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-    if (!supabaseUrl || !supabaseServiceKey) {
-      throw new Error('Missing Supabase environment variables')
-    }
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
+    const { team_name, description } = requestTeamRequestSchema.parse(req.body);
 
     // Create team request
-    const { data: request, error: requestError } = await supabaseAdmin
-      .from('team_requests')
+    const { data: teamRequestData, error: requestError } = await supabase
+      .from('team_requests') // Ensure this table name is correct
       .insert([{
-        user_id,
+        user_id: user.id, // Use authenticated user's ID
         team_name,
         description,
-        status: 'pending'
+        status: 'pending' // Explicitly set status
       }])
-      .select()
-      .single()
+      .select() // Select all fields of the created record
+      .single();
 
     if (requestError) {
-      throw requestError
+      console.error('Error creating team request entry:', requestError);
+      throw new Error(requestError.message);
+    }
+    if (!teamRequestData) {
+        throw new Error('Team request creation did not return data.')
     }
 
-    // Add user to pending team
-    const { error: memberError } = await supabaseAdmin
+    // TODO: Review if adding user to a generic "Pending" team is necessary or if
+    // the record in 'team_requests' is sufficient for tracking.
+    // This part might be legacy or have specific logic tied to PENDING_TEAM_ID.
+    const { error: memberError } = await supabase
       .from('team_members')
       .insert([{
-        team_id: '00000000-0000-0000-0000-000000000000', // Pending team ID
-        user_id,
-        role: 'pending'
-      }])
+        team_id: PENDING_TEAM_ID,
+        user_id: user.id,
+        roles: ['pending_approval'] // Using a role like 'pending_approval' or similar
+      }]);
 
     if (memberError) {
-      throw memberError
+      // Log this error but don't necessarily fail the whole request if the main request was created.
+      // Or, implement transactional behavior if both must succeed/fail together.
+      console.error('Error adding user to pending team, but team request was created:', memberError);
+      // Potentially, we might want to roll back the team_request if this fails.
     }
 
-    res.status(201).json(request)
-  } catch (error: any) {
-    console.error('Error creating team request:', error)
-    res.status(500).json({ error: 'Internal server error' })
+    const responseData = { request: teamRequestData };
+    requestTeamResponseSchema.parse(responseData); // Validate response
+
+    return res.status(201).json(responseData);
+  } catch (error) {
+    if (error instanceof Error) {
+      const errorResponse: ErrorResponse = { error: error.message };
+      return res.status(error.name === 'ZodError' ? 400 : 500).json(errorResponse);
+    }
+    console.error('Error in request-team handler:', error);
+    const errorResponse: ErrorResponse = { error: 'An unknown error occurred' };
+    return res.status(500).json(errorResponse);
   }
 } 

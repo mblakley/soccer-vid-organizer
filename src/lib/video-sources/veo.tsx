@@ -1,6 +1,6 @@
 import React, { ReactElement } from 'react';
 import { VideoSource, VideoMetadata } from './types';
-import { supabase } from '@/lib/supabaseClient';
+import { apiClient } from '@/lib/api/client';
 
 const VeoSource: VideoSource = {
   id: 'veo',
@@ -40,19 +40,8 @@ const VeoSource: VideoSource = {
   placeholderImage: '/images/veo-video.svg',
 
   async importSingleVideo(videoId: string, originalUrl: string, userId: string, apiToken?: string) {
-    // Get auth token from Supabase
-    const { data: { session }, error: authError } = await supabase.auth.getSession();
-    if (authError || !session?.access_token) {
-      throw new Error('Not authenticated');
-    }
-
     // Check if video already exists
-    const { data: existingVideo } = await supabase
-      .from('videos')
-      .select('id')
-      .eq('video_id', videoId)
-      .eq('source', 'veo')
-      .single();
+    const { data: existingVideo } = await apiClient.get(`/api/videos?video_id=${videoId}&source=veo`);
     
     // Use the passed apiToken parameter
     if (!apiToken) {
@@ -102,7 +91,7 @@ const VeoSource: VideoSource = {
           last_synced: new Date().toISOString()
         };
         console.log('[VEO IMPORT] Updating video with:', updateData);
-        await supabase.from('videos').update(updateData).eq('id', existingVideo.id);
+        await apiClient.post('/api/videos/update', { id: existingVideo.id, ...updateData });
       } else {
         // Save video to database with recording details
         const insertData = {
@@ -125,9 +114,7 @@ const VeoSource: VideoSource = {
           created_by: userId
         };
         console.log('[VEO IMPORT] Inserting video with:', insertData);
-        const { error: dbError } = await supabase.from('videos').insert(insertData);
-
-        if (dbError) throw dbError;
+        await apiClient.post('/api/videos', insertData);
       }
 
       // After inserting/updating the video, import Veo clips using the global /clips endpoint
@@ -185,13 +172,7 @@ const VeoSource: VideoSource = {
                 // Debug log before select
                 console.log('[DEBUG] SELECT for video_id:', videoId, 'start_time:', start_time, 'end_time:', end_time);
                 // Check if this clip already exists by matching video_id, start_time, and end_time
-                const { data: existingClip, error: selectError } = await supabase
-                  .from('clips')
-                  .select('id')
-                  .eq('video_id', videoId)
-                  .eq('start_time', start_time)
-                  .eq('end_time', end_time)
-                  .single();
+                const { data: existingClip, error: selectError } = await apiClient.get(`/api/clips?video_id=${videoId}&start_time=${start_time}&end_time=${end_time}`);
 
                 if (selectError && selectError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
                   console.error('[VEO IMPORT] Supabase select error for clip:', selectError);
@@ -199,11 +180,12 @@ const VeoSource: VideoSource = {
 
                 if (existingClip) {
                   // Update the existing clip
-                  const { error: updateError } = await supabase.from('clips').update({
+                  const { error: updateError } = await apiClient.post('/api/clips/update', {
+                    id: existingClip.id,
                     title,
                     start_time,
                     end_time
-                  }).eq('id', existingClip.id);
+                  });
                   if (updateError) {
                     console.error('[VEO IMPORT] Supabase update error for clip:', updateError);
                     console.log('[VEO IMPORT] FAILURE updating clip:', dbClipData);
@@ -213,7 +195,7 @@ const VeoSource: VideoSource = {
                   // Optionally, update the comment in the comments table if needed
                 } else {
                   // Insert new clip
-                  const { data: insertedClip, error: insertError } = await supabase.from('clips').insert(dbClipData).select('id').single();
+                  const { data: insertedClip, error: insertError } = await apiClient.post('/api/clips', dbClipData);
                   if (insertError) {
                     console.error('[VEO IMPORT] Supabase insert error for clip:', insertError);
                     console.log('[VEO IMPORT] FAILURE inserting clip:', dbClipData);
@@ -222,7 +204,7 @@ const VeoSource: VideoSource = {
                   }
                   if (comment && insertedClip?.id) {
                     // Insert the comment into the comments table
-                    const { error: commentError } = await supabase.from('comments').insert({
+                    const { error: commentError } = await apiClient.post('/api/comments', {
                       clip_id: insertedClip.id,
                       user_id: userId,
                       content: comment,
@@ -248,7 +230,7 @@ const VeoSource: VideoSource = {
     } catch (error) {
       console.error('Error importing Veo video:', error);
       // Fallback to basic import if API call fails
-      const { error: dbError } = await supabase.from('videos').insert({
+      const { error: dbError } = await apiClient.post('/api/videos', {
         title: `Veo Match ${videoId}`,
         url: originalUrl,
         video_id: videoId,

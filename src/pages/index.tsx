@@ -1,207 +1,269 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import ClipPlayer from '@/components/ClipPlayer'
-import { supabase } from '@/lib/supabaseClient'
-import { withAuth } from '@/components/auth'
+import { withAuth, User } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import Link from 'next/link'
+import { apiClient } from '@/lib/api/client'
+import { Video, Clip, Comment as CommentType, TeamRole } from '@/lib/types'
+import { PlayCircle, ListVideo, Film, MessageCircle, Users, AlertTriangle, LogIn } from 'lucide-react'
 
-interface VideoInfo {
-  video_id: string;
-  source: string;
+interface Comment extends CommentType {
+  role_visibility: 'both' | string;
+  content: string;
 }
 
-interface Video {
-  id: string;
-  video_id: string;
-  title: string;
-  source: string;
-  duration?: number;
-  metadata?: any;
-  url?: string;
-  created_at: string;
+interface UserWithRole extends User {
+  role: string;
 }
 
-function HomePage({ user }: { user: any }) {
-  const [clips, setClips] = useState<any[]>([])
+interface UserRolesApiResponse {
+  roles?: TeamRole[];
+  hasNoRoles?: boolean;
+  message?: string;
+}
+
+interface ListClipsApiResponse {
+  clips?: Clip[];
+  message?: string;
+}
+
+interface VideoSourcesApiResponse {
+  sources?: { video_id: string; source: string | null; id?: string }[];
+  message?: string;
+}
+
+interface ListVideosApiResponse {
+  videos?: Video[];
+  message?: string;
+}
+
+interface ListCommentsApiResponse {
+  comments?: CommentType[];
+  message?: string;
+}
+
+interface HomePageProps {
+  user: UserWithRole | null;
+}
+
+function HomePage({ user }: HomePageProps) {
+  const [clips, setClips] = useState<Clip[]>([])
   const [videos, setVideos] = useState<Video[]>([])
-  const [videoSources, setVideoSources] = useState<Record<string, string>>({})
+  const [videoSources, setVideoSources] = useState<Record<string, string | null>>({})
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [comments, setComments] = useState<any[]>([])
+  const [comments, setComments] = useState<CommentType[]>([])
   const [loading, setLoading] = useState(true)
-  const [userRoles, setUserRoles] = useState<string[]>([])
+  const [userAppRoles, setUserAppRoles] = useState<TeamRole[]>([])
   const [hasNoRoles, setHasNoRoles] = useState(false)
   const { isDarkMode } = useTheme()
-  const [navigationError, setNavigationError] = useState<string | null>(null);
-  const [nextClipInfo, setNextClipInfo] = useState<any | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null)
+  const [nextClipInfo, setNextClipInfo] = useState<Clip | null>(null)
+
+  const fetchUserRoles = useCallback(async () => {
+    if (!user) {
+      setHasNoRoles(true)
+      setUserAppRoles([])
+      return
+    }
+    try {
+      const data = await apiClient.get<UserRolesApiResponse>('/api/users/me/roles')
+      if (data) {
+        setUserAppRoles(data.roles || [])
+        setHasNoRoles(data.hasNoRoles || (data.roles && data.roles.length === 0) || false)
+      } else {
+        setHasNoRoles(true)
+        setUserAppRoles([])
+      }
+    } catch (err: any) {
+      console.error('Error fetching user roles:', err)
+      setPageError(err.message || 'Could not load user role information')
+      setHasNoRoles(true)
+    }
+  }, [user])
+
+  const fetchRecentClips = useCallback(async () => {
+    try {
+      const data = await apiClient.get<ListClipsApiResponse>('/api/clips/list?recent=true&limit=5&joinVideoUrl=true')
+      if (data?.clips) {
+        setClips(data.clips)
+        const uniqueVideoIds = [...new Set(data.clips.map(clip => clip.video_id).filter(id => id))]
+        if (uniqueVideoIds.length > 0) {
+          fetchVideoSourcesForClips(uniqueVideoIds)
+        }
+      } else {
+        setClips([])
+        if (data?.message) setPageError(prev => prev ? `${prev}\n${data.message}` : data.message || null)
+      }
+    } catch (err: any) {
+      console.error('Error fetching recent clips:', err)
+      setPageError(prev => prev ? `${prev}\n${err.message}` : err.message || 'Could not load recent clips')
+    }
+  }, [])
+
+  const fetchVideoSourcesForClips = useCallback(async (videoIds: string[]) => {
+    if (videoIds.length === 0) return
+    try {
+      const data = await apiClient.get<VideoSourcesApiResponse>(`/api/videos/sources?ids=${videoIds.join(',')}`)
+      if (data?.sources) {
+        const sourcesMap: Record<string, string | null> = {}
+        data.sources.forEach(srcInfo => {
+          sourcesMap[srcInfo.video_id] = srcInfo.source
+        })
+        setVideoSources(prev => ({ ...prev, ...sourcesMap }))
+      }
+    } catch (err: any) {
+      console.error('Error fetching video sources:', err)
+    }
+  }, [])
+
+  const fetchRecentVideos = useCallback(async () => {
+    try {
+      const data = await apiClient.get<ListVideosApiResponse>('/api/videos/list?recent=true&limit=6')
+      if (data?.videos) {
+        setVideos(data.videos)
+      } else {
+        if (data?.message) setPageError(prev => prev ? `${prev}\n${data.message}` : data.message || null)
+      }
+    } catch (err: any) {
+      console.error('Error fetching recent videos:', err)
+      setPageError(prev => prev ? `${prev}\n${err.message}` : err.message || 'Could not load recent videos')
+    }
+  }, [])
 
   useEffect(() => {
-    const fetchData = async () => {
-      // Fetch user roles to check if the user has any
-      const { data: teamMembersData, error: teamMembersError } = await supabase
-        .from('team_members')
-        .select('team_member_roles(role)')
-        .eq('user_id', user.id)
-        .eq('is_active', true);
+    setLoading(true)
+    setPageError(null)
+    Promise.all([
+      fetchUserRoles(),
+      fetchRecentClips(),
+      fetchRecentVideos(),
+    ]).finally(() => setLoading(false))
+  }, [fetchUserRoles, fetchRecentClips, fetchRecentVideos])
 
-      if (!teamMembersError && teamMembersData) {
-        // Extract all roles from all team memberships
-        const roles = teamMembersData.flatMap(tm => 
-          tm.team_member_roles.map((r: any) => r.role)
-        );
-        
-        setUserRoles(roles);
-        setHasNoRoles(roles.length === 0);
-      } else {
-        setHasNoRoles(true);
-      }
-
-      // Fetch clips with joined video URL
-      const { data: clipsData, error: clipsError } = await supabase
-        .from('clips')
-        .select('*, videos:video_id(url)')
-        .order('created_at', { ascending: false })
-        .limit(5)
-
-      if (clipsError) {
-        console.error('Error fetching clips:', clipsError)
-      } else {
-        console.log('Fetched clips:', clipsData)
-        setClips(clipsData || [])
-        
-        // Collect unique video IDs to fetch their sources
-        if (clipsData && clipsData.length > 0) {
-          const uniqueVideoIds = [...new Set(clipsData.map(clip => clip.video_id))]
-          fetchVideoSources(uniqueVideoIds)
+  useEffect(() => {
+    const fetchCommentsForCurrentClip = async () => {
+      if (clips.length > 0 && currentIndex < clips.length) {
+        const currentClip = clips[currentIndex]
+        if (currentClip?.id) {
+          try {
+            const data = await apiClient.get<ListCommentsApiResponse>(`/api/comments/list?clipId=${currentClip.id}`)
+            setComments(data?.comments || [])
+          } catch (err: any) {
+            console.error(`Error fetching comments for clip ${currentClip.id}:`, err)
+          }
         }
       }
-
-      // Fetch videos
-      const { data: videosData, error: videosError } = await supabase
-        .from('videos')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(6)
-      
-      if (videosError) {
-        console.error('Error fetching videos:', videosError)
-      } else {
-        setVideos(videosData || [])
-      }
-      
-      setLoading(false)
     }
-    
-    fetchData()
-  }, [user.id])
-  
-  const fetchVideoSources = async (videoIds: string[]) => {
-    try {
-      // Query the videos table to get the source for each video_id
-      const { data, error } = await supabase
-        .from('videos')
-        .select('video_id, source')
-        .in('video_id', videoIds)
-      
-      if (error) {
-        console.error('Error fetching video sources:', error)
-        return
-      }
-      
-      // Create a map of video_id to source
-      const sourcesMap: Record<string, string> = {}
-      data?.forEach((video: VideoInfo) => {
-        sourcesMap[video.video_id] = video.source
-      })
-      
-      setVideoSources(sourcesMap)
-    } catch (err) {
-      console.error('Exception fetching video sources:', err)
-    }
-  }
-
-  useEffect(() => {
-    const fetchComments = async () => {
-      const currentClip = clips[currentIndex]
-      if (currentClip) {
-        const { data } = await supabase
-          .from('comments')
-          .select('*')
-          .eq('clip_id', currentClip.id)
-        setComments(data || [])
-      }
-    }
-    fetchComments()
+    fetchCommentsForCurrentClip()
   }, [currentIndex, clips])
 
-  const getThumbnailUrl = (video: Video) => {
-    // First try metadata.thumbnailUrl
-    if (video.metadata?.thumbnailUrl) {
-      return video.metadata.thumbnailUrl;
-    }
-    
-    // For YouTube videos, construct the URL if we have a video_id
-    if (video.source === 'youtube' && video.video_id) {
-      return `https://img.youtube.com/vi/${video.video_id}/hqdefault.jpg`;
-    }
-    
-    // Fallback to a generic thumbnail based on source
-    if (video.source === 'youtube') return '/images/youtube-video.svg';
-    if (video.source === 'facebook') return '/images/facebook-video.svg';
-    if (video.source === 'instagram') return '/images/instagram-video.svg';
-    if (video.source === 'tiktok') return '/images/tiktok-video.svg';
-    if (video.source === 'veo') return '/images/veo-video.svg';
-    if (video.source === 'hudl') return '/images/hudl-video.svg';
-    if (video.source === 'vimeo') return '/images/vimeo-video.svg';
-    
-    // Fallback to a generic thumbnail
-    return '/images/video-placeholder.svg';
+  const isVideo = (item: Video | Clip): item is Video => {
+    return 'source' in item && 'url' in item;
   }
 
-  const getVideoUrl = (video: Video) => {
-    // If URL is stored, use it
-    if (video.url) {
-      return video.url;
+  const getThumbnailUrl = (video: Video | Clip) => {
+    if ('metadata' in video && video.metadata?.thumbnailUrl) {
+      return video.metadata.thumbnailUrl
     }
-    
-    // For YouTube videos, construct the URL if we have a video_id
-    if (video.source === 'youtube' && video.video_id) {
-      return `https://youtube.com/watch?v=${video.video_id}`;
+    if ('videos' in video && video.videos?.metadata?.thumbnailUrl) {
+      return video.videos.metadata.thumbnailUrl
     }
-    
-    // Return empty string if no URL can be determined
-    return '';
+    const source = isVideo(video) ? video.source : video.videos?.source
+    const videoId = isVideo(video) ? video.video_id : video.videos?.video_id
+
+    if (source === 'youtube' && videoId) {
+      return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
+    }
+    if (source === 'youtube') return '/images/youtube-video.svg'
+    return '/images/video-placeholder.svg'
   }
 
-  const formatDuration = (seconds?: number) => {
-    if (!seconds) return 'Unknown';
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  const getVideoClientUrl = (video: Video | Clip) => {
+    const url = isVideo(video) ? video.url : video.videos?.url
+    if (url) return url
+
+    const source = isVideo(video) ? video.source : video.videos?.source
+    const videoId = isVideo(video) ? video.video_id : video.videos?.video_id
+
+    if (source === 'youtube' && videoId) {
+      return `https://youtube.com/watch?v=${videoId}`
+    }
+    return '#'
   }
 
-  // Add handler for clip end
+  const formatDuration = (seconds?: number | null) => {
+    if (!seconds) return 'Unknown'
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = seconds % 60
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`
+  }
+
   const handleClipEnd = () => {
-    const nextIndex = currentIndex + 1;
+    const nextIndex = currentIndex + 1
     if (nextIndex < clips.length) {
-      setNextClipInfo(clips[nextIndex]);
-      setNavigationError(null);
+      setNextClipInfo(clips[nextIndex])
       setTimeout(() => {
-        setCurrentIndex(nextIndex);
-        setNextClipInfo(null);
-      }, 1000); // match the transition time in ClipPlayer
+        setCurrentIndex(nextIndex)
+        setNextClipInfo(null)
+      }, 1000)
     } else {
-      setNavigationError('No more clips to play.');
-      setNextClipInfo(null);
+      setNextClipInfo(null)
     }
   }
 
-  if (loading) return <p className="p-8">Loading content...</p>
+  if (loading) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center ${isDarkMode ? 'bg-gray-900' : 'bg-gray-100'}`}>
+        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-blue-500"></div>
+        <p className={`ml-4 text-lg ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Loading your dashboard...</p>
+      </div>
+    )
+  }
+
+  if (pageError && !user) {
+    return (
+      <div className={`min-h-screen flex flex-col items-center justify-center p-4 ${isDarkMode ? 'bg-gray-900 text-red-400' : 'bg-gray-100 text-red-600'}`}>
+        <AlertTriangle size={48} className="mb-4" />
+        <h2 className="text-xl font-semibold mb-2">Could not load dashboard</h2>
+        <p className="text-center">{pageError}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className={`mt-6 px-4 py-2 rounded-md font-medium transition-colors ${isDarkMode ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'}`}>
+          Try Again
+        </button>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return (
+      <div className={`min-h-screen flex flex-col items-center justify-center p-8 ${isDarkMode ? 'bg-gray-900 text-gray-200' : 'bg-gray-100 text-gray-800'}`}>
+        <LogIn size={64} className={`mb-6 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
+        <h1 className="text-3xl font-bold mb-4">Welcome to Soccer Vid Organizer</h1>
+        <p className={`mb-8 text-lg text-center max-w-md ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+          Please log in to access your dashboard, manage videos, clips, and more.
+        </p>
+        <Link 
+          href="/login" 
+          className={`px-6 py-3 rounded-lg font-semibold text-white transition-colors ${isDarkMode ? 'bg-blue-600 hover:bg-blue-500' : 'bg-blue-500 hover:bg-blue-600'}`}
+        >
+          Log In
+        </Link>
+      </div>
+    )
+  }
 
   return (
-    <div className="p-8 space-y-8">
-      {/* No Roles Banner - Show only if user has no roles */}
-      {hasNoRoles && (
+    <div className={`p-4 md:p-8 space-y-8 ${isDarkMode ? 'bg-gray-800 text-gray-200' : 'bg-gray-100 text-gray-800'}`}>
+      {pageError && (
+        <div className={`p-4 mb-6 border rounded-lg ${isDarkMode ? 'bg-red-900 border-red-700 text-red-100' : 'bg-red-100 border-red-300 text-red-700'}`} role="alert">
+          <h3 className="font-bold flex items-center"><AlertTriangle size={18} className="mr-2" />Information</h3>
+          <pre className="whitespace-pre-wrap">{pageError}</pre>
+        </div>
+      )}
+
+      {hasNoRoles && user && (
         <div className={`p-4 mb-6 border rounded-lg ${
           isDarkMode 
             ? 'bg-blue-900 border-blue-800 text-blue-100' 
@@ -221,13 +283,11 @@ function HomePage({ user }: { user: any }) {
         </div>
       )}
 
-      {/* Only show content sections if user has roles */}
       {!hasNoRoles && (
         <>
-          {/* Recent Clips Section */}
           <section>
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-bold">Recent Clips</h2>
+              <h2 className="text-2xl font-bold flex items-center"><PlayCircle size={28} className="mr-2" /> Recent Clips</h2>
               <Link 
                 href="/clips" 
                 className="text-blue-600 hover:underline"
@@ -236,34 +296,33 @@ function HomePage({ user }: { user: any }) {
               </Link>
             </div>
 
-            {clips.length === 0 ? (
-              <p className="py-4">No clips available yet.</p>
-            ) : (
+            {clips.length === 0 && !loading ? (
+              <p className={`py-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>No clips available yet.</p>
+            ) : clips.length > 0 && (
               <div>
                 <h3 className="text-xl font-semibold mb-3">
-                  {clips[currentIndex]?.title}
+                  {clips[currentIndex]?.title || 'Untitled Clip'}
                   {clips[currentIndex]?.id && (
                     <span className="ml-3 text-xs text-gray-500">ID: {clips[currentIndex].id}</span>
                   )}
                 </h3>
                 <ClipPlayer 
+                  key={clips[currentIndex]?.id}
                   videoId={clips[currentIndex]?.video_id} 
                   start={clips[currentIndex]?.start_time} 
                   end={clips[currentIndex]?.end_time} 
-                  source={videoSources[clips[currentIndex]?.video_id] || 'youtube'}
+                  source={videoSources[clips[currentIndex]?.video_id || ''] || clips[currentIndex]?.videos?.source || undefined}
                   url={clips[currentIndex]?.videos?.url}
                   onEnd={handleClipEnd}
-                  nextClipInfo={nextClipInfo}
-                  navigationError={navigationError === null ? undefined : navigationError}
+                  nextClipInfo={nextClipInfo ? {
+                    title: nextClipInfo.title || '',
+                    start_time: nextClipInfo.start_time || 0,
+                    end_time: nextClipInfo.end_time || 0
+                  } : undefined}
                 />
-                {navigationError && (
-                  <div className="text-red-700 bg-red-100 px-3 py-2 rounded mb-2 mt-2">
-                    {navigationError}
-                  </div>
-                )}
                 
                 <ul className="list-disc list-inside space-y-1 mt-3">
-                  {comments.filter(c => c.role_visibility === 'both' || c.role_visibility === user.role).map(c => (
+                  {(comments as Comment[]).filter(c => c.role_visibility === 'both' || c.role_visibility === user?.role).map(c => (
                     <li key={c.id}>{c.content}</li>
                   ))}
                 </ul>
@@ -288,10 +347,9 @@ function HomePage({ user }: { user: any }) {
             )}
           </section>
 
-          {/* Recent Videos Section */}
           <section>
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-bold">Recent Videos</h2>
+              <h2 className="text-2xl font-bold flex items-center"><ListVideo size={28} className="mr-2" /> Recent Videos</h2>
               <Link 
                 href="/videos" 
                 className="text-blue-600 hover:underline"
@@ -300,78 +358,48 @@ function HomePage({ user }: { user: any }) {
               </Link>
             </div>
 
-            {videos.length === 0 ? (
-              <p className="py-4">No videos available yet.</p>
+            {videos.length === 0 && !loading ? (
+              <p className={`py-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>No videos available yet.</p>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {videos.map(video => {
-                  const externalLink = getVideoUrl(video);
-                  const isSpecialVeo = video.source === 'veo' && video.url && video.url.startsWith('https://app.veo.co');
+                  const externalLink = getVideoClientUrl(video)
+                  const isSpecialVeo = video.source === 'veo' && video.url && video.url.startsWith('https://app.veo.co')
 
                   return (
-                    <div 
-                      key={video.id} 
-                      className={`border rounded overflow-hidden ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
-                    >
-                      {video.source === 'facebook' ? (
-                        // Facebook specific rendering: Info and direct link
+                    <Link key={video.id} href={externalLink} legacyBehavior passHref>
+                      <a
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`block rounded-lg overflow-hidden shadow-lg transition-all hover:shadow-xl ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-white hover:bg-gray-50'}`}
+                      >
+                        <div className="relative pb-[56.25%]">
+                          <img src={getThumbnailUrl(video)} alt={video.title} className="absolute inset-0 w-full h-full object-cover" />
+                          {video.duration != null && (
+                            <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white text-xs px-1 py-0.5 rounded">
+                              {formatDuration(video.duration)}
+                            </div>
+                          )}
+                        </div>
                         <div className="p-3">
                           <h3 className="font-semibold">{video.title}</h3>
                           <div className="text-xs text-gray-500 mt-1">
-                            Source: Facebook
+                            Source: {video.source ? video.source.charAt(0).toUpperCase() + video.source.slice(1) : 'Unknown'}
                           </div>
-                          {externalLink ? (
-                            <div className="mt-2 text-sm">
+                          <div className="mt-2 text-sm flex flex-wrap gap-x-4 gap-y-1 items-center">
+                            {externalLink && (
                               <a href={externalLink} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
-                                View on Facebook
+                                Watch Externally
                               </a>
-                            </div>
-                          ) : (
-                            <p className="mt-2 text-sm text-gray-400">Facebook URL not available</p>
-                          )}
-                        </div>
-                      ) : isSpecialVeo ? (
-                        // Veo "full video not available" specific rendering
-                        <div className="flex flex-col items-center justify-center h-full p-6 text-center">
-                          <div className="font-semibold text-lg mb-1">{video.title}</div>
-                          <div className="text-gray-500 text-lg mb-2">Full video not available for direct playback.</div>
-                          <a href={`https://app.veo.co/matches/${video.video_id}/`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline mt-1">
-                            View Match on Veo
-                          </a>
-                        </div>
-                      ) : (
-                        // Default rendering for other videos (YouTube, Veo with MP4)
-                        <>
-                          <a href={externalLink || '#'} target="_blank" rel="noopener noreferrer" className="block">
-                            <div className="relative pb-[56.25%]">
-                              <img src={getThumbnailUrl(video)} alt={video.title} className="absolute inset-0 w-full h-full object-cover" />
-                              {video.duration != null && (
-                                <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white text-xs px-1 py-0.5 rounded">
-                                  {formatDuration(video.duration)}
-                                </div>
-                              )}
-                            </div>
-                          </a>
-                          <div className="p-3">
-                            <h3 className="font-semibold">{video.title}</h3>
-                            <div className="text-xs text-gray-500 mt-1">
-                              Source: {video.source ? video.source.charAt(0).toUpperCase() + video.source.slice(1) : 'Unknown'}
-                            </div>
-                            <div className="mt-2 text-sm flex flex-wrap gap-x-4 gap-y-1 items-center">
-                              {externalLink && (
-                                <a href={externalLink} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
-                                  Watch Externally
-                                </a>
-                              )}
-                              <Link href={`/analyze/${video.source}/${video.video_id}`} className="text-green-600 hover:underline">
-                                Analyze In-App
-                              </Link>
-                            </div>
+                            )}
+                            <a href={`/analyze/${video.source}/${video.video_id}`} className="text-green-600 hover:underline">
+                              Analyze In-App
+                            </a>
                           </div>
-                        </>
-                      )}
-                    </div>
-                  );
+                        </div>
+                      </a>
+                    </Link>
+                  )
                 })}
               </div>
             )}
@@ -382,13 +410,12 @@ function HomePage({ user }: { user: any }) {
   )
 }
 
-// Allow any authenticated user to access this page, even without roles
 export default withAuth(
   HomePage, 
   {
     teamId: 'any',
-    roles: ['coach', 'player', 'parent'],
-    requireRole: false // Allow access even without roles
+    roles: [],
+    requireRole: false
   }, 
-  'Soccer Videos'
+  'Dashboard'
 )

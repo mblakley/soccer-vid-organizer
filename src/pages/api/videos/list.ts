@@ -1,75 +1,63 @@
-import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
+import { NextApiRequest, NextApiResponse } from 'next'
+import { getSupabaseClient } from '@/lib/supabaseClient'
+import { withAuth } from '@/components/auth'
+import { TeamRole, Video } from '@/lib/types'
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  try {
-    console.log('Starting /api/videos/list handler')
-    
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    
-    if (!supabaseUrl || !supabaseServiceKey) {
-      throw new Error('Missing Supabase environment variables')
+interface AuthenticatedRequest extends NextApiRequest {
+  user?: {
+    id: string;
+    // Add other user properties if needed
+  };
+  teamId?: string;
+  userRoles?: TeamRole[];
+}
+
+interface ListVideosResponse {
+  videos?: Video[];
+  message?: string;
+}
+
+// Initialize the service role client once
+const supabase = getSupabaseClient();
+
+async function handler(req: AuthenticatedRequest, res: NextApiResponse<ListVideosResponse>) {
+  if (req.method === 'GET') {
+    const { select: selectQuery, orderBy: orderByQuery, orderAscending } = req.query;
+
+    // Default select and order parameters
+    const selectFields = typeof selectQuery === 'string' ? selectQuery : '*';
+    const orderByField = typeof orderByQuery === 'string' ? orderByQuery : 'created_at';
+    const isAscending = typeof orderAscending === 'string' ? orderAscending === 'true' : false;
+
+    try {
+      let query = supabase
+        .from('videos')
+        .select(selectFields)
+        .order(orderByField, { ascending: isAscending });
+
+      // Add any other filters you might need based on req.query
+      // e.g., if (req.query.source) query = query.eq('source', req.query.source);
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Error fetching videos:', error);
+        return res.status(500).json({ message: error.message || 'Failed to fetch videos' });
+      }
+
+      // If no error, data should be Video[] or null. Cast to unknown first to satisfy linter.
+      return res.status(200).json({ videos: data ? (data as unknown as Video[]) : [] });
+    } catch (err: any) {
+      console.error('Exception fetching videos:', err)
+      return res.status(500).json({ message: err.message || 'An unexpected error occurred' })
     }
-    
-    // Initialize Supabase client with admin privileges
-    console.log('Initializing Supabase client')
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
-    
-    // 1. Fetch videos with clip count
-    const { data: videos, error: videosError } = await supabaseAdmin
-      .from('videos')
-      .select('*, clips:clips!video_id(count)')
-      // Sort by metadata->publishedAt (if available), otherwise fall back to created_at
-      .order('metadata->publishedAt', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false });  // Secondary sort for videos without publishedAt
-    
-    if (videosError) throw new Error(`Failed to fetch videos: ${videosError.message}`);
-
-    // 2. Fetch all clips
-    const { data: clips, error: clipsError } = await supabaseAdmin
-      .from('clips')
-      .select('id, video_id');
-    if (clipsError) throw new Error(`Failed to fetch clips: ${clipsError.message}`);
-
-    // 3. Fetch all comments
-    const { data: comments, error: commentsError } = await supabaseAdmin
-      .from('comments')
-      .select('id, clip_id');
-    if (commentsError) throw new Error(`Failed to fetch comments: ${commentsError.message}`);
-
-    // 4. Aggregate in JS
-    const videoToClipIds: Record<string, string[]> = {};
-    (clips || []).forEach(clip => {
-      const vid = String(clip.video_id);
-      if (!videoToClipIds[vid]) videoToClipIds[vid] = [];
-      videoToClipIds[vid].push(String(clip.id));
-    });
-    const clipIdToCommentCount: Record<string, number> = {};
-    (comments || []).forEach(comment => {
-      const cid = String(comment.clip_id);
-      clipIdToCommentCount[cid] = (clipIdToCommentCount[cid] || 0) + 1;
-    });
-    const videoIdToCommentCount: Record<string, number> = {};
-    Object.entries(videoToClipIds).forEach(([video_id, clipIds]) => {
-      videoIdToCommentCount[video_id] = (clipIds as string[]).reduce(
-        (sum, clipId) => sum + (clipIdToCommentCount[clipId] || 0),
-        0
-      );
-    });
-    const videosWithCounts = (videos || []).map(video => ({
-      ...video,
-      clip_count: video.clips?.count || 0,
-      comment_count: videoIdToCommentCount[String(video.video_id)] || 0,
-      // Add formatted published date for easier display
-      published_date: video.metadata?.publishedAt 
-        ? new Date(video.metadata.publishedAt).toLocaleDateString() 
-        : null
-    }));
-
-    return res.status(200).json(videosWithCounts);
-  } catch (error: any) {
-    console.error('Error fetching videos:', error)
-    return res.status(500).json({ error: error.message || 'Internal server error' })
+  } else {
+    res.setHeader('Allow', ['GET'])
+    res.status(405).end(`Method ${req.method} Not Allowed`)
   }
-} 
+}
+
+export default withAuth(handler, {
+  teamId: 'any',
+  roles: ['coach', 'player', 'parent', 'manager'] as TeamRole[],
+}) 

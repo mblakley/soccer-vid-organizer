@@ -1,9 +1,9 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { supabase } from '@/lib/supabaseClient'
 import { withAuth } from '@/components/auth'
 import VideoPlayer, { VideoPlayerControls } from '@/components/VideoPlayer'
 import AnalysisSidebar from '@/components/AnalysisSidebar'
+import { apiClient } from '@/lib/api/client'
 
 export interface Video {
   id: string;
@@ -22,6 +22,7 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   const [currentTime, setCurrentTime] = useState(0)
   const [playerState, setPlayerState] = useState<'playing' | 'paused'>('paused')
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null)
+  const [error, setError] = useState<string | null>(null)
   
   const playerRef = useRef<VideoPlayerControls>(null)
 
@@ -30,14 +31,7 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     const fetchVideos = async () => {
       try {
         setLoading(true)
-        const { data, error } = await supabase
-          .from('videos')
-          .select('*')
-          .or(
-            'source.eq.youtube,' +
-            'and(source.eq.veo,url.not.is.null,url.not.like.%https://app.veo.co%)'
-          )
-          .order('created_at', { ascending: false })
+        const { data, error } = await apiClient.get('/api/videos/list')
         
         if (error) {
           console.error('Error fetching videos:', error)
@@ -75,6 +69,59 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     setNotification({ message: error.message || 'Video player error', type: 'error' });
     setPlayerReady(false);
   };
+
+  // Replace the fetchVideo function
+  const fetchVideo = async () => {
+    setLoading(true)
+    try {
+      const { data, error } = await apiClient.get(`/api/videos/${selectedVideo?.id}`)
+      
+      if (error) {
+        console.error('Error fetching video:', error)
+        setError(error.message || 'Failed to fetch video')
+      } else {
+        setSelectedVideo(data)
+      }
+    } catch (err: any) {
+      console.error('Exception fetching video:', err)
+      setError(err.message || 'An unexpected error occurred')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Replace the handleAddComment function
+  const handleAddComment = async (commentData: any) => {
+    try {
+      const { error } = await apiClient.post('/api/comments/create', {
+        ...commentData,
+        video_id: selectedVideo?.id
+      })
+      
+      if (error) throw error
+      
+      fetchVideo() // Refresh to get updated comments
+    } catch (err: any) {
+      console.error('Error adding comment:', err)
+      setError(err.message || 'Failed to add comment')
+    }
+  }
+
+  // Replace the handleDeleteComment function
+  const handleDeleteComment = async (commentId: string) => {
+    if (!confirm('Are you sure you want to delete this comment?')) return
+    
+    try {
+      const { error } = await apiClient.post(`/api/comments/${commentId}`, null)
+      
+      if (error) throw error
+      
+      fetchVideo() // Refresh to get updated comments
+    } catch (err: any) {
+      console.error('Error deleting comment:', err)
+      setError(err.message || 'Failed to delete comment')
+    }
+  }
 
   return (
     <div className="flex flex-col h-screen bg-gray-900">

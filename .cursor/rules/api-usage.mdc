@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Any client-side code should call APIs instead of calling supabase directly, except for supabase auth calls.  API Code is in src/pages/api.  Any types returned by the API endpoints should be in src/lib/types.  Create new types when the content doesn't match any existing types. Use the patterns established in src/pages/api/auth/signup.ts.

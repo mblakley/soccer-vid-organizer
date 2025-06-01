@@ -1,34 +1,49 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseClient } from '@/lib/supabaseClient'
+import type { AvailableTeamsApiResponse, ErrorResponse } from '@/lib/types/teams'
+import { availableTeamsResponseSchema } from '@/lib/types/teams'
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<AvailableTeamsApiResponse>
+) {
   if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' })
+    const errorResponse: ErrorResponse = { error: 'Method not allowed' };
+    return res.status(405).json(errorResponse);
   }
 
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    const supabase = getSupabaseClient(req.headers.authorization);
 
-    if (!supabaseUrl || !supabaseServiceKey) {
-      throw new Error('Missing Supabase environment variables')
+    // Authentication check (optional for a public list)
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      console.error('Authentication error for available teams:', authError);
+      const errorResponse: ErrorResponse = { error: 'Unauthorized' };
+      return res.status(401).json(errorResponse);
     }
 
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
-
-    // Fetch all teams
-    const { data: teams, error: teamsError } = await supabaseAdmin
+    const { data: teamsData, error: teamsError } = await supabase
       .from('teams')
-      .select('id, name, description')
-      .order('name')
+      .select('id, name, description') // Ensure 'description' column exists or adjust select
+      .order('name');
 
     if (teamsError) {
-      throw teamsError
+      console.error('Error fetching available teams:', teamsError);
+      throw new Error(teamsError.message);
     }
 
-    res.status(200).json(teams)
-  } catch (error: any) {
-    console.error('Error fetching available teams:', error)
-    res.status(500).json({ error: 'Internal server error' })
+    const responseData = { teams: teamsData || [] };
+    availableTeamsResponseSchema.parse(responseData); // Validate response
+
+    return res.status(200).json(responseData);
+  } catch (error) {
+    if (error instanceof Error) {
+      const errorResponse: ErrorResponse = { error: error.message };
+      return res.status(400).json(errorResponse);
+    }
+    console.error('Error in available teams handler:', error);
+    const errorResponse: ErrorResponse = { error: 'An unknown error occurred' };
+    return res.status(500).json(errorResponse);
   }
-} 
+}

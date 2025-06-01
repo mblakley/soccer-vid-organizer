@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabaseClient'
+// import { supabase } from '@/lib/supabaseClient' // Will be removed
 import { useTheme } from '@/contexts/ThemeContext'
 import ThemeToggle from '@/components/ThemeToggle'
 import { withAdminAuth } from '@/components/auth'
@@ -8,6 +8,21 @@ import { useTeam } from '@/contexts/TeamContext'
 import { ArrowLeft } from 'lucide-react'
 import { toast } from 'react-toastify'
 import Link from 'next/link'
+import { apiClient } from '@/lib/api/client' // Existing apiClient
+
+// Import shared types
+import { League, LeagueDivision } from '@/lib/types/leagues';
+import { Game } from '@/lib/types/games';
+// Import specific Admin API response types
+import {
+  AdminListLeaguesApiResponse,
+  AdminListLeaguesResponse,
+  AdminDeleteApiResponse,
+  AdminDeleteResponse,
+  AdminLeagueGamesApiResponse,
+  AdminLeagueGamesResponse
+} from '@/lib/types/admin';
+import { ErrorResponse } from '@/lib/types/auth';
 
 // Import new components
 import LeagueTable from '@/components/leagues/LeagueTable'
@@ -15,35 +30,9 @@ import LeagueForm from '@/components/leagues/LeagueForm'
 import GameTable from '@/components/games/GameTable'
 import GameForm from '@/components/games/GameForm'
 
-interface League {
-  id: string
-  name: string
-  season: string
-  age_group: string | null
-  gender: string | null
-  start_date: string | null
-  end_date: string | null
-  additional_info: any
-  created_at: string | null
-  updated_at: string | null
-  league_divisions: { name: string }[]
-}
-
-interface Game {
-  id: string
-  home_team: string
-  away_team: string
-  home_team_name: string
-  away_team_name: string
-  location: string | null
-  game_date: string | null
-  start_time: string | null
-  flight: string | null
-  status: 'scheduled' | 'completed' | 'cancelled' | 'postponed'
-  score_home: number | null
-  score_away: number | null
-  created_at: string | null
-  updated_at: string | null
+// Type guard for ErrorResponse
+function isErrorResponse(response: any): response is ErrorResponse {
+  return response && typeof response.error === 'string';
 }
 
 function LeaguesPage() {
@@ -74,17 +63,23 @@ function LeaguesPage() {
     setPageError(null)
     setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('leagues')
-        .select('*, league_divisions(name)')
-        .order('name')
-
-      if (error) throw error
-
-      setLeagues(data || [])
+      const response = await apiClient.get<AdminListLeaguesApiResponse>('/api/admin/leagues/list')
+      if (isErrorResponse(response)) {
+        setPageError(response.error);
+        toast.error(`Failed to fetch leagues: ${response.error}`);
+        setLeagues([]);
+      } else if (response && 'leagues' in response) {
+        setLeagues((response as AdminListLeaguesResponse).leagues || [])
+      } else {
+        setPageError('Invalid response when fetching leagues.');
+        toast.error('Failed to fetch leagues: Invalid response.');
+        setLeagues([]);
+      }
     } catch (error: any) {
       console.error('Error fetching leagues:', error)
       setPageError(error.message || 'Failed to fetch leagues.')
+      toast.error(error.message || 'An unexpected error occurred while fetching leagues.');
+      setLeagues([]);
     } finally {
       setLoading(false)
     }
@@ -94,15 +89,19 @@ function LeaguesPage() {
     if (!confirm('Are you sure you want to delete this league?')) return
 
     try {
-      const { error } = await supabase
-        .from('leagues')
-        .delete()
-        .eq('id', id)
-
-      if (error) throw error
-      
-      toast.success('League deleted successfully')
-      fetchLeagues()
+      const response = await apiClient.delete<AdminDeleteApiResponse>(`/api/admin/leagues/${id}/delete`)
+      if (isErrorResponse(response)) {
+        toast.error(response.error || 'Error deleting league');
+      } else {
+        toast.success((response as AdminDeleteResponse)?.message || 'League deleted successfully')
+        fetchLeagues()
+        if (selectedLeagueForGames?.id === id) {
+          setSelectedLeagueForGames(null);
+          setLeagueGames([]);
+          setAvailableDivisions([]);
+          setSelectedDivisionTab(null);
+        }
+      }
     } catch (error: any) {
       console.error('Error deleting league:', error)
       toast.error(error.message || 'Error deleting league')
@@ -134,134 +133,30 @@ function LeaguesPage() {
   const fetchLeagueGames = async (leagueId: string) => {
     setLoadingGames(true)
     try {
-      console.log("Fetching games for league:", leagueId);
+      console.log("Fetching games for league:", leagueId)
+      const response = await apiClient.get<AdminLeagueGamesApiResponse>(`/api/admin/leagues/${leagueId}/games`)
       
-      // First get all divisions for this league
-      const { data: leagueDivisions, error: divisionsError } = await supabase
-        .from('league_divisions')
-        .select('name')
-        .eq('league_id', leagueId)
-
-      if (divisionsError) throw divisionsError
-
-      // Initialize division options with just the league divisions
-      const divisionOptions = leagueDivisions ? leagueDivisions.map(d => d.name) : []
-      console.log("League divisions:", divisionOptions);
-
-      // First get all games linked to this league
-      const { data: leagueGamesData, error: leagueGamesError } = await supabase
-        .from('league_games')
-        .select('game_id')
-        .eq('league_id', leagueId)
-
-      if (leagueGamesError) {
-        console.error("Error fetching league games:", leagueGamesError);
-        throw leagueGamesError;
+      if (isErrorResponse(response)){
+        toast.error(response.error || 'Failed to load games');
+        setLeagueGames([]);
+        setAvailableDivisions([]);
+        setSelectedDivisionTab(null);
+      } else if (response && 'games' in response && 'availableDivisions' in response) {
+        setLeagueGames((response as AdminLeagueGamesResponse).games || [])
+        setAvailableDivisions((response as AdminLeagueGamesResponse).availableDivisions || [])
+        setSelectedDivisionTab((response as AdminLeagueGamesResponse).availableDivisions?.[0] || null)
+      } else {
+        toast.error('Invalid response when fetching games.');
+        setLeagueGames([]); 
+        setAvailableDivisions([])
+        setSelectedDivisionTab(null)
       }
-
-      console.log("League games data:", leagueGamesData);
-
-      if (!leagueGamesData || leagueGamesData.length === 0) {
-        console.log("No games found for this league");
-        setLeagueGames([])
-        setAvailableDivisions(divisionOptions)
-        setSelectedDivisionTab(divisionOptions[0] || null)
-        setLoadingGames(false)
-        return
-      }
-
-      // Get division information separately to handle missing column
-      let divisionMap: Record<string, string | null> = {};
-      
-      try {
-        const { data: divisionData, error: divisionError } = await supabase
-          .from('league_games')
-          .select('game_id, division')
-          .eq('league_id', leagueId)
-        
-        if (divisionError) {
-          console.error("Error fetching division data:", divisionError);
-          // Continue without division data
-        } else if (divisionData) {
-          divisionMap = divisionData.reduce((map, item) => {
-            map[item.game_id] = item.division || null;
-            return map;
-          }, {} as Record<string, string | null>);
-          console.log("Division map:", divisionMap);
-        }
-      } catch (error) {
-        console.error("Error processing division data:", error);
-        // Continue without division data
-      }
-
-      // Then fetch the actual game details
-      const gameIds = leagueGamesData.map(item => item.game_id)
-      console.log("Game IDs:", gameIds);
-      
-      const { data: gamesData, error: gamesError } = await supabase
-        .from('games')
-        .select('*, home_team:home_team_id(id, name), away_team:away_team_id(id, name)')
-        .in('id', gameIds)
-        .order('game_date', { ascending: true })
-
-      if (gamesError) {
-        console.error("Error fetching games:", gamesError);
-        throw gamesError;
-      }
-
-      console.log("Games data:", gamesData);
-
-      // Map the fetched data to match our Game interface
-      const formattedGames: Game[] = (gamesData || []).map(game => {
-        return {
-          id: game.id,
-          home_team: game.home_team_id,
-          away_team: game.away_team_id,
-          home_team_name: game.home_team?.name || 'Unknown Team',
-          away_team_name: game.away_team?.name || 'Unknown Team',
-          location: game.location,
-          game_date: game.game_date,
-          start_time: game.game_time,
-          flight: divisionMap[game.id] || null, // Use division from junction table
-          status: game.status,
-          score_home: game.score_home,
-          score_away: game.score_away,
-          created_at: game.created_at,
-          updated_at: game.updated_at
-        }
-      })
-
-      console.log("Formatted games:", formattedGames);
-      setLeagueGames(formattedGames)
-      
-      // Collect all division values from the games
-      const divisionValues = Object.values(divisionMap).filter(Boolean) as string[];
-      const uniqueDivisions = [...new Set(divisionValues)];
-      console.log("Unique divisions from games:", uniqueDivisions);
-      
-      // Add divisions from games to options
-      uniqueDivisions.forEach(div => {
-        if (!divisionOptions.includes(div)) {
-          divisionOptions.push(div);
-        }
-      });
-      
-      // Check if there are any games without a division
-      const hasGamesWithoutDivision = Object.values(divisionMap).some(div => !div);
-      
-      // Add "No Division" tab if needed
-      if (hasGamesWithoutDivision && !divisionOptions.includes("No Division")) {
-        divisionOptions.push("No Division");
-      }
-      
-      console.log("Final division options:", divisionOptions);
-      setAvailableDivisions(divisionOptions);
-      // Select first division in the list
-      setSelectedDivisionTab(divisionOptions[0] || null);
-      
     } catch (error: any) {
       console.error('Error fetching league games:', error)
-      toast.error('Failed to load games')
+      toast.error(error.message || 'Failed to load games')
+      setLeagueGames([]) 
+      setAvailableDivisions([])
+      setSelectedDivisionTab(null)
     } finally {
       setLoadingGames(false)
     }
@@ -269,7 +164,6 @@ function LeaguesPage() {
 
   // Handle selecting a league for games management
   const handleSelectLeagueForGames = async (league: League) => {
-    // If already selected, deselect it
     if (selectedLeagueForGames?.id === league.id) {
       setSelectedLeagueForGames(null)
       setLeagueGames([])
@@ -279,8 +173,6 @@ function LeaguesPage() {
     }
     
     setSelectedLeagueForGames(league)
-    
-    // Fetch games for this league
     await fetchLeagueGames(league.id)
   }
 
@@ -290,7 +182,6 @@ function LeaguesPage() {
       toast.error('Please select a league first')
       return
     }
-
     setEditingGame(null)
     setShowGameModal(true)
   }
@@ -311,7 +202,6 @@ function LeaguesPage() {
   const handleSaveGame = async () => {
     setShowGameModal(false)
     setEditingGame(null)
-    
     if (selectedLeagueForGames) {
       await fetchLeagueGames(selectedLeagueForGames.id)
     }
@@ -323,26 +213,13 @@ function LeaguesPage() {
     if (!selectedLeagueForGames) return
 
     try {
-      // First delete the league_games relationship
-      const { error: leagueGameError } = await supabase
-        .from('league_games')
-        .delete()
-        .eq('game_id', gameId)
-        .eq('league_id', selectedLeagueForGames.id)
-
-      if (leagueGameError) throw leagueGameError
-
-      // Then delete the game itself
-      const { error } = await supabase
-        .from('games')
-        .delete()
-        .eq('id', gameId)
-
-      if (error) throw error
-      toast.success('Game deleted successfully')
-      
-      // Refresh games list
-      fetchLeagueGames(selectedLeagueForGames.id)
+      const response = await apiClient.delete<AdminDeleteApiResponse>(`/api/admin/games/${gameId}/delete?leagueId=${selectedLeagueForGames.id}`)
+      if(isErrorResponse(response)) {
+        toast.error(response.error || 'Error deleting game');
+      } else {
+        toast.success((response as AdminDeleteResponse)?.message || 'Game deleted successfully')
+        fetchLeagueGames(selectedLeagueForGames.id)
+      }
     } catch (error: any) {
       console.error('Error deleting game:', error)
       toast.error(error.message || 'Error deleting game')
@@ -354,10 +231,10 @@ function LeaguesPage() {
     if (!selectedDivisionTab) return leagueGames;
     
     if (selectedDivisionTab === "No Division") {
-      return leagueGames.filter(g => !g.flight);
+      return leagueGames.filter((g: Game) => !g.flight);
     }
     
-    return leagueGames.filter(g => g.flight === selectedDivisionTab);
+    return leagueGames.filter((g: Game) => g.flight === selectedDivisionTab);
   };
 
   return (
@@ -370,8 +247,7 @@ function LeaguesPage() {
         <div className="mb-6">
           <Link 
             href="/admin" 
-            className={`inline-flex items-center px-4 py-2 rounded-md ${
-              isDarkMode 
+            className={`inline-flex items-center px-4 py-2 rounded-md ${isDarkMode 
                 ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' 
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
@@ -387,8 +263,7 @@ function LeaguesPage() {
             <h2 className="text-2xl font-bold">All Leagues</h2>
             <button
               onClick={handleCreateClick}
-              className={`px-4 py-2 rounded-md ${
-                isDarkMode
+              className={`px-4 py-2 rounded-md ${isDarkMode
                   ? 'bg-blue-600 text-white hover:bg-blue-700'
                   : 'bg-blue-500 text-white hover:bg-blue-600'
               }`}
@@ -428,8 +303,7 @@ function LeaguesPage() {
                 <div className="flex gap-2 items-center">
                   <button
                     onClick={handleCreateGameClick}
-                    className={`px-4 py-2 rounded-md ${
-                      isDarkMode
+                    className={`px-4 py-2 rounded-md ${isDarkMode
                         ? 'bg-blue-600 text-white hover:bg-blue-700'
                         : 'bg-blue-500 text-white hover:bg-blue-600'
                     }`}
@@ -438,8 +312,7 @@ function LeaguesPage() {
                   </button>
                   <button
                     onClick={() => setSelectedLeagueForGames(null)}
-                    className={`px-4 py-2 rounded-md ${
-                      isDarkMode
+                    className={`px-4 py-2 rounded-md ${isDarkMode
                         ? 'bg-gray-600 text-white hover:bg-gray-700'
                         : 'bg-gray-400 text-white hover:bg-gray-500'
                     }`}
@@ -463,8 +336,7 @@ function LeaguesPage() {
                     <li key={division} className="mr-2">
                       <button
                         onClick={() => setSelectedDivisionTab(division)}
-                        className={`inline-block p-4 ${
-                          selectedDivisionTab === division
+                        className={`inline-block p-4 ${selectedDivisionTab === division
                             ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-500 dark:border-blue-500'
                             : 'hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300'
                         }`}

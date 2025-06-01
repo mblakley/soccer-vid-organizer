@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabaseClient'
+import { apiClient } from '@/lib/api/client'
 import { User } from '@supabase/supabase-js'
 import { 
   JWTCustomClaims, 
@@ -27,7 +27,7 @@ export function useAuth() {
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
+    apiClient.get('/api/auth/session').then(({ data: { session }, error }) => {
       if (error) {
         setState(prev => ({ ...prev, error, loading: false }))
         return
@@ -36,12 +36,16 @@ export function useAuth() {
     })
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setState(prev => ({ ...prev, user: session?.user ?? null }))
+    let subscription: any;
+    apiClient.get('/api/auth/subscription').then(({ data }) => {
+      subscription = data.subscription;
+      subscription.on('authStateChange', (_event: any, session: any) => {
+        setState(prev => ({ ...prev, user: session?.user ?? null }))
+      })
     })
 
     return () => {
-      subscription.unsubscribe()
+      subscription?.unsubscribe()
     }
   }, [])
 
@@ -63,6 +67,6 @@ export function useAuth() {
     // Team information
     getUserTeams: () => getUserTeams(claims),
     // Sign out method
-    signOut: () => supabase.auth.signOut()
+    signOut: () => apiClient.post('/api/auth/signout')
   }
 } 

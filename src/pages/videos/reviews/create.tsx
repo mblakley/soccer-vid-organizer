@@ -3,43 +3,62 @@ import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router'; // Changed from next/navigation for Pages Router
 import { FilmReviewSessionClip, LibraryClip } from '@/lib/types';
+import { CreateReviewApiResponse, CreateReviewResponse, ErrorResponse } from '@/lib/types/reviews';
 import { PlusCircle, Save, Film, Search, ListVideo, X } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import AppLayout from '@/components/AppLayout';
 import { toast } from 'react-toastify';
 import { useTeam } from '@/contexts/TeamContext';
 import { useAuth } from '@/lib/hooks/useAuth';
-import { supabase } from '@/lib/supabaseClient';
+import { apiClient } from '@/lib/api/client'; // Added apiClient import
 
 // Remove the mock function and replace with real API call
 async function fetchAvailableClips(searchTerm?: string, tags?: string[]): Promise<LibraryClip[]> {
   try {
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-    if (sessionError || !session) {
-      console.error('Session error:', sessionError)
-      throw new Error('Not authenticated')
+    // const response = await fetch('/api/auth/session') // apiClient handles auth
+    // if (!response.ok) {
+    //   throw new Error('Not authenticated')
+    // }
+    // const { session } = await response.json()
+    // if (!session) {
+    //   throw new Error('Not authenticated')
+    // }
+
+    const queryParams = new URLSearchParams();
+    if (searchTerm) queryParams.append('search', searchTerm);
+    if (tags && tags.length > 0) queryParams.append('tags', tags.join(','));
+
+    console.log('Fetching clips with params:', { searchTerm, tags });
+
+    // const clipsResponse = await fetch(`/api/clips?${queryParams.toString()}`, { // Replaced with apiClient
+    //   headers: {
+    //     'Authorization': `Bearer ${session.access_token}`
+    //   }
+    // })
+    const clipsResponse = await apiClient.get<{ clips: LibraryClip[] }>(`/api/clips?${queryParams.toString()}`);
+
+
+    // const data = await clipsResponse.json() // apiClient handles JSON parsing
+
+    // if (!clipsResponse.ok) { // apiClient handles error checking
+    //   console.error('API error response:', data)
+    //   throw new Error(data.error || data.message || 'Failed to fetch clips')
+    // }
+
+    // return data
+    if (clipsResponse.clips) {
+      return clipsResponse.clips;
     }
-
-    const queryParams = new URLSearchParams()
-    if (searchTerm) queryParams.append('search', searchTerm)
-    if (tags && tags.length > 0) queryParams.append('tags', tags.join(','))
-
-    console.log('Fetching clips with params:', { searchTerm, tags })
-
-    const response = await fetch(`/api/clips?${queryParams.toString()}`, {
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`
-      }
-    })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      console.error('API error response:', data)
-      throw new Error(data.error || data.message || 'Failed to fetch clips')
+    // Handle cases where clipsResponse might not have a 'clips' property directly,
+    // or if the API returns the array directly.
+    // This depends on the actual structure of your API response for /api/clips
+    // For now, assuming it's { clips: LibraryClip[] } based on common patterns.
+    // If it returns LibraryClip[] directly, then `return clipsResponse as LibraryClip[]` might work.
+    // Or if there's an error field:
+    if ((clipsResponse as any).error) {
+      throw new Error((clipsResponse as any).error.message || (clipsResponse as any).error || 'Failed to fetch clips');
     }
-
-    return data
+    return []; // Default to empty array if structure is unexpected and no error
   } catch (error: any) {
     console.error('Error fetching clips:', error)
     throw error
@@ -138,11 +157,14 @@ function NewFilmReviewSessionPageContent() {
     setLoading(true);
 
     try {
-      // Get the current session
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !session) {
-        throw new Error('Not authenticated');
-      }
+      // const response = await fetch('/api/auth/session') // apiClient handles auth
+      // if (!response.ok) {
+      //   throw new Error('Not authenticated')
+      // }
+      // const { session } = await response.json()
+      // if (!session) {
+      //   throw new Error('Not authenticated')
+      // }
 
       const finalSessionTags = sessionTags.split(',').map(t => t.trim()).filter(t => t);
       const sessionData = {
@@ -155,23 +177,21 @@ function NewFilmReviewSessionPageContent() {
 
       console.log('Submitting session data:', sessionData);
 
-      const response = await fetch('/api/reviews/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify(sessionData),
-      });
+      const createResponse = await apiClient.post<CreateReviewApiResponse>('/api/reviews/create', sessionData);
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create session');
+      if (createResponse && (createResponse as ErrorResponse).error) {
+        throw new Error((createResponse as ErrorResponse).error || 'Failed to create session');
       }
-
-      const data = await response.json();
-      toast.success('Review session created successfully!');
-      router.push('/videos/reviews');
+      
+      // Assuming if no error, it's a CreateReviewResponse
+      const successfulResponse = createResponse as CreateReviewResponse;
+      if (successfulResponse.success && successfulResponse.review) {
+        toast.success('Review session created successfully!');
+        router.push('/videos/reviews');
+      } else {
+        // This case should ideally be caught by the error check above if the API conforms to CreateReviewApiResponse
+        throw new Error('Failed to create session or invalid response.');
+      }
     } catch (error: any) {
       console.error('Error creating session:', error);
       toast.error(error.message || 'Failed to create session');

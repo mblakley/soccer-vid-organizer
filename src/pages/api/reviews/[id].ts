@@ -1,118 +1,99 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseClient } from '@/lib/supabaseClient'
+import type { ReviewApiResponse } from '@/lib/types/reviews'
+import type { ErrorResponse } from '@/lib/types/auth'
+import { reviewResponseSchema } from '@/lib/types/reviews'
+import { z } from 'zod'
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+// Schema for query parameters
+const queryParamsSchema = z.object({
+  id: z.string().uuid('Invalid review ID format') // Assuming review ID is a UUID
+});
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<ReviewApiResponse>
+) {
   if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' })
+    const errorResponse: ErrorResponse = {
+      error: 'Method not allowed'
+    }
+    return res.status(405).json(errorResponse)
   }
 
   try {
-    const { id } = req.query
-    if (!id || typeof id !== 'string') {
-      console.error('Invalid session ID:', id)
-      return res.status(400).json({ error: 'Invalid session ID' })
+    const queryValidation = queryParamsSchema.safeParse(req.query);
+    if (!queryValidation.success) {
+      const errorResponse: ErrorResponse = { 
+        error: 'Invalid review ID in URL',
+        // Optionally include Zod issues: issues: queryValidation.error.issues 
+      };
+      return res.status(400).json(errorResponse);
     }
+    const { id } = queryValidation.data;
 
-    // Get the authorization header
-    const authHeader = req.headers.authorization
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.error('Missing or invalid authorization header')
-      return res.status(401).json({ error: 'Missing or invalid authorization header' })
-    }
+    const supabase = getSupabaseClient(req.headers.authorization)
 
-    // Extract the token
-    const token = authHeader.split(' ')[1]
-
-    // Create a Supabase client with the user's token
-    const supabaseClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        global: {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
-      }
-    )
-
-    // Get the user info using the authenticated client
-    const { data: userData, error: userError } = await supabaseClient.auth.getUser()
-    
-    if (userError || !userData.user) {
+    // Get the current user
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError) {
       console.error('Error getting user:', userError)
-      return res.status(401).json({ error: 'Not authenticated' })
+      // Ensure consistent error throwing to be caught by the generic handler
+      throw new Error(userError.message)
     }
 
-    // Initialize Supabase client with admin privileges
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
+    if (!user) {
+      const errorResponse: ErrorResponse = {
+        error: 'Unauthorized'
       }
-    )
+      return res.status(401).json(errorResponse)
+    }
 
-    console.log('Fetching session with ID:', id)
-
-    // Fetch the session with its clips
-    const { data: session, error: sessionError } = await supabaseAdmin
-      .from('film_review_sessions')
-      .select(`
-        *,
-        clips:film_review_session_clips(
-          id,
-          clip_id,
-          display_order,
-          comment,
-          clip:clips(
-            id,
-            title,
-            video_id,
-            start_time,
-            end_time,
-            created_by,
-            created_at
-          )
-        )
-      `)
+    // Fetch the review
+    const { data: review, error: reviewError } = await supabase
+      .from('reviews')
+      .select('*')
       .eq('id', id)
       .single()
 
-    if (sessionError) {
-      console.error('Error fetching session:', sessionError)
-      return res.status(500).json({ 
-        error: 'Failed to fetch session',
-        details: sessionError.message
-      })
+    if (reviewError) {
+      console.error('Error fetching review:', reviewError)
+      // Handle cases like review not found (PGRST116) more specifically if needed
+      if (reviewError.code === 'PGRST116') { // PostgREST error for no rows found
+        const errorResponse: ErrorResponse = { error: 'Review not found' };
+        return res.status(404).json(errorResponse);
+      }
+      throw new Error(reviewError.message)
+    }
+    if (!review) { // Safeguard if single() returns null without error (should not happen with PGRST116)
+        const errorResponse: ErrorResponse = { error: 'Review not found' };
+        return res.status(404).json(errorResponse);
     }
 
-    if (!session) {
-      console.error('Session not found:', id)
-      return res.status(404).json({ error: 'Session not found' })
+    const response = { review }
+    reviewResponseSchema.parse(response)
+    return res.status(200).json(response)
+  } catch (error) {
+    if (error instanceof z.ZodError) { // Catch Zod errors from query validation
+      const errorResponse: ErrorResponse = { 
+        error: 'Invalid request parameters',
+        // issues: error.issues 
+      };
+      return res.status(400).json(errorResponse);
     }
-
-    // Sort clips by display_order
-    if (session.clips) {
-      session.clips.sort((a: any, b: any) => a.display_order - b.display_order)
+    if (error instanceof Error) {
+      // Distinguish between client errors and server errors where possible
+      const statusCode = (error.message === 'Unauthorized' || error.message.includes('Invalid authorization header')) ? 401 : 
+                         (error.message === 'Review not found') ? 404 : 400; // Default to 400 for other client errors
+      const errorResponse: ErrorResponse = {
+        error: error.message
+      }
+      return res.status(statusCode).json(errorResponse)
     }
-
-    console.log('Successfully fetched session:', {
-      id: session.id,
-      title: session.title,
-      clipCount: session.clips?.length || 0
-    })
-
-    res.status(200).json(session)
-  } catch (error: any) {
-    console.error('Error in get review API:', error)
-    res.status(500).json({ 
-      error: 'Internal server error',
-      message: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    })
+    console.error('Error in review handler:', error)
+    const errorResponse: ErrorResponse = {
+      error: 'An unknown error occurred'
+    }
+    return res.status(500).json(errorResponse)
   }
 } 

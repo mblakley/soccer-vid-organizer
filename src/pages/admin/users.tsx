@@ -15,23 +15,18 @@ import {
   SortingState,
 } from '@tanstack/react-table'
 import { Switch } from '@headlessui/react'
+import type { UserWithRole, UpdateUserRoleRequest, UsersWithRolesApiResponse, UpdateUserRoleApiResponse } from '@/lib/types/auth'
+import { apiClient } from '@/lib/api/client'
+import type { DisableUserRequest, DisableUserResponse, DisableUserApiResponse, RemoveUserRequest, RemoveUserResponse, RemoveUserApiResponse, ErrorResponse } from '@/lib/types/admin'
 
-interface User {
-  id: string
-  email: string
-  user_metadata?: {
-    full_name?: string
-    disabled?: boolean
-  }
-  is_admin: boolean
-  created_at: string
-  last_sign_in_at: string | null
+const columnHelper = createColumnHelper<UserWithRole>()
+
+function isErrorResponse(response: any): response is ErrorResponse {
+  return response && typeof response.error === 'string';
 }
 
-const columnHelper = createColumnHelper<User>()
-
 function UsersPage() {
-  const [users, setUsers] = useState<User[]>([])
+  const [users, setUsers] = useState<UserWithRole[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [sorting, setSorting] = useState<SortingState>([])
@@ -130,18 +125,23 @@ function UsersPage() {
   useEffect(() => {
     const fetchUsers = async () => {
       setError(null)
+      setLoading(true);
       try {
-        const response = await fetch('/api/admin/users-with-roles')
-        if (response.ok) {
-          const usersData = await response.json()
-          setUsers(usersData)
+        const response = await apiClient.get<UsersWithRolesApiResponse>('/api/admin/users-with-roles')
+        if (isErrorResponse(response)) {
+          console.error('Error fetching users:', response.error)
+          setError(response.error || 'Failed to fetch user list.');
+          setUsers([]);
+        } else if (response && response.users) {
+          setUsers(response.users)
         } else {
-          console.error('Error fetching users:', response.statusText)
-          setError('Failed to fetch user list.')
+          setError('Invalid response when fetching users.');
+          setUsers([]);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error fetching users:', error)
-        setError('An error occurred while fetching users.')
+        setError(error.message || 'An error occurred while fetching users.')
+        setUsers([]);
       } finally {
         setLoading(false)
       }
@@ -151,60 +151,53 @@ function UsersPage() {
 
   const updateAdminStatus = async (userId: string, isAdmin: boolean) => {
     try {
-      const response = await fetch('/api/admin/update-user-role', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          userId,
-          isAdmin,
-        }),
-      })
+      const requestBody: UpdateUserRoleRequest = { id: userId, isAdmin };
+      const response = await apiClient.post<UpdateUserRoleApiResponse>('/api/admin/update-user-role', requestBody);
 
-      if (!response.ok) {
-        throw new Error('Failed to update admin status')
+      if (isErrorResponse(response) || (response && !response.success)) {
+        const errorMsg = isErrorResponse(response) ? response.error : (response?.error || 'Failed to update admin status');
+        throw new Error(errorMsg);
       }
 
-      // Update local state
-      setUsers(users.map(user => 
-        user.id === userId 
-          ? { ...user, is_admin: isAdmin }
-          : user
+      setUsers(currentUsers => 
+        currentUsers.map(user => 
+          user.id === userId 
+            ? { ...user, is_admin: isAdmin }
+            : user
       ))
-
       toast.success(`User ${isAdmin ? 'promoted to' : 'demoted from'} admin successfully`)
     } catch (error) {
       console.error('Error updating admin status:', error)
-      toast.error('Failed to update admin status')
+      toast.error(error instanceof Error ? error.message : 'Failed to update admin status')
     }
   }
 
   const toggleUserStatus = async (id: string, disabled: boolean) => {
     setError(null)
     try {
-      const response = await fetch('/api/admin/disable-user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, disabled })
-      })
+      const requestBody: DisableUserRequest = { id, disabled };
+      const response = await apiClient.post<DisableUserApiResponse>('/api/admin/disable-user', requestBody);
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        setError(errorData.message || 'Failed to update user status')
-        return
+      if (isErrorResponse(response) || (response && !response.success)) {
+        const errorMsg = isErrorResponse(response) ? response.error : (response?.error || 'Failed to update user status');
+        setError(errorMsg);
+        toast.error(errorMsg);
+        return;
       }
       toast.success(`User ${disabled ? 'disabled' : 'enabled'} successfully.`)
-      const refreshResponse = await fetch('/api/admin/users-with-roles')
-      if (refreshResponse.ok) {
-        const usersData = await refreshResponse.json()
-        setUsers(usersData)
+      const fetchResponse = await apiClient.get<UsersWithRolesApiResponse>('/api/admin/users-with-roles');
+      if (isErrorResponse(fetchResponse)) {
+        setError(fetchResponse.error || 'User status updated, but failed to refresh user list.');
+      } else if (fetchResponse && fetchResponse.users) {
+        setUsers(fetchResponse.users);
       } else {
-        setError('User status updated, but failed to refresh user list.')
+        setError('User status updated, but failed to refresh user list (invalid response).');
       }
     } catch (error) {
       console.error('Error updating user status:', error)
-      setError('An unexpected error occurred while updating user status.')
+      const errorMsg = error instanceof Error ? error.message : 'An unexpected error occurred.';
+      setError(errorMsg);
+      toast.error(errorMsg);
     }
   }
 
@@ -214,28 +207,29 @@ function UsersPage() {
     }
     setError(null)
     try {
-      const response = await fetch('/api/admin/remove-user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
-      })
+      const requestBody: RemoveUserRequest = { id };
+      const response = await apiClient.post<RemoveUserApiResponse>('/api/admin/remove-user', requestBody);
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        setError(errorData.message || 'Failed to remove user.')
-        return
+      if (isErrorResponse(response) || (response && !response.success)) {
+        const errorMsg = isErrorResponse(response) ? response.error : (response?.error || 'Failed to remove user.');
+        setError(errorMsg);
+        toast.error(errorMsg);
+        return;
       }
       toast.success('User removed successfully.')
-      const refreshResponse = await fetch('/api/admin/users-with-roles')
-      if (refreshResponse.ok) {
-        const usersData = await refreshResponse.json()
-        setUsers(usersData)
+      const fetchResponse = await apiClient.get<UsersWithRolesApiResponse>('/api/admin/users-with-roles');
+      if (isErrorResponse(fetchResponse)) {
+        setError(fetchResponse.error || 'User removed, but failed to refresh user list.');
+      } else if (fetchResponse && fetchResponse.users) {
+        setUsers(fetchResponse.users);
       } else {
-        setError('User removed, but failed to refresh user list.')
+        setError('User removed, but failed to refresh user list (invalid response).');
       }
     } catch (error) {
       console.error('Error removing user:', error)
-      setError('An unexpected error occurred while removing user.')
+      const errorMsg = error instanceof Error ? error.message : 'An unexpected error occurred.';
+      setError(errorMsg);
+      toast.error(errorMsg);
     }
   }
 

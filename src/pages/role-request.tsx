@@ -1,121 +1,106 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import RequestRoleForm from '@/components/RequestRoleForm';
-import { getCurrentUser } from '@/lib/auth';
-import { supabase } from '@/lib/supabaseClient';
 import { useTheme } from '@/contexts/ThemeContext';
+import { apiClient } from '@/lib/api/client';
+import { withAuth, User } from '@/components/auth';
+import { TeamRole } from '@/lib/types';
+import { ListTeamsResponse, TeamRolesResponse, AvailableTeam } from '@/lib/types/teams';
 
-export default function RoleRequestPage() {
+interface RoleRequestPageProps {
+  user: User | null;
+}
+
+export function RoleRequestPage({ user }: RoleRequestPageProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<any>(null);
-  const [teams, setTeams] = useState<any[]>([]);
+  const [teams, setTeams] = useState<AvailableTeam[]>([]);
   const [selectedTeam, setSelectedTeam] = useState<string>('');
-  const [userRoles, setUserRoles] = useState<string[]>([]);
-  const [pendingRoles, setPendingRoles] = useState<string[]>([]);
+  const [userRoles, setUserRoles] = useState<TeamRole[]>([]);
+  const [pendingRoles, setPendingRoles] = useState<TeamRole[]>([]);
   const [submissionComplete, setSubmissionComplete] = useState(false);
   const { isDarkMode } = useTheme();
-  const { teamId } = router.query;
+  const { teamId: teamIdFromQuery } = router.query;
+
+  const fetchRolesForTeam = useCallback(async (teamId: string, userId: string) => {
+    try {
+      const rolesData = await apiClient.get<TeamRolesResponse>(`/api/teams/roles?teamId=${teamId}&userId=${userId}`);
+      
+      if (rolesData && rolesData.userRoles !== undefined && rolesData.pendingRoles !== undefined) {
+        setUserRoles(rolesData.userRoles as TeamRole[]);
+        setPendingRoles(rolesData.pendingRoles as TeamRole[]);
+      } else {
+        console.error('Error fetching roles: Invalid data received', rolesData);
+        setUserRoles([]);
+        setPendingRoles([]);
+      }
+    } catch (error: any) {
+      console.error('Error fetching roles:', error);
+      setUserRoles([]);
+      setPendingRoles([]);
+    }
+  }, []);
 
   useEffect(() => {
-    const checkAuth = async () => {
+    const initializePage = async () => {
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+      
+      setLoading(true);
       try {
-        const userData = await getCurrentUser();
-        if (!userData) {
-          // Redirect to login if not authenticated
-          router.push('/login');
-          return;
-        }
-        setUser(userData);
+        const teamData = await apiClient.get<ListTeamsResponse>('/api/teams/list');
         
-        // Load teams
-        const { data: teamsData, error: teamsError } = await supabase
-          .from('teams')
-          .select('*')
-          .order('name');
+        if (teamData && teamData.teams) {
+          setTeams(teamData.teams as AvailableTeam[]);
           
-        if (teamsError) {
-          console.error('Error fetching teams:', teamsError);
-        } else {
-          // Filter out the "Pending" team with ID '00000000-0000-0000-0000-000000000000'
-          const filteredTeams = teamsData?.filter(team => team.id !== '00000000-0000-0000-0000-000000000000') || [];
-          setTeams(filteredTeams);
-          
-          // If teamId is provided in the URL, set it as selected
-          if (teamId && typeof teamId === 'string') {
-            setSelectedTeam(teamId);
-            fetchRolesForTeam(teamId, userData.id);
+          const currentTeamId = Array.isArray(teamIdFromQuery) ? teamIdFromQuery[0] : teamIdFromQuery;
+          if (currentTeamId && typeof currentTeamId === 'string') {
+            const foundTeam = teamData.teams.find((t) => t.id === currentTeamId);
+            if (foundTeam) {
+              setSelectedTeam(currentTeamId);
+              fetchRolesForTeam(currentTeamId, user.id!);
+            } else {
+              console.warn(`Team with ID ${currentTeamId} not found in fetched list.`);
+            }
           }
+        } else {
+          console.error('Error fetching teams:', (teamData as any)?.message || 'No teams data returned');
+          setTeams([]);
         }
-      } catch (error) {
-        console.error('Auth check error:', error);
+      } catch (error: any) {
+        console.error('Error initializing page:', error);
+        setTeams([]);
       } finally {
         setLoading(false);
       }
     };
     
-    checkAuth();
-  }, [router, teamId]);
-  
-  const fetchRolesForTeam = async (teamId: string, userId: string) => {
-    try {
-      // Fetch user's current roles for this team
-      const { data: memberData, error: memberError } = await supabase
-        .from('team_members')
-        .select(`
-          id,
-          team_member_roles(role)
-        `)
-        .eq('team_id', teamId)
-        .eq('user_id', userId)
-        .eq('is_active', true)
-        .maybeSingle();
-        
-      if (!memberError && memberData) {
-        const roles = memberData.team_member_roles.map((r: any) => r.role);
-        setUserRoles(roles);
-      } else {
-        setUserRoles([]);
-      }
-      
-      // Fetch pending role requests
-      const { data: pendingData, error: pendingError } = await supabase
-        .from('team_member_requests')
-        .select('requested_roles')
-        .eq('team_id', teamId)
-        .eq('user_id', userId)
-        .eq('status', 'pending')
-        .maybeSingle();
-        
-      if (!pendingError && pendingData) {
-        setPendingRoles(pendingData.requested_roles);
-      } else {
-        setPendingRoles([]);
-      }
-      
-    } catch (error) {
-      console.error('Error fetching roles:', error);
-    }
-  };
+    initializePage();
+  }, [user, teamIdFromQuery, fetchRolesForTeam]);
   
   const handleTeamChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const teamId = e.target.value;
-    setSelectedTeam(teamId);
-    if (teamId && user) {
-      fetchRolesForTeam(teamId, user.id);
+    const newTeamId = e.target.value;
+    setSelectedTeam(newTeamId);
+    if (newTeamId && user) {
+      fetchRolesForTeam(newTeamId, user.id!);
+    } else {
+      setUserRoles([]);
+      setPendingRoles([]);
     }
   };
   
   const selectedTeamName = selectedTeam 
-    ? teams.find(t => t.id === selectedTeam)?.name 
+    ? teams.find((t) => t.id === selectedTeam)?.name
     : undefined;
   
   const handleSubmissionComplete = () => {
     setSubmissionComplete(true);
   };
   
-  if (loading) {
+  if (loading || !user) {
     return (
       <div className="flex justify-center items-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
@@ -162,7 +147,7 @@ export default function RoleRequestPage() {
                 </select>
               </div>
               
-              {selectedTeam ? (
+              {selectedTeam && user ? (
                 <RequestRoleForm 
                   teamId={selectedTeam}
                   teamName={selectedTeamName}
@@ -181,4 +166,10 @@ export default function RoleRequestPage() {
       </div>
     </>
   );
-} 
+}
+
+export default withAuth(RoleRequestPage, {
+  requireRole: false,
+  teamId: 'any',
+  roles: [],
+}, 'Request Team Role'); 

@@ -1,122 +1,90 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
-import { getCurrentUser } from '@/lib/auth'
+import { getSupabaseClient } from '@/lib/supabaseClient'
+import type { CreateReviewApiResponse, ErrorResponse } from '@/lib/types/reviews'
+import { createReviewRequestSchema, createReviewResponseSchema } from '@/lib/types/reviews'
+import { z } from 'zod'
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<CreateReviewApiResponse>
+) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' })
+    const errorResponse: ErrorResponse = {
+      error: 'Method not allowed'
+    }
+    res.setHeader('Allow', ['POST']);
+    return res.status(405).json(errorResponse)
   }
 
   try {
-    // Get the authorization header
-    const authHeader = req.headers.authorization
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Missing or invalid authorization header' })
-    }
+    const supabase = getSupabaseClient(req.headers.authorization)
 
-    // Extract the token
-    const token = authHeader.split(' ')[1]
-
-    // Create a Supabase client with the user's token
-    const supabaseClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        global: {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
-      }
-    )
-
-    // Get the user info using the authenticated client
-    const { data: userData, error: userError } = await supabaseClient.auth.getUser()
-    
-    if (userError || !userData.user) {
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError) {
       console.error('Error getting user:', userError)
-      return res.status(401).json({ error: 'Not authenticated' })
+      throw new Error(userError.message)
     }
 
-    const { title, description, tags, clips, team_id } = req.body
-
-    if (!title || !team_id) {
-      return res.status(400).json({ error: 'Title and team_id are required' })
-    }
-
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-    if (!supabaseUrl || !supabaseServiceKey) {
-      throw new Error('Missing Supabase environment variables')
-    }
-
-    // Initialize Supabase client with admin privileges
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
+    if (!user) {
+      const errorResponse: ErrorResponse = {
+        error: 'Unauthorized'
       }
-    })
-
-    // First get the team member ID for the current user
-    const { data: teamMember, error: teamMemberError } = await supabaseAdmin
-      .from('team_members')
-      .select('id')
-      .eq('user_id', userData.user.id)
-      .eq('team_id', team_id)
-      .single()
-
-    if (teamMemberError || !teamMember) {
-      console.error('Error finding team member:', teamMemberError)
-      return res.status(400).json({ error: 'User is not a member of this team' })
+      return res.status(401).json(errorResponse)
     }
 
-    // Start a transaction to create the session and its clips
-    const { data: session, error: sessionError } = await supabaseAdmin
-      .from('film_review_sessions')
-      .insert({
-        title,
-        description,
-        tags: tags || [],
-        creator_team_member_id: teamMember.id,
-        team_id,
-        is_private: true // Default to private
-      })
+    const reviewRequest = createReviewRequestSchema.parse(req.body)
+
+    const reviewToInsert = {
+      title: reviewRequest.title,
+      description: reviewRequest.description,
+      team_id: reviewRequest.team_id,
+      user_id: user.id,
+      status: 'new',
+      rating: 0,
+    };
+
+    const { data: review, error: reviewError } = await supabase
+      .from('reviews')
+      .insert(reviewToInsert)
       .select()
       .single()
 
-    if (sessionError) {
-      console.error('Error creating session:', sessionError)
-      return res.status(500).json({ error: 'Failed to create session' })
-    }
-
-    // If there are clips, insert them
-    if (clips && clips.length > 0) {
-      const sessionClips = clips.map((clip: any, index: number) => ({
-        film_review_session_id: session.id,
-        clip_id: clip.clip_id,
-        display_order: index + 1,
-        comment: clip.comment || null
-      }))
-
-      const { error: clipsError } = await supabaseAdmin
-        .from('film_review_session_clips')
-        .insert(sessionClips)
-
-      if (clipsError) {
-        console.error('Error creating session clips:', clipsError)
-        // Note: We don't return here because the session was created successfully
-        // We just log the error for the clips
+    if (reviewError) {
+      console.error('Error creating review:', reviewError)
+      if (reviewError.code === '23505') {
+        const errorResponse: ErrorResponse = { error: 'Review creation failed due to a conflict.' };
+        return res.status(409).json(errorResponse);
       }
+      throw new Error(reviewError.message)
+    }
+    if (!review) {
+        throw new Error('Review creation did not return data.');
     }
 
-    res.status(200).json(session)
-  } catch (error: any) {
-    console.error('Error in create review API:', error)
-    res.status(500).json({ 
-      error: 'Internal server error',
-      message: error.message
-    })
+    const response = { success: true, review }
+    createReviewResponseSchema.parse(response)
+    return res.status(201).json(response)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const errorResponse: ErrorResponse = {
+        error: 'Invalid request body',
+      }
+      return res.status(400).json(errorResponse)
+    }
+    if (error instanceof Error) {
+      const errorResponse: ErrorResponse = {
+        error: error.message
+      }
+      const statusCode = 
+        error.message === 'Unauthorized' || error.message.includes('authorization') ? 401 :
+        error.message.includes('not found') ? 404: 
+        500;
+      return res.status(statusCode).json(errorResponse)
+    }
+    console.error('Error in create review handler:', error)
+    const errorResponse: ErrorResponse = {
+      error: 'An unknown error occurred'
+    }
+    return res.status(500).json(errorResponse)
   }
 } 

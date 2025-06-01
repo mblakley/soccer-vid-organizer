@@ -1,62 +1,102 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '@/lib/supabaseClient'
+import type { TeamsApiResponse, Team } from '@/lib/types/teams'
+import type { ErrorResponse } from '@/lib/types/auth'
+import { teamsResponseSchema } from '@/lib/types/teams'
+import { z } from 'zod'
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' })
+async function verifyAdminAccess(supabaseClientWithAuth: any): Promise<{ user?: any; error?: ErrorResponse }> {
+  const { data: { user }, error: authError } = await supabaseClientWithAuth.auth.getUser();
+  if (authError) {
+    console.error('Auth error in admin check:', authError);
+    return { error: { error: 'Authentication failed: ' + authError.message } };
+  }
+  if (!user) {
+    return { error: { error: 'Unauthorized: No user session' } };
   }
 
+  const { data: userRole, error: roleError } = await supabaseClientWithAuth
+    .from('user_roles')
+    .select('is_admin')
+    .eq('user_id', user.id)
+    .single();
+
+  if (roleError) {
+    console.error('Error checking admin role:', roleError);
+    if (roleError.code === 'PGRST116') {
+        return { user, error: { error: 'Forbidden: Admin role not found.' } };
+    }
+    return { user, error: { error: `Database error checking admin role: ${roleError.message}` } };
+  }
+
+  if (!userRole?.is_admin) {
+    return { user, error: { error: 'Forbidden: User is not an admin.' } };
+  }
+  return { user };
+}
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<TeamsApiResponse>
+) {
+  if (req.method !== 'GET') {
+    const errorResponse: ErrorResponse = { error: 'Method not allowed' };
+    res.setHeader('Allow', ['GET']);
+    return res.status(405).json(errorResponse);
+  }
+
+  const supabaseUserClient = getSupabaseClient(req.headers.authorization);
+  const adminAccessCheck = await verifyAdminAccess(supabaseUserClient);
+
+  if (adminAccessCheck.error || !adminAccessCheck.user) {
+    const status = adminAccessCheck.error?.error?.includes('Unauthorized') ? 401 : 403;
+    return res.status(status).json(adminAccessCheck.error || { error: 'Access denied' });
+  }
+  
+  const supabaseService = getSupabaseClient();
+
   try {
-    const supabase = getSupabaseClient(req.headers.authorization)
-
-    // Get the current user
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    if (userError) throw userError
-
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' })
-    }
-
-    // Check if user is admin
-    const { data: userRole, error: roleError } = await supabase
-      .from('user_roles')
-      .select('is_admin')
-      .eq('user_id', user.id)
-      .single()
-
-    if (roleError) throw roleError
-
-    if (!userRole?.is_admin) {
-      return res.status(403).json({ error: 'Forbidden' })
-    }
-
-    // Fetch teams with member counts
-    const { data: teams, error: teamsError } = await supabase
+    const { data: teamsData, error: teamsError } = await supabaseService
       .from('teams')
       .select(`
         *,
-        members:team_members (
-          id,
-          user_id,
-          role,
-          users (
-            email
-          )
-        )
+        team_members ( id ) 
       `)
-      .order('name')
+      .order('name');
 
-    if (teamsError) throw teamsError
+    if (teamsError) {
+      console.error('Error fetching teams:', teamsError);
+      throw new Error(`Error fetching teams: ${teamsError.message}`);
+    }
 
-    // Transform the data to include member counts
-    const transformedTeams = teams.map(team => ({
+    const transformedTeams: Team[] = (teamsData || []).map((team: any) => ({
       ...team,
-      member_count: team.members?.length || 0
-    }))
+      member_count: team.team_members?.length || 0,
+      team_members: undefined 
+    }));
 
-    res.status(200).json(transformedTeams)
-  } catch (error: any) {
-    console.error('Error:', error)
-    res.status(500).json({ error: 'Internal server error' })
+    const responseData = { teams: transformedTeams }; 
+    teamsResponseSchema.parse(responseData); 
+
+    return res.status(200).json(responseData);
+
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const errorResponse: ErrorResponse = { 
+        error: 'Response data validation failed',
+      };
+      return res.status(500).json(errorResponse); 
+    }
+    if (error instanceof Error) {
+      const errorResponse: ErrorResponse = { error: error.message };
+      const statusCode = 
+        error.message.includes('Forbidden') ? 403 :
+        error.message.includes('Unauthorized') ? 401 :
+        500;
+      return res.status(statusCode).json(errorResponse);
+    }
+    console.error('Unexpected error in admin/teams handler:', error);
+    const errorResponse: ErrorResponse = { error: 'An unknown error occurred' };
+    return res.status(500).json(errorResponse);
   }
 } 

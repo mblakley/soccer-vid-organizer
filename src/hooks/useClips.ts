@@ -1,18 +1,34 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { SupabaseClient } from '@supabase/supabase-js';
 import { Video } from '@/pages/videos/analyze';
-import { ClipMarker } from '@/types/clips';
+import { ClipMarker } from '@/lib/types/clips';
 import { VideoPlayerControls } from '@/components/VideoPlayer';
 import { createClipMarkerFromData, parseLabelsFromCommentString, createLabelsCommentString } from '@/components/clips/ClipFactory';
+import { apiClient } from '@/lib/api/client';
+import { ErrorResponse } from '@/lib/types/auth';
+
+interface ApiResponse<T> {
+  data?: T;
+  error?: string;
+}
+
+interface ClipsResponse {
+  clips: any[];
+}
+
+interface CommentsResponse {
+  comments: any[];
+}
+
+interface ClipResponse {
+  clip: any;
+}
 
 export interface UseClipsProps {
-  supabase: SupabaseClient;
   userId: string | undefined;
   selectedVideo: Video | null;
   playerRef: React.RefObject<VideoPlayerControls | null>;
   initialRecentLabels?: string[];
   onNotifiy: (notification: { message: string; type: 'success' | 'error' }) => void;
-  // formatTime is used by the consumer, not directly by this hook for display purposes
 }
 
 export interface UseClipsReturn {
@@ -25,15 +41,13 @@ export interface UseClipsReturn {
   isSavingClip: boolean;
   recentLabels: string[];
   startRecording: () => void;
-  stopRecording: () => { success: boolean; newClipDuration: number }; // Returns success and duration for UI update
+  stopRecording: () => { success: boolean; newClipDuration: number };
   saveClip: (clipData: { title: string; comment: string; labels: string[] }) => Promise<{ success: boolean, newClip?: ClipMarker }>;
   cancelClipCreation: () => void;
   playClip: (clip: ClipMarker) => void;
-  // addLabelToRecent: (label: string) => void; // If needed
 }
 
 export const useClips = ({
-  supabase,
   userId,
   selectedVideo,
   playerRef,
@@ -49,13 +63,12 @@ export const useClips = ({
   const [isSavingClip, setIsSavingClip] = useState(false);
   const [recordingElapsed, setRecordingElapsed] = useState(0);
 
-  const formatTimeForTitle = useCallback((seconds: number) => { // Internal helper for default titles
+  const formatTimeForTitle = useCallback((seconds: number) => {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = Math.floor(seconds % 60);
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   }, []);
 
-  // Fetch clips and their comments
   useEffect(() => {
     if (!selectedVideo || !userId) {
       setClipMarkers([]);
@@ -65,30 +78,27 @@ export const useClips = ({
     const fetchClipsAndComments = async () => {
       setLoadingClips(true);
       try {
-        const { data: clipsData, error: clipsError } = await supabase
-          .from('clips')
-          .select('*')
-          .eq('video_id', selectedVideo.video_id)
-          .order('created_at', { ascending: false });
+        const response = await apiClient.get<ApiResponse<ClipsResponse>>(`/api/clips/list?videoId=${selectedVideo.video_id}&recent=true&joinVideoUrl=true`);
+        
+        if (response.error) {
+          throw new Error(response.error);
+        }
 
-        if (clipsError) throw clipsError;
-
-        let fetchedClips: ClipMarker[] = (clipsData || []).map(clip => createClipMarkerFromData(clip));
+        let fetchedClips: ClipMarker[] = (response.data?.clips || []).map(clip => createClipMarkerFromData(clip));
 
         if (fetchedClips.length > 0) {
           const clipIds = fetchedClips.map(c => c.id);
-          const { data: commentsData, error: commentsError } = await supabase
-            .from('comments')
-            .select('*')
-            .in('clip_id', clipIds);
+          const commentsResponse = await apiClient.get<ApiResponse<CommentsResponse>>(`/api/comments/list?clipIds=${clipIds.join(',')}`);
 
-          if (commentsError) throw commentsError;
+          if (commentsResponse.error) {
+            throw new Error(commentsResponse.error);
+          }
 
           fetchedClips = fetchedClips.map(clip => {
-            const regularComments = commentsData?.filter(c => 
+            const regularComments = commentsResponse.data?.comments?.filter(c => 
               c.clip_id === clip.id && (!c.comment_type || c.comment_type !== 'labels')
             ) || [];
-            const labelsComment = commentsData?.find(c => 
+            const labelsComment = commentsResponse.data?.comments?.find(c => 
               c.clip_id === clip.id && c.comment_type === 'labels'
             );
             
@@ -99,9 +109,10 @@ export const useClips = ({
           });
         }
         setClipMarkers(fetchedClips.sort((a, b) => b.startTime - a.startTime));
-      } catch (error: any) {
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to fetch clips';
         console.error('Error fetching clips or comments:', error);
-        onNotifiy({ message: 'Error fetching clips: ' + error.message, type: 'error' });
+        onNotifiy({ message: errorMessage, type: 'error' });
         setClipMarkers([]);
       } finally {
         setLoadingClips(false);
@@ -109,9 +120,8 @@ export const useClips = ({
     };
 
     fetchClipsAndComments();
-  }, [selectedVideo, userId, supabase, onNotifiy]);
+  }, [selectedVideo, userId, onNotifiy]);
 
-  // Recording elapsed time effect
   useEffect(() => {
     let timer: NodeJS.Timeout | null = null;
     if (isRecording && recordingStart !== null && playerRef.current) {
@@ -137,21 +147,20 @@ export const useClips = ({
     const currentTime = playerRef.current.getCurrentTime();
     setRecordingStart(currentTime);
     setIsRecording(true);
-    setClipDuration(0); // Reset duration
-    setRecordingElapsed(0); // Reset elapsed
+    setClipDuration(0);
+    setRecordingElapsed(0);
   }, [playerRef, onNotifiy]);
 
   const stopRecording = useCallback(() => {
     if (!playerRef.current || recordingStart === null) {
-        return { success: false, newClipDuration: 0 };
+      return { success: false, newClipDuration: 0 };
     }
     const endTime = playerRef.current.getCurrentTime();
     const duration = endTime - recordingStart;
 
     if (duration < 1) {
       onNotifiy({ message: 'Clip is too short (minimum 1 second)', type: 'error' });
-      setIsRecording(false); // Still stop recording mode
-      // setRecordingStart(null); // Keep recordingStart to allow re-attempt from create clip form, or clear it if preferred
+      setIsRecording(false);
       return { success: false, newClipDuration: 0 };
     }
 
@@ -166,50 +175,60 @@ export const useClips = ({
       onNotifiy({ message: 'Cannot save clip: Missing required information.', type: 'error' });
       return { success: false };
     }
+
     setIsSavingClip(true);
     try {
       const endTime = playerRef.current.getCurrentTime();
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !sessionData.session) {
-        throw new Error(sessionError?.message || 'No active session');
-      }
-      const session = sessionData.session;
-
+      
       const clipPayload = {
         title: clipData.title.trim() || `Clip at ${formatTimeForTitle(recordingStart)}`,
         video_id: selectedVideo.video_id,
         start_time: Math.floor(recordingStart),
         end_time: Math.floor(endTime),
         created_by: userId,
-        // source: selectedVideo.source, // Removed as 'source' column doesn't exist on 'clips' table as per error
       };
 
-      const { data: newClipData, error: clipError } = await supabase
-        .from('clips')
-        .insert(clipPayload)
-        .select()
-        .single();
-
-      if (clipError || !newClipData) {
-        throw new Error(clipError?.message || 'Failed to create clip in database');
+      const response = await apiClient.post<ApiResponse<ClipResponse>>('/api/clips/create', clipPayload);
+      
+      if (response.error) {
+        throw new Error(response.error);
       }
 
-      const clipId = newClipData.id;
+      const clipId = response.data?.clip.id;
+      if (!clipId) {
+        throw new Error('Failed to create clip: No clip ID returned');
+      }
 
+      // Save regular comment if exists
       if (clipData.comment.trim()) {
-        const { error: commentError } = await supabase.from('comments').insert({
-          clip_id: clipId, user_id: userId, content: clipData.comment, role_visibility: 'both'
+        const commentResponse = await apiClient.post<ApiResponse<void>>('/api/comments/create', {
+          clip_id: clipId,
+          user_id: userId,
+          content: clipData.comment,
+          role_visibility: 'both'
         });
-        if (commentError) console.warn('Failed to save comment:', commentError.message);
+
+        if (commentResponse.error) {
+          console.warn('Failed to save comment:', commentResponse.error);
+        }
       }
 
+      // Save labels if any
       if (clipData.labels.length > 0) {
         const labelsString = createLabelsCommentString(clipData.labels);
-        const { error: labelsCommentError } = await supabase.from('comments').insert({
-          clip_id: clipId, content: labelsString, created_by: userId, role_visibility: 'both', comment_type: 'labels'
+        const labelsResponse = await apiClient.post<ApiResponse<void>>('/api/comments/create', {
+          clip_id: clipId,
+          content: labelsString,
+          created_by: userId,
+          role_visibility: 'both',
+          comment_type: 'labels'
         });
-        if (labelsCommentError) console.warn('Failed to save labels comment:', labelsCommentError.message);
+
+        if (labelsResponse.error) {
+          console.warn('Failed to save labels comment:', labelsResponse.error);
+        }
         
+        // Update recent labels
         const updatedRecentLabels = [...clipData.labels, ...recentLabels]
           .filter((label, index, self) => self.indexOf(label) === index)
           .slice(0, 20);
@@ -217,26 +236,28 @@ export const useClips = ({
       }
 
       const fullyFormedClip: ClipMarker = {
-        ...createClipMarkerFromData(newClipData),
+        ...createClipMarkerFromData(response.data?.clip),
         comment: clipData.comment.trim(),
         labels: [...clipData.labels]
       };
       
       setClipMarkers(prev => [...prev, fullyFormedClip].sort((a, b) => b.startTime - a.startTime));
-      
       setRecordingStart(null);
       setClipDuration(0);
+      
       onNotifiy({ message: 'Clip saved successfully!', type: 'success' });
       playerRef.current?.playVideo();
+      
       return { success: true, newClip: fullyFormedClip };
-    } catch (err: any) {
-      console.error('Error saving clip:', err);
-      onNotifiy({ message: err.message || 'Error saving clip', type: 'error' });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to save clip';
+      console.error('Error saving clip:', error);
+      onNotifiy({ message: errorMessage, type: 'error' });
       return { success: false };
     } finally {
       setIsSavingClip(false);
     }
-  }, [selectedVideo, recordingStart, userId, supabase, playerRef, recentLabels, onNotifiy, formatTimeForTitle]);
+  }, [selectedVideo, recordingStart, userId, playerRef, recentLabels, onNotifiy, formatTimeForTitle]);
 
   const cancelClipCreation = useCallback(() => {
     setIsRecording(false);

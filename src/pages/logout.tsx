@@ -1,8 +1,9 @@
 'use client'
 import { useEffect } from 'react'
 import { useRouter } from 'next/router'
-import { supabase } from '@/lib/supabaseClient'
 import { useTheme } from '@/contexts/ThemeContext'
+import { apiClient } from '@/lib/api/client'
+import type { SignoutResponse } from '@/lib/types/auth'
 
 export default function LogoutPage() {
   const router = useRouter()
@@ -10,8 +11,13 @@ export default function LogoutPage() {
 
   useEffect(() => {
     const logout = async () => {
-      await supabase.auth.signOut()
-      router.push('/login')
+      try {
+        await apiClient.post<SignoutResponse>('/api/auth/signout')
+      } catch (error) {
+        console.error('Error during logout:', error)
+      } finally {
+        router.push('/login')
+      }
     }
     logout()
   }, [router])

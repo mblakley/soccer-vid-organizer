@@ -1,25 +1,27 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
-import { supabase } from '@/lib/supabaseClient'
 import { useTheme } from '@/contexts/ThemeContext'
 import ThemeToggle from '@/components/ThemeToggle'
+import { apiClient } from '@/lib/api/client'
+import type { SignupRequest, SignupApiResponse, ErrorResponse } from '@/lib/types/auth'
+import { AvailableTeam, AvailableTeamsResponse } from '@/lib/types/teams'
+import { toast } from 'react-toastify'
 
-interface Team {
-  id: string
-  name: string
-  description: string
+function isErrorResponse(response: any): response is ErrorResponse {
+  return response && typeof response.error === 'string';
 }
 
 export default function SignUp() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [fullName, setFullName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [teams, setTeams] = useState<Team[]>([])
+  const [teams, setTeams] = useState<AvailableTeam[]>([])
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null)
+  const [selectedTeam, setSelectedTeam] = useState<AvailableTeam | null>(null)
   const [requestedRole, setRequestedRole] = useState('player')
   const [showNewTeamForm, setShowNewTeamForm] = useState(false)
   const [newTeamName, setNewTeamName] = useState('')
@@ -33,89 +35,84 @@ export default function SignUp() {
 
   const fetchTeams = async () => {
     try {
-      const response = await fetch('/api/teams/available')
-      if (response.ok) {
-        const teamsData = await response.json()
-        setTeams(teamsData)
+      const response = await apiClient.get<AvailableTeamsResponse>('/api/teams/available')
+      if (response && response.teams) {
+        setTeams(response.teams)
+      } else if (isErrorResponse(response)) {
+        console.error('Error fetching teams:', response.error);
+        toast.error(`Failed to fetch teams: ${response.error}`);
       } else {
-        console.error('Error fetching teams:', response.statusText)
+        console.error('Error fetching teams: Invalid response');
+        toast.error('Failed to fetch teams. Please try again.');
       }
     } catch (error) {
       console.error('Error fetching teams:', error)
+      toast.error('An unexpected error occurred while fetching teams.');
     }
   }
 
   const filteredTeams = teams.filter(team =>
     team.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    team.description?.toLowerCase().includes(searchQuery.toLowerCase())
+    (team.description && team.description.toLowerCase().includes(searchQuery.toLowerCase()))
   )
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-
-    if (password !== confirmPassword) {
-      setError('Passwords do not match')
-      return
-    }
-
-    if (!showNewTeamForm && !selectedTeam) {
-      setError('Please select a team or request a new one')
-      return
-    }
-
-    if (showNewTeamForm && !newTeamName) {
-      setError('Please enter a team name')
-      return
-    }
-
     setLoading(true)
-
+    
     try {
-      const { data: { user }, error: signUpError } = await supabase.auth.signUp({
+      // Client-side validations
+      if (password !== confirmPassword) {
+        setError('Passwords do not match')
+        setLoading(false); // Stop loading
+        return
+      }
+
+      if (!showNewTeamForm && !selectedTeam) {
+        setError('Please select a team or request a new one')
+        setLoading(false); // Stop loading
+        return
+      }
+
+      if (showNewTeamForm && !newTeamName) {
+        setError('Please enter a team name for the new team')
+        setLoading(false); // Stop loading
+        return
+      }
+
+      const signupData: SignupRequest = {
         email,
         password,
-      })
-
-      if (signUpError) throw signUpError
-
-      if (user) {
-        if (showNewTeamForm) {
-          // Create team request
-          const response = await fetch('/api/teams/request-team', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              user_id: user.id,
-              team_name: newTeamName,
-              description: newTeamDescription
-            })
-          })
-
-          if (!response.ok) {
-            throw new Error('Failed to create team request')
-          }
-        } else if (selectedTeam) {
-          // Create team join request
-          const response = await fetch('/api/teams/request-join', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              team_id: selectedTeam.id,
-              user_id: user.id,
-              requested_roles: [requestedRole]
-            })
-          })
-
-          if (!response.ok) {
-            throw new Error('Failed to create team join request')
-          }
-        }
-
-        router.push('/signup-success')
+        full_name: fullName,
+        role: requestedRole as 'admin' | 'coach' | 'player',
+        team_id: selectedTeam?.id,
+      };
+      
+      if (showNewTeamForm) {
+        signupData.new_team_name = newTeamName;
+        signupData.new_team_description = newTeamDescription;
       }
-    } catch (error: any) {
-      setError(error.message)
+
+      const response = await apiClient.post<SignupApiResponse>('/api/auth/signup', signupData)
+      
+      if (isErrorResponse(response)) {
+        toast.error(response.error)
+        setError(response.error)
+        return
+      }
+
+      if (!response.user && !showNewTeamForm) {
+        toast.error('Signup failed: No user data returned.');
+        setError('Signup failed: No user data returned.');
+        return;
+      }
+
+      toast.success('Account created successfully! Please check your email to verify your account.')
+      router.push('/login')
+    } catch (err: any) {
+      console.error('Error signing up:', err)
+      setError(err.message || 'Failed to sign up')
     } finally {
       setLoading(false)
     }
@@ -136,6 +133,23 @@ export default function SignUp() {
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSignUp}>
           <div className="rounded-md shadow-sm space-y-4">
+            <div>
+              <label htmlFor="full-name" className="sr-only">
+                Full Name
+              </label>
+              <input
+                id="full-name"
+                name="full-name"
+                type="text"
+                required
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                className={`appearance-none rounded relative block w-full px-3 py-2 border ${
+                  isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
+                } placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm`}
+                placeholder="Full Name"
+              />
+            </div>
             <div>
               <label htmlFor="email" className="sr-only">
                 Email address

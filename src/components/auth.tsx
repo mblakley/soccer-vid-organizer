@@ -4,6 +4,28 @@ import { getCurrentUser, isAdmin, hasTeamRole } from '@/lib/auth'
 import { AppRole, TeamRole } from '@/lib/types'
 import AppLayout from './AppLayout'
 
+export interface User {
+  id: string;
+  email?: string;
+  app_metadata?: {
+    provider?: string;
+    [key: string]: any;
+  };
+  user_metadata?: {
+    [key: string]: any;
+  };
+  aud?: string;
+  created_at?: string;
+  teamRoles?: { 
+    [teamId: string]: {
+      name: string;
+      roles: TeamRole[];
+    } 
+  };
+  // Add roles property based on the usage in TournamentPage
+  roles?: TeamRole[]; // This seems to be used directly on user object in some pages
+}
+
 type TeamRoleRequirement = {
   teamId: string | 'any';
   roles: TeamRole[];
@@ -23,7 +45,7 @@ export function withAuth(
 ) {
   return function AuthenticatedComponent(props: any) {
     const router = useRouter()
-    const [user, setUser] = useState<any>(null)
+    const [user, setUser] = useState<User | null>(null)
     const [loading, setLoading] = useState(true)
 
     useEffect(() => {
@@ -103,7 +125,7 @@ export function withAdminAuth(
 ) {
   return function AdminAuthenticatedComponent(props: any) {
     const router = useRouter()
-    const [user, setUser] = useState<any>(null)
+    const [user, setUser] = useState<User | null>(null)
     const [loading, setLoading] = useState(true)
 
     useEffect(() => {

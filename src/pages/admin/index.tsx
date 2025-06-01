@@ -3,10 +3,16 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { withAdminAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
-import { supabase } from '@/lib/supabaseClient'
+import { apiClient } from '@/lib/api/client'
+import { DashboardStatsResponse, DashboardStatsApiResponse, ErrorResponse } from '@/lib/types/admin'
+import { toast } from 'react-toastify'
+
+function isErrorResponse(response: any): response is ErrorResponse {
+  return response && typeof response.error === 'string';
+}
 
 function AdminDashboard() {
-  const [stats, setStats] = useState({
+  const [stats, setStats] = useState<DashboardStatsResponse>({
     totalUsers: 0,
     adminUsers: 0,
     disabledUsers: 0,
@@ -23,76 +29,22 @@ function AdminDashboard() {
 
   useEffect(() => {
     const fetchStats = async () => {
+      setLoading(true)
       try {
-        // Fetch user stats
-        const response = await fetch('/api/admin/users-with-roles')
-        const users = response.ok ? await response.json() : []
+        const response = await apiClient.get<DashboardStatsApiResponse>('/api/admin/dashboard-stats')
         
-        // Fetch team stats
-        const { data: teams, error: teamsError } = await supabase
-          .from('teams')
-          .select('id, club_affiliation')
-          .neq('club_affiliation', 'System')
-
-        // Fetch team member stats
-        const { data: teamMembers, error: membersError } = await supabase
-          .from('team_members')
-          .select('id, is_active, user_id')
-          .eq('is_active', true)
-
-        // Fetch pending team join requests
-        const { data: joinRequests, error: joinError } = await supabase
-          .from('team_member_requests')
-          .select('id')
-          .eq('status', 'pending')
-
-        // Fetch pending role requests
-        const { data: roleRequests, error: roleError } = await supabase
-          .from('team_member_role_requests')
-          .select('id')
-          .eq('status', 'pending')
-
-        // Fetch leagues count
-        const { count: leaguesCount, error: leaguesError } = await supabase
-          .from('leagues')
-          .select('id', { count: 'exact', head: true })
-
-        // Fetch tournaments count
-        const { count: tournamentsCount, error: tournamentsError } = await supabase
-          .from('tournaments')
-          .select('id', { count: 'exact', head: true })
-
-        if (teamsError) throw teamsError
-        if (membersError) throw membersError
-        if (joinError) throw joinError
-        if (roleError) throw roleError
-        if (leaguesError) throw leaguesError
-        if (tournamentsError) throw tournamentsError
-
-        // Create a set of user IDs that are associated with team members
-        const teamMemberUserIds = new Set(teamMembers?.map(member => member.user_id) || [])
-
-        setStats({
-          totalUsers: users.filter((u: any) => {
-            // Include user if:
-            // 1. Not a temp user OR
-            // 2. Is a temp user but is associated with a team member
-            return !u.email?.startsWith('temp_') || 
-                   !u.email?.endsWith('@placeholder.com') || 
-                   teamMemberUserIds.has(u.id)
-          }).length,
-          adminUsers: users.filter((u: any) => u.is_admin).length,
-          disabledUsers: users.filter((u: any) => u.user_metadata?.disabled).length,
-          totalTeams: teams?.length || 0,
-          activeTeams: teams?.filter(t => t.club_affiliation !== 'System').length || 0,
-          totalTeamMembers: teamMembers?.length || 0,
-          pendingJoinRequests: joinRequests?.length || 0,
-          pendingRoleRequests: roleRequests?.length || 0,
-          totalLeagues: leaguesCount || 0,
-          totalTournaments: tournamentsCount || 0,
-        })
+        if (isErrorResponse(response)) {
+          console.error('Error fetching stats:', response.error)
+          toast.error(`Failed to fetch dashboard stats: ${response.error}`)
+        } else if (response) {
+          setStats(response)
+        } else {
+          console.error('Error fetching stats: Invalid response data')
+          toast.error('Failed to fetch dashboard stats: Invalid response.')
+        }
       } catch (error) {
         console.error('Error fetching stats:', error)
+        toast.error('An unexpected error occurred while fetching dashboard stats.')
       } finally {
         setLoading(false)
       }

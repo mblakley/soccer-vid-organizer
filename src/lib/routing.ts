@@ -1,5 +1,5 @@
 import { NextRouter } from 'next/router'
-import { supabase } from './supabaseClient'
+import { apiClient } from '@/lib/api/client'
 import { getRedirectPath, User } from './auth'
 import { toast } from 'react-toastify';
 
@@ -15,7 +15,7 @@ export async function handleRoleBasedRouting(
       toast.info('Your account is awaiting role approval. Please contact an admin.');
     }
     if (shouldSignOut) {
-      await supabase.auth.signOut()
+      await apiClient.post('/api/auth/signout')
     }
     router.push('/login')
     return

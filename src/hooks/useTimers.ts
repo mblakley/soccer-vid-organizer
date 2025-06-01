@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { apiClient } from '@/lib/api/client';
 import { PlayerTimer, TimerSession } from '@/components/timers/TimerInterfaces';
 import { toast } from 'react-toastify';
 
@@ -32,62 +32,41 @@ export function useTimers({ userId, videoId, onError }: UseTimersOptions) {
   // Fetch timers for the current video
   const fetchTimersForVideo = useCallback(async () => {
     try {
-      // Only fetch if we have a videoId
       if (!videoId) {
         setPlayerTimers([]);
         return;
       }
-
       setLoading(true);
-      
-      // Fetch timers for the specific video
-      const { data: timersData, error: timersError } = await supabase
-        .from('timers')
-        .select('*')
-        .eq('video_id', videoId)
-        .order('created_at', { ascending: false });
-
+      const { data: timersData, error: timersError } = await apiClient.get(`/api/timers?videoId=${videoId}`);
       if (timersError) throw timersError;
-
       // For each timer, fetch its events
       const timersWithEvents = await Promise.all(
-        (timersData || []).map(async (timer) => {
-          const { data: events, error: eventsError } = await supabase
-            .from('timer_events')
-            .select('*')
-            .eq('timer_id', timer.id)
-            .order('start_time', { ascending: true });
-
+        (timersData || []).map(async (timer: any) => {
+          const { data: events, error: eventsError } = await apiClient.get(`/api/timer-events?timerId=${timer.id}`);
           if (eventsError) throw eventsError;
-
           // Calculate total duration from sessions
-          const totalDurationFromSessions = (events || []).reduce((acc, session) => acc + (session.duration || 0), 0);
-
+          const totalDurationFromSessions = (events || []).reduce((acc: number, session: any) => acc + (session.duration || 0), 0);
           const mappedTimer: PlayerTimer = {
             id: timer.id,
             name: timer.name,
             startTime: null,
             endTime: null,
-            duration: totalDurationFromSessions, // Use sum of session durations
+            duration: totalDurationFromSessions,
             active: false,
             type: timer.type,
-            sessions: events.map(e => ({
+            sessions: events.map((e: any) => ({
               startTime: e.start_time,
               endTime: e.end_time,
               duration: e.duration || 0
             }))
           };
-
-          // If it's a player-based timer, initialize player data
           if (timer.type === 'player-based') {
             mappedTimer.players = [];
             mappedTimer.playerTimes = {};
           }
-
           return mappedTimer;
         })
       );
-
       setPlayerTimers(timersWithEvents);
     } catch (error) {
       handleError('Error fetching timers', error);
@@ -135,16 +114,12 @@ export function useTimers({ userId, videoId, onError }: UseTimersOptions) {
     
     try {
       // Create timer in database
-      const { data: timerData, error: timerError } = await supabase
-        .from('timers')
-        .insert({
-          name: newTimerName,
-          type: newTimerType,
-          video_id: videoId,
-          created_by: userId
-        })
-        .select()
-        .single();
+      const { data: timerData, error: timerError } = await apiClient.post('/api/timers', {
+        name: newTimerName,
+        type: newTimerType,
+        video_id: videoId,
+        created_by: userId
+      });
 
       if (timerError) throw timerError;
 
@@ -212,17 +187,13 @@ export function useTimers({ userId, videoId, onError }: UseTimersOptions) {
       const currentTime = Date.now() / 1000; // Use current timestamp if no player
       
       // Create timer event
-      const { data: eventData, error: eventError } = await supabase
-        .from('timer_events')
-        .insert({
-          timer_id: timerId,
-          start_time: currentTime,
-          end_time: null,
-          duration: null,
-          team_member_id: null
-        })
-        .select()
-        .single();
+      const { data: eventData, error: eventError } = await apiClient.post('/api/timer-events', {
+        timer_id: timerId,
+        start_time: currentTime,
+        end_time: null,
+        duration: null,
+        team_member_id: null
+      });
 
       if (eventError) throw eventError;
 
@@ -259,26 +230,16 @@ export function useTimers({ userId, videoId, onError }: UseTimersOptions) {
       const currentTime = Date.now() / 1000; // Use current timestamp if no player
       
       // Get the most recent timer event for this timer
-      const { data: events, error: eventsError } = await supabase
-        .from('timer_events')
-        .select('*')
-        .eq('timer_id', timerId)
-        .is('end_time', null)
-        .order('start_time', { ascending: false })
-        .limit(1)
-        .single();
+      const { data: events, error: eventsError } = await apiClient.get(`/api/timer-events?timerId=${timerId}&end_time=null`);
 
       if (eventsError) throw eventsError;
 
       if (events) {
         // Update the timer event
-        const { error: updateError } = await supabase
-          .from('timer_events')
-          .update({
-            end_time: currentTime,
-            duration: currentTime - events.start_time
-          })
-          .eq('id', events.id);
+        const { error: updateError } = await apiClient.put(`/api/timer-events/${events.id}`, {
+          end_time: currentTime,
+          duration: currentTime - events.start_time
+        });
 
         if (updateError) throw updateError;
       }
@@ -341,18 +302,12 @@ export function useTimers({ userId, videoId, onError }: UseTimersOptions) {
   const removeTimer = useCallback(async (timerId: string) => {
     try {
       // First delete all timer events
-      const { error: eventsError } = await supabase
-        .from('timer_events')
-        .delete()
-        .eq('timer_id', timerId);
+      const { error: eventsError } = await apiClient.delete(`/api/timer-events?timerId=${timerId}`);
 
       if (eventsError) throw eventsError;
 
       // Then delete the timer
-      const { error: timerError } = await supabase
-        .from('timers')
-        .delete()
-        .eq('id', timerId);
+      const { error: timerError } = await apiClient.delete(`/api/timers/${timerId}`);
 
       if (timerError) throw timerError;
 

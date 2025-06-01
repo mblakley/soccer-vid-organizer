@@ -1,22 +1,31 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-// Default client without auth header
-export const supabase = createClient(supabaseUrl, supabaseKey);
+const supabaseClient = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  }
+)
 
 // Function to get a client with custom auth header
 export function getSupabaseClient(authHeader?: string) {
   if (!authHeader) {
-    return supabase;
+    return supabaseClient;
   }
   
-  return createClient(supabaseUrl, supabaseKey, {
-    global: {
-      headers: {
-        Authorization: authHeader
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      global: {
+        headers: {
+          Authorization: authHeader
+        }
       }
     }
-  });
+  );
 }

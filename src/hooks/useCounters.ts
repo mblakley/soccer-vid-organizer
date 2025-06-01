@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { apiClient } from '@/lib/api/client';
 import { CountTracker, CounterType } from '@/components/counters/CounterInterfaces';
+import { CounterEvent, CreateCounterEvent, isCounterEvent } from '@/types/counterTypes';
 import { toast } from 'react-toastify';
 
 interface UseCountersOptions {
@@ -35,26 +36,18 @@ export function useCounters({ userId, videoId, onError }: UseCountersOptions) {
         return;
       }
       setLoading(true);
-      const { data: countersData, error: countersError } = await supabase
-        .from('counters')
-        .select('*')
-        .eq('video_id', videoId)
-        .order('created_at', { ascending: false });
+      const { data: countersData, error: countersError } = await apiClient.get(`/api/counters?videoId=${videoId}`);
       if (countersError) throw countersError;
       // For each counter, fetch its events
       const countersWithEvents = await Promise.all(
-        (countersData || []).map(async (counter) => {
-          const { data: events, error: eventsError } = await supabase
-            .from('counter_events')
-            .select('timestamp')
-            .eq('counter_id', counter.id)
-            .order('timestamp', { ascending: true });
+        (countersData || []).map(async (counter: any) => {
+          const { data: events, error: eventsError } = await apiClient.get(`/api/counter-events?counterId=${counter.id}`);
           if (eventsError) throw eventsError;
           const mappedCounter: CountTracker = {
             id: counter.id,
             name: counter.name,
             count: counter.count,
-            timestamps: events.map(e => e.timestamp),
+            timestamps: events.map((e: CounterEvent) => e.timestamp),
             type: counter.type,
           };
           if (counter.type === 'player-based') {
@@ -102,17 +95,13 @@ export function useCounters({ userId, videoId, onError }: UseCountersOptions) {
       return;
     }
     try {
-      const { data: counterData, error: counterError } = await supabase
-        .from('counters')
-        .insert({
-          name: newCounterName,
-          type: newCounterType,
-          count: 0,
-          video_id: videoId,
-          created_by: userId
-        })
-        .select()
-        .single();
+      const { data: counterData, error: counterError } = await apiClient.post('/api/counters', {
+        name: newCounterName,
+        type: newCounterType,
+        count: 0,
+        videoId: videoId,
+        createdBy: userId
+      });
       if (counterError) throw counterError;
       const newCounter: CountTracker = {
         id: counterData.id,
@@ -158,26 +147,26 @@ export function useCounters({ userId, videoId, onError }: UseCountersOptions) {
     try {
       // Create counter event
       const currentTime = Date.now() / 1000;
-      const { error: eventError } = await supabase
-        .from('counter_events')
-        .insert({
-          counter_id: counterId,
-          timestamp: currentTime,
-          value: 1,
-          team_member_id: null
-        });
+      const newEvent: CreateCounterEvent = {
+        counterId: counterId,
+        timestamp: currentTime,
+        value: 1,
+        teamMemberId: null
+      };
+      const { error: eventError } = await apiClient.post('/api/counter-events', newEvent);
       if (eventError) throw eventError;
       // Get the new count using RPC
-      const { data: newCount, error: rpcError } = await supabase
-        .rpc('increment_counter', { counter_id: counterId });
+      const { data: newCount, error: rpcError } = await apiClient.post('/api/increment-counter', { counterId: counterId });
       if (rpcError) throw rpcError;
       // Get all events for this counter to update timestamps
-      const { data: events, error: eventsError } = await supabase
-        .from('counter_events')
-        .select('timestamp')
-        .eq('counter_id', counterId)
-        .order('timestamp', { ascending: true });
+      const { data: events, error: eventsError } = await apiClient.get(`/api/counter-events?counterId=${counterId}`);
       if (eventsError) throw eventsError;
+      
+      // Validate that all events match the CounterEvent interface
+      if (!Array.isArray(events) || !events.every(isCounterEvent)) {
+        throw new Error('Invalid counter events data received from server');
+      }
+
       setCounters(prevCounters =>
         prevCounters.map(counter => {
           if (counter.id !== counterId) return counter;
@@ -223,15 +212,11 @@ export function useCounters({ userId, videoId, onError }: UseCountersOptions) {
 
   const removeCounter = useCallback(async (counterId: string) => {
     try {
-      const { error: eventsError } = await supabase
-        .from('counter_events')
-        .delete()
-        .eq('counter_id', counterId);
+      // First delete all counter events
+      const { error: eventsError } = await apiClient.post('/api/counter-events/delete', { counterId });
       if (eventsError) throw eventsError;
-      const { error: counterError } = await supabase
-        .from('counters')
-        .delete()
-        .eq('id', counterId);
+      // Then delete the counter
+      const { error: counterError } = await apiClient.post('/api/counters/delete', { id: counterId });
       if (counterError) throw counterError;
       setCounters(prevCounters => 
         prevCounters.filter(counter => counter.id !== counterId)

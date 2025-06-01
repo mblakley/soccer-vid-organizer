@@ -1,115 +1,81 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseClient } from '@/lib/supabaseClient'
+import type {
+  EnsureUserRoleApiResponse,
+  ErrorResponse
+} from '@/lib/types/auth'
+import {
+  ensureUserRoleRequestSchema,
+  ensureUserRoleResponseSchema
+} from '@/lib/types/auth'
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<EnsureUserRoleApiResponse>
+) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' })
+    const errorResponse: ErrorResponse = {
+      error: 'Method not allowed'
+    }
+    return res.status(405).json(errorResponse)
   }
 
   try {
-    const { userId } = req.body
+    const supabase = getSupabaseClient(req.headers.authorization)
 
-    if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' })
+    // Get the current user
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+
+    if (userError) {
+      console.error('Error getting user:', userError)
+      throw new Error(userError.message)
     }
 
-    // Verify the user is authenticated and is requesting their own role
-    const authHeader = req.headers.authorization
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Missing or invalid authorization header' })
-    }
-
-    // Extract the token
-    const token = authHeader.split(' ')[1]
-
-    // Create a Supabase client with the user's token
-    const supabaseClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        global: {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
+    if (!user) {
+      const errorResponse: ErrorResponse = {
+        error: 'Unauthorized'
       }
-    )
-    
-    // Get the user info using the authenticated client
-    const { data: userData, error: userError } = await supabaseClient.auth.getUser()
-    
-    if (userError || !userData.user) {
-      return res.status(401).json({ error: 'Not authenticated' })
+      return res.status(401).json(errorResponse)
     }
-    
+
+    // Validate request body
+    const { userId } = ensureUserRoleRequestSchema.parse(req.body)
+
     // Verify the user is requesting their own role
-    if (userData.user.id !== userId) {
-      return res.status(403).json({ error: 'You can only ensure your own user role' })
-    }
-    
-    // Now use the admin client with service role to bypass RLS and constraints
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
+    if (user.id !== userId) {
+      const errorResponse: ErrorResponse = {
+        error: 'Forbidden: You can only ensure your own user role'
       }
-    )
-    
-    // First check if the user role already exists
-    const { data: existingRole, error: checkError } = await supabaseAdmin
-      .from('user_roles')
-      .select('id')
-      .eq('user_id', userId)
-      .maybeSingle()
-    
-    if (checkError) {
-      console.error('Error checking existing role:', checkError)
-      return res.status(500).json({
-        error: 'Failed to check existing role',
-        details: checkError
-      })
+      return res.status(403).json(errorResponse)
     }
-    
-    // If role already exists, return success
-    if (existingRole) {
-      return res.status(200).json({
-        success: true,
-        message: 'User role already exists',
-        id: existingRole.id
-      })
-    }
-    
-    // Create the user role directly
-    const { data: newRole, error: insertError } = await supabaseAdmin
-      .from('user_roles')
-      .insert([
-        { user_id: userId, is_admin: false }
-      ])
-      .select()
-      .single()
-    
-    if (insertError) {
-      console.error('Error creating user role:', insertError)
-      return res.status(500).json({
-        error: 'Failed to create user role',
-        details: insertError
-      })
-    }
-    
-    return res.status(200).json({
-      success: true,
-      message: 'User role created successfully',
-      role: newRole
+
+    // Call the ensure_user_role function
+    // Note: Supabase client for rpc calls should be authenticated as the user,
+    // or use service_role key if admin privileges are required for the rpc call itself.
+    // The current setup uses the user's authenticated client.
+    const { data, error: rpcError } = await supabase.rpc('ensure_user_role', {
+      user_id_param: userId
     })
-  } catch (error: any) {
-    console.error('Error in ensure-user-role API:', error)
-    return res.status(500).json({
-      error: 'Internal server error',
-      message: error.message
-    })
+
+    if (rpcError) {
+      console.error('Error calling ensure_user_role:', rpcError)
+      throw new Error(rpcError.message)
+    }
+
+    const response = { success: true, data }
+    ensureUserRoleResponseSchema.parse(response) // Validate response
+    return res.status(200).json(response)
+  } catch (error) {
+    if (error instanceof Error) {
+      const errorResponse: ErrorResponse = {
+        error: error.message
+      }
+      return res.status(400).json(errorResponse)
+    }
+    console.error('Error in ensure-user-role handler:', error)
+    const errorResponse: ErrorResponse = {
+      error: 'An unknown error occurred'
+    }
+    return res.status(500).json(errorResponse)
   }
 } 
