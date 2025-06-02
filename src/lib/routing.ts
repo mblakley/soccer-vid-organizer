@@ -1,5 +1,6 @@
 import { NextRouter } from 'next/router'
-import { apiClient } from '@/lib/api/client'
+// import { apiClient } from '@/lib/api/client' // No longer needed
+import { getSupabaseBrowserClient } from '@/lib/supabaseClient' // Import Supabase client
 import { getRedirectPath, User } from './auth'
 import { toast } from 'react-toastify';
 
@@ -15,7 +16,14 @@ export async function handleRoleBasedRouting(
       toast.info('Your account is awaiting role approval. Please contact an admin.');
     }
     if (shouldSignOut) {
-      await apiClient.post('/api/auth/signout')
+      // await apiClient.post('/api/auth/signout') // Old way
+      const supabase = getSupabaseBrowserClient();
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Error signing out in handleRoleBasedRouting:', error.message);
+        // Optionally, show a toast error to the user if signout fails here, 
+        // though typically it should succeed or the user is already effectively signed out.
+      }
     }
     router.push('/login')
     return

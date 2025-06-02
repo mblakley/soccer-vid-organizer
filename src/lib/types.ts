@@ -113,18 +113,17 @@ export interface LibraryClip {
 
 // Define the Video type based on usage in videos.tsx
 export interface Video {
-  id: string; // Or number, depending on your DB schema
+  id: string; 
   title: string;
   url?: string | null;
-  source?: string | null; // e.g., 'youtube', 'veo', 'hudl'
-  video_id?: string | null; // Specific ID from the source (e.g., YouTube video ID)
-  duration?: number | null; // Duration in seconds
+  source?: string | null; 
+  video_id?: string | null; 
+  duration?: number | null; 
   metadata?: { 
     thumbnailUrl?: string | null;
-    [key: string]: any; // For other metadata properties
+    [key: string]: any; 
   } | null;
-  created_at?: string | null; // ISO date string
-  // Add any other relevant fields from your 'videos' table
+  created_at?: string | null; 
 }
 
 // Define the Review type based on usage in src/pages/videos/reviews/index.tsx
@@ -265,4 +264,10 @@ export interface TournamentGameEntry {
   flight?: string | null;
   created_at?: string; // ISO date string
   updated_at?: string; // ISO date string
+}
+
+// For GET /api/videos/list
+export interface ListVideosApiResponse {
+  videos: Video[];
+  message?: string;
 } 

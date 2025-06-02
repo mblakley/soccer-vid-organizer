@@ -5,12 +5,13 @@ import { getRedirectPath, refreshUserSession } from '@/lib/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import ThemeToggle from '@/components/ThemeToggle'
 import { toast } from 'react-toastify'
-import { apiClient } from '@/lib/api/client'
-import { AuthLoginRequest, AuthSessionApiResponse, GoogleOAuthApiResponse, ErrorResponse } from '@/lib/types/auth'
+import { getSupabaseBrowserClient } from '@/lib/supabaseClient'
+import { AuthLoginRequest, ErrorResponse } from '@/lib/types/auth'
+import { AuthError, Session, User } from '@supabase/supabase-js'
 
-// Type guard to check for ErrorResponse
-function isErrorResponse(response: any): response is ErrorResponse {
-  return response && typeof response.error === 'string';
+// Type guard for Supabase AuthError
+function isAuthError(error: any): error is AuthError {
+  return error && typeof error.message === 'string' && typeof error.status === 'number';
 }
 
 export default function LoginPage() {
@@ -23,141 +24,175 @@ export default function LoginPage() {
     password: '',
   })
   const { isDarkMode } = useTheme()
+  const supabase = getSupabaseBrowserClient()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
+    setError('')
 
     try {
-      const response = await apiClient.post<AuthSessionApiResponse>('/api/auth/login', formData)
-      if (isErrorResponse(response)) {
-        throw new Error(response.error)
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      })
+
+      if (signInError) {
+        throw signInError
       }
-      if (!response.session) {
+
+      if (!data.session) {
         throw new Error('Login successful, but no session data received.')
       }
 
       toast.success('Logged in successfully!')
-      await refreshUserSession()
-      const user = await apiClient.get<AuthSessionApiResponse>('/api/auth/session')
-      if (user && !isErrorResponse(user) && user.session) {
-        const refreshedCurrentUser = await refreshUserSession()
+      const refreshedCurrentUser = await refreshUserSession()
+      if (refreshedCurrentUser) {
         const redirectPath = getRedirectPath(refreshedCurrentUser, router.query.team_id ? { team_id: router.query.team_id as string } : undefined)
         router.push(redirectPath)
       } else {
+        console.warn("Login successful with Supabase, but refreshUserSession returned no user. Redirecting to dashboard.")
         router.push('/dashboard')
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to log in. Please try again.')
+      console.error("[Login] handleSubmit error:", error)
+      const errorMessage = isAuthError(error) ? error.message : 'Failed to log in. Please check your credentials and try again.';
+      toast.error(errorMessage)
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
   }
 
   const handleResetPassword = async () => {
+    setLoading(true);
+    setError('');
     try {
-      await apiClient.post('/api/auth/reset-password', { email: formData.email })
-      toast.success('Password reset email sent!')
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(formData.email, {
+        // redirectTo: `${window.location.origin}/reset-password` // Optional: specify where user is redirected after clicking link in email
+      });
+      if (resetError) {
+        throw resetError;
+      }
+      toast.success('Password reset email sent! Check your inbox.')
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to send reset email. Please try again.')
+      console.error("[Login] handleResetPassword error:", error);
+      const errorMessage = isAuthError(error) ? error.message : 'Failed to send reset email. Please try again.';
+      toast.error(errorMessage);
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
     }
   }
 
   const handleGoogleLogin = async () => {
     console.log("[Login] Starting Google login...")
     setLoading(true)
+    setError('');
     
     try {
-      // Get team_id from URL if it exists
       const teamId = router.query.team_id as string
       console.log("[Login] Preserving team_id for Google login:", teamId)
       
-      // Call our API endpoint to initiate Google OAuth
-      const response = await apiClient.post<GoogleOAuthApiResponse>('/api/auth/google', { team_id: teamId })
-      
-      if (isErrorResponse(response)) {
-        throw new Error(response.error)
+      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/`,
+          queryParams: teamId ? { team_id: teamId } : undefined,
+        },
+      })
+
+      if (oauthError) {
+        throw oauthError;
       }
 
-      if (!response.url) {
+      if (!data.url) { // The URL is directly in data.url for OAuth
         throw new Error('No OAuth URL received')
       }
       
-      // Store the team_id in sessionStorage as a backup
       if (teamId) {
         sessionStorage.setItem('pending_team_id', teamId)
         console.log("[Login] Stored team_id in sessionStorage:", teamId)
       }
       
-      // Redirect to Google OAuth URL
-      window.location.href = response.url
-      
+      window.location.href = data.url
       
       console.log("[Login] Google OAuth initiated, waiting for redirect back")
     } catch (error) {
       console.error("[Login] Google login error:", error)
-      setError(error instanceof Error ? error.message : 'Failed to initiate Google login')
+      const errorMessage = isAuthError(error) ? error.message : 'Failed to initiate Google login';
+      toast.error(errorMessage);
+      setError(errorMessage); 
     } finally {
-      setLoading(false)
+      // setLoading(false) // Page will redirect, so this might not be necessary
     }
   }
 
   useEffect(() => {
-    console.log("[Login] Login page loaded, checking session...")
-    const handleAuthRedirect = async () => {
-      setError('') // Clear error on auth check
-      setLoading(true)
-      
-      try {
-        // Check if user is already logged in
-        const response = await apiClient.get<AuthSessionApiResponse>('/api/auth/session')
-        if (!response || isErrorResponse(response)) {
-          console.log("[Login] No session data received or error fetching session")
-          setLoading(false)
-          return
-        }
-        
-        // Get team_id from URL query if it exists (for later use in redirect)
-        const teamId = router.query.team_id as string
-        console.log("[Login] URL team_id parameter:", teamId)
-        
-        // Check sessionStorage for pending team_id
-        const pendingTeamId = sessionStorage.getItem('pending_team_id')
-        console.log("[Login] Pending team_id from sessionStorage:", pendingTeamId)
-        
-        // Use either URL team_id or pending team_id
-        const finalTeamId = teamId || pendingTeamId
-        if (finalTeamId) {
-          console.log("[Login] Using final team_id:", finalTeamId)
-          // Clear the pending team_id
-          sessionStorage.removeItem('pending_team_id')
-        }
-        
-        // Refresh token to get the latest team roles
-        const refreshedUser = await refreshUserSession()
-        console.log("[Login] Session refreshed, user data:", refreshedUser)
-        
-        if (refreshedUser) {
-          // Determine redirect path with updated claims
-          const queryParams = finalTeamId ? { team_id: finalTeamId } : undefined
-          const redirectPath = getRedirectPath(refreshedUser, queryParams)
-          console.log("[Login] Redirecting to:", redirectPath)
-          
-          // Use replace instead of push to avoid adding to browser history
-          router.replace(redirectPath)
-        } else {
-          console.log("[Login] No user data after refresh - remaining on login page")
-        }
-      } catch (error) {
-        console.error("[Login] Error processing session:", error)
-        setError(error instanceof Error ? error.message : 'An error occurred while processing your session. Please try logging in again.')
-      } finally {
-        setLoading(false)
-      }
-    }
+    console.log("[Login] Login page loaded, checking for existing session or auth redirect...");
+    setLoading(true);
+    setError('');
 
-    handleAuthRedirect()
-  }, [router])
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("[Login] onAuthStateChange event:", event, "session:", session);
+      setLoading(false); // Stop loading once auth state is determined
+
+      if (event === 'SIGNED_IN' && session) {
+        console.log("[Login] User signed in via onAuthStateChange or initial session detected.");
+        const user = session.user;
+        // refreshUserSession might still be important here for custom claims
+        const refreshedCurrentUser = await refreshUserSession(); 
+        if (refreshedCurrentUser) {
+          const teamIdFromUrl = router.query.team_id as string;
+          const pendingTeamId = sessionStorage.getItem('pending_team_id');
+          const finalTeamId = teamIdFromUrl || pendingTeamId;
+
+          if (finalTeamId) {
+            console.log("[Login] Using final team_id from URL/sessionStorage:", finalTeamId);
+            sessionStorage.removeItem('pending_team_id');
+          }
+          
+          const queryParams = finalTeamId ? { team_id: finalTeamId } : undefined;
+          const redirectPath = getRedirectPath(refreshedCurrentUser, queryParams);
+          console.log("[Login] Redirecting to:", redirectPath);
+          router.replace(redirectPath);
+        } else {
+          console.warn("[Login] Signed in, but refreshUserSession returned no user. Staying on login or redirecting to dashboard as fallback.");
+          // Potentially redirect to a generic dashboard if user refresh fails but session exists
+          // router.replace('/dashboard'); 
+        }
+      } else if (event === 'SIGNED_OUT') {
+        // User signed out, ensure we are on login page, or handle if already on login
+        console.log("[Login] User signed out.");
+        // No action needed if already on login page
+      }
+    });
+
+    // Initial check for session (optional, as onAuthStateChange might cover it, but good for immediate UI update)
+    // This part is more for the initial page load before onAuthStateChange fires with an initial session.
+    const checkInitialSession = async () => {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) {
+            console.error("[Login] Error getting initial session:", sessionError.message);
+            setLoading(false);
+            return;
+        }
+        if (session) {
+            console.log("[Login] Initial session found on page load:", session);
+            // If a session exists, onAuthStateChange will likely fire with SIGNED_IN shortly.
+            // Or, you could trigger the redirect logic here too, but it might be redundant.
+            // For now, let onAuthStateChange handle the redirect to keep logic centralized.
+        } else {
+            console.log("[Login] No initial session found on page load.");
+        }
+        setLoading(false); // Ensure loading is false if no session and no redirect happens
+    };
+    checkInitialSession();
+
+    return () => {
+      authListener?.subscription?.unsubscribe();
+    };
+  }, [supabase, router]); // Add supabase and router to dependencies
 
   // Login page uses full screen layout without AppLayout
   return (

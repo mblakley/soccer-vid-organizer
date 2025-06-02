@@ -95,7 +95,7 @@ interface Team {
 
 // Remove local Relationship interface as it's now imported from admin types
 /*
-interface Relationship { 
+interface Relationship {
   player_team_member_id: string
   parent_team_member_id: string
   team_id: string | null;
@@ -350,14 +350,14 @@ function TeamMembersPage() {
         setError(response.error || 'Failed to fetch relationships');
         setParentChildRelationships({});
       } else if (response && response.relationships) {
-        const relationshipMap: {[key: string]: string[]} = {}
+      const relationshipMap: {[key: string]: string[]} = {}
         response.relationships.forEach((rel: Relationship) => {
-          if (!relationshipMap[rel.player_team_member_id]) {
-            relationshipMap[rel.player_team_member_id] = []
-          }
-          relationshipMap[rel.player_team_member_id].push(rel.parent_team_member_id)
-        })
-        setParentChildRelationships(relationshipMap)
+        if (!relationshipMap[rel.player_team_member_id]) {
+          relationshipMap[rel.player_team_member_id] = []
+        }
+        relationshipMap[rel.player_team_member_id].push(rel.parent_team_member_id)
+      })
+      setParentChildRelationships(relationshipMap)
       } else {
         setParentChildRelationships({});
       }
@@ -505,7 +505,7 @@ function TeamMembersPage() {
     setError(null);
     try {
       const response = await apiClient.post<CheckUserApiResponse>('/api/admin/check-user', {
-        email,
+          email,
         teamId: teamId // Pass current teamId to check if user is already a member of THIS team
       });
 

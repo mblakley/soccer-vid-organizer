@@ -1,78 +1,100 @@
 import { NextApiRequest, NextApiResponse } from 'next';
+import { withApiAuth, AuthenticatedApiRequest } from '@/lib/auth';
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import { withAuth } from '@/components/auth';
-import { TeamRole, Clip, Video } from '@/lib/types'; // Assuming Clip and Video types are defined
+import { ListClipsApiResponse } from '@/lib/types/clips';
 
-// Define the expected structure for a clip when joined with video URL/details
-interface ClipWithVideoDetails extends Clip {
-  videos?: Partial<Video> & { url?: string }; // videos table is joined, select specific fields like URL
-}
+async function handler(
+  req: NextApiRequest, // Standard NextApiRequest for HOC
+  res: NextApiResponse<ListClipsApiResponse>
+) {
+  const apiReq = req as AuthenticatedApiRequest; // Cast after HOC processing
 
-interface ListClipsResponse {
-  clips?: ClipWithVideoDetails[];
-  message?: string;
-}
-
-const supabase = getSupabaseClient(); // Use service client or user client based on RLS
-
-async function handler(req: NextApiRequest, res: NextApiResponse<ListClipsResponse>) {
-  if (req.method !== 'GET') {
+  if (apiReq.method !== 'GET') {
     res.setHeader('Allow', ['GET']);
-    return res.status(405).json({ message: 'Method not allowed' });
+    return res.status(405).json({ clips: [], message: 'Method not allowed' } as ListClipsApiResponse);
   }
 
-  const { recent, limit, joinVideoUrl, videoId, createdById } = req.query;
+  const { user, claims } = apiReq;
+  if (!user) {
+    // This should be caught by withApiAuth if allowUnauthenticated is false
+    return res.status(401).json({ clips: [], message: 'Authentication required' } as ListClipsApiResponse);
+  }
+
+  const videoId = apiReq.query.videoId as string | undefined;
+  const recent = apiReq.query.recent === 'true';
+  const limit = parseInt(apiReq.query.limit as string) || undefined;
+  const joinVideoUrl = apiReq.query.joinVideoUrl === 'true'; // For joining with videos table
+
+  // Validate videoId if it's expected for non-admin users
+  // if (!videoId && !claims.is_admin) {
+  //   return res.status(400).json({ clips: [], message: 'videoId is required' } as ListClipsApiResponse);
+  // }
 
   try {
-    let query = supabase.from('clips').select('*');
+    const supabase = getSupabaseClient(apiReq.headers.authorization);
+    let query;
 
-    if (joinVideoUrl === 'true') {
-      // Adjust the join based on your actual foreign key and the fields needed from 'videos' table
-      query = query.select('*, videos:video_id(id, url, source, video_id, title, metadata)'); 
+    if (joinVideoUrl) {
+      query = supabase.from('clips').select(`
+        *,
+        videos ( url )
+      `);
+    } else {
+      query = supabase.from('clips').select('*');
     }
 
-    if (recent === 'true') {
+    if (videoId) {
+      query = query.eq('video_id', videoId);
+    } else {
+      // If no videoId, apply team-based filtering for non-admins
+      if (!claims.is_admin) {
+        const userTeamIds = Object.keys(claims.team_roles || {});
+        if (userTeamIds.length > 0) {
+          // This requires clips to have a direct team_id or be joinable to videos which have team_id
+          // Assuming clips are linked to videos that have team_id
+          const { data: teamVideos, error: videoError } = await supabase
+            .from('videos')
+            .select('id')
+            .in('team_id', userTeamIds);
+          
+          if (videoError) throw videoError;
+          const videoIdsFromUserTeams = teamVideos?.map(v => v.id) || [];
+          if (videoIdsFromUserTeams.length === 0) {
+            return res.status(200).json({ clips: [] }); // No videos in user's teams, so no clips
+          }
+          query = query.in('video_id', videoIdsFromUserTeams);
+        } else {
+          return res.status(200).json({ clips: [] }); // Non-admin, no teams, no clips
+        }
+      }
+      // Admins see all clips if no videoId is specified (RLS might still apply)
+    }
+
+    if (recent) {
       query = query.order('created_at', { ascending: false });
     }
-    
-    if (limit && !isNaN(parseInt(limit as string))) {
-      query = query.limit(parseInt(limit as string));
+
+    if (limit) {
+      query = query.limit(limit);
     }
 
-    if (videoId && typeof videoId === 'string') {
-      query = query.eq('video_id', videoId);
-    }
-
-    if (createdById && typeof createdById === 'string') {
-        query = query.eq('created_by', createdById);
-    }
-
-    const { data, error } = await query;
+    const { data: clips, error } = await query;
 
     if (error) {
-      console.error('Error fetching clips:', error);
-      return res.status(500).json({ message: error.message || 'Failed to fetch clips' });
+      console.error('[API /clips/list] Error fetching clips:', error);
+      return res.status(500).json({ clips: [], message: error.message } as ListClipsApiResponse);
     }
-    
-    // Supabase returns the joined table as a nested object (e.g., 'videos').
-    // The front-end might expect it directly or differently, adjust mapping if needed.
-    // The ClipWithVideoDetails type assumes it's nested under 'videos'.
-    const clipsData = (data || []).map(clip => ({
-        ...clip,
-        // If the join key is different or you want to flatten, adjust here
-    }));    
 
-    return res.status(200).json({ clips: clipsData as ClipWithVideoDetails[] });
+    return res.status(200).json({ clips: clips || [] });
 
   } catch (err: any) {
-    console.error('Exception fetching clips:', err);
-    return res.status(500).json({ message: err.message || 'An unexpected error occurred' });
+    console.error('[API /clips/list] Exception:', err);
+    return res.status(500).json({ clips: [], message: err.message || 'An unexpected error occurred' } as ListClipsApiResponse);
   }
 }
 
-// Adjust auth as needed. Listing clips might be public or restricted.
-export default withAuth(handler, {
-  teamId: 'any', 
-  roles: [] as TeamRole[], // Example: any authenticated user can list clips
-  requireRole: false,
+export default withApiAuth(handler, {
+  // Previous HOC: teamId: 'any', roles: [], requireRole: false -> means any authenticated user
+  allowUnauthenticated: false, // Ensures user is authenticated
+  // No specific role check beyond being authenticated, per old config.
 }); 

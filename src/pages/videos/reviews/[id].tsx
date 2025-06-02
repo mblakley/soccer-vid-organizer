@@ -16,92 +16,37 @@ function FilmReviewSessionPageContent() {
   const router = useRouter()
   const { id } = router.query
   const { isDarkMode } = useTheme()
-  const { user, loading: authLoading } = useAuth()
+  const { user, loading: authLoading, session: authSessionHook } = useAuth()
   const playerRef = useRef<VideoPlayerControls>(null)
   const timeCheckInterval = useRef<NodeJS.Timeout | null>(null)
   const endTimeTimeout = useRef<NodeJS.Timeout | null>(null)
 
-  const [session, setSession] = useState<FilmReviewSessionWithClips | null>(null)
+  const [sessionData, setSessionData] = useState<FilmReviewSessionWithClips | null>(null)
   const [loading, setLoading] = useState(true)
   const [currentClipIndex, setCurrentClipIndex] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
-  const [review, setReview] = useState<Video | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [isAuthorized, setIsAuthorized] = useState(false)
 
   useEffect(() => {
-    const checkAuth = async () => {
+    if (authLoading) return;
+
+    if (!user) {
+      toast.error('Please log in to view film review sessions');
+      router.push('/login');
+      return;
+    }
+
+    if (!id) {
+        setError("No review session ID provided.");
+        setLoading(false);
+        return;
+    }
+
+    const fetchReviewSessionData = async () => {
+      setLoading(true);
       try {
-        const response = await fetch('/api/auth/session')
-        if (!response.ok) {
-          throw new Error('Failed to fetch session')
-        }
-        const data = await response.json()
-        if (!data.session?.user) {
-          router.push('/login')
-          return
-        }
-        setIsAuthorized(true)
-      } catch (error) {
-        console.error('Error checking auth:', error)
-        router.push('/login')
-      }
-    }
-
-    if (id) {
-      checkAuth()
-    }
-  }, [id, router])
-
-  useEffect(() => {
-    const fetchReview = async () => {
-      if (!id || !isAuthorized) return
-
-      try {
-        const response = await apiClient.get<ReviewApiResponse>(`/api/videos/reviews/${id}`);
-        
-        if (response && (response as ReviewErrorResponse).error) {
-          throw new Error((response as ReviewErrorResponse).error || 'Failed to fetch review');
-        }
-        // Assuming if no error, it's a ReviewResponse
-        const successfulResponse = response as { review: Video }; // Adjust if ReviewResponse has a different structure for single review
-        setReview(successfulResponse.review)
-      } catch (error) {
-        console.error('Error fetching review:', error)
-        setError('Failed to load review')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchReview()
-  }, [id, isAuthorized])
-
-  useEffect(() => {
-    if (!authLoading && !user) {
-      toast.error('Please log in to view film review sessions')
-      router.push('/login')
-    }
-  }, [user, authLoading, router])
-
-  useEffect(() => {
-    if (!id) return
-
-    const fetchSession = async () => {
-      try {
-        console.log('Fetching session with ID:', id)
-        
-        const response = await fetch('/api/auth/session')
-        if (!response.ok) {
-          throw new Error('Not authenticated')
-        }
-        const { session: authSession } = await response.json()
-        if (!authSession) {
-          throw new Error('Not authenticated')
-        }
-
-        console.log('Got auth session, fetching review session...')
+        console.log('User authenticated, fetching review session...');
 
         const reviewResponse = await apiClient.get<ReviewApiResponse>(`/api/reviews/${id}`);
 
@@ -110,27 +55,26 @@ function FilmReviewSessionPageContent() {
           throw new Error((reviewResponse as ReviewErrorResponse).error || 'Failed to fetch session');
         }
         
-        // Assuming if no error, it's a ReviewResponse containing the session data
-        // and that FilmReviewSessionWithClips is compatible with the structure within ReviewResponse.review
         const successfulResponse = reviewResponse as { review: FilmReviewSessionWithClips }; 
 
         console.log('Successfully fetched session:', {
           id: successfulResponse.review.id,
           title: successfulResponse.review.title,
           clipCount: successfulResponse.review.clips?.length || 0
-        })
+        });
 
-        setSession(successfulResponse.review)
+        setSessionData(successfulResponse.review);
       } catch (error: any) {
-        console.error('Error fetching session:', error)
-        toast.error(error.message || 'Failed to fetch session')
+        console.error('Error fetching session:', error);
+        toast.error(error.message || 'Failed to fetch session');
+        setError(error.message || 'Failed to fetch session');
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
+    };
 
-    fetchSession()
-  }, [id])
+    fetchReviewSessionData();
+  }, [id, user, authLoading, router]);
 
   const handlePreviousClip = () => {
     if (currentClipIndex > 0) {
@@ -140,7 +84,7 @@ function FilmReviewSessionPageContent() {
   }
 
   const handleNextClip = () => {
-    if (session && currentClipIndex < session.clips.length - 1) {
+    if (sessionData && currentClipIndex < sessionData.clips.length - 1) {
       setCurrentClipIndex(prev => prev + 1)
       setIsPlaying(false)
     }
@@ -188,7 +132,7 @@ function FilmReviewSessionPageContent() {
     setCurrentTime(time)
     
     // Log time updates from parent component
-    const currentClip = session?.clips[currentClipIndex];
+    const currentClip = sessionData?.clips[currentClipIndex];
     if (currentClip?.clip?.end_time) {
       const remaining = currentClip.clip.end_time - time;
       
@@ -238,9 +182,9 @@ function FilmReviewSessionPageContent() {
   // Add a useEffect to check periodically if we're past the end time
   useEffect(() => {
     // Only run if we're playing and have a current clip
-    if (!isPlaying || !session?.clips || !session.clips[currentClipIndex]) return;
+    if (!isPlaying || !sessionData?.clips || !sessionData.clips[currentClipIndex]) return;
     
-    const clipEndTime = session.clips[currentClipIndex].clip?.end_time;
+    const clipEndTime = sessionData.clips[currentClipIndex].clip?.end_time;
     if (!clipEndTime) return;
     
     console.log(`Setting up parent end time check for ${clipEndTime}s`);
@@ -262,7 +206,7 @@ function FilmReviewSessionPageContent() {
     }, 500);
     
     return () => clearInterval(forceStopInterval);
-  }, [isPlaying, session?.clips, currentClipIndex]);
+  }, [isPlaying, sessionData?.clips, currentClipIndex]);
 
   const handleClipSelect = (index: number) => {
     console.log(`Selecting clip at index ${index}`);
@@ -279,7 +223,7 @@ function FilmReviewSessionPageContent() {
     // If it's the same clip, just restart it
     if (index === currentClipIndex) {
       console.log(`Restarting same clip at index ${index}`);
-      const clip = session?.clips[index];
+      const clip = sessionData?.clips[index];
       if (clip?.clip?.start_time !== undefined && playerRef.current) {
         try {
           setTimeout(() => {
@@ -335,7 +279,7 @@ function FilmReviewSessionPageContent() {
     )
   }
 
-  if (!session) {
+  if (!sessionData) {
     return (
       <div className="flex justify-center items-center min-h-screen">
         <p className={`text-xl ${textColor}`}>Session not found</p>
@@ -343,7 +287,7 @@ function FilmReviewSessionPageContent() {
     )
   }
 
-  const currentClip = session.clips[currentClipIndex]
+  const currentClip = sessionData.clips[currentClipIndex]
 
   return (
     <div className="flex flex-col h-screen bg-gray-900">
@@ -354,7 +298,7 @@ function FilmReviewSessionPageContent() {
       <div className="flex flex-1 overflow-hidden w-full h-full">
         {/* Video Area */}
         <div className="flex-1 min-w-0 bg-black flex items-center justify-center relative h-full">
-          {!session?.clips || session.clips.length === 0 ? (
+          {!sessionData?.clips || sessionData.clips.length === 0 ? (
             <div className="flex justify-center items-center h-full">
               <div className="text-center p-8">
                 <div className="text-gray-400 text-lg mb-4">No clips available in this session</div>
@@ -363,17 +307,17 @@ function FilmReviewSessionPageContent() {
             </div>
           ) : (
             <div className="h-full flex items-center justify-center w-full max-w-full overflow-hidden">
-              {session.clips[currentClipIndex]?.clip ? (
+              {sessionData.clips[currentClipIndex]?.clip ? (
                 <VideoPlayer
                   ref={playerRef}
-                  key={`clip-${session.clips[currentClipIndex].id}`}
+                  key={`clip-${sessionData.clips[currentClipIndex].id}`}
                   video={{
-                    id: session.clips[currentClipIndex].clip.id,
-                    video_id: session.clips[currentClipIndex].clip.video_id,
-                    title: session.clips[currentClipIndex].clip.title || '',
-                    source: determineVideoSource(session.clips[currentClipIndex].clip.video_id),
-                    start_time: session.clips[currentClipIndex].clip.start_time,
-                    end_time: session.clips[currentClipIndex].clip.end_time
+                    id: sessionData.clips[currentClipIndex].clip.id,
+                    video_id: sessionData.clips[currentClipIndex].clip.video_id,
+                    title: sessionData.clips[currentClipIndex].clip.title || '',
+                    source: determineVideoSource(sessionData.clips[currentClipIndex].clip.video_id),
+                    start_time: sessionData.clips[currentClipIndex].clip.start_time,
+                    end_time: sessionData.clips[currentClipIndex].clip.end_time
                   }}
                   onStateChange={handlePlayerStateChange}
                   onTimeUpdate={handleTimeUpdate}
@@ -393,7 +337,7 @@ function FilmReviewSessionPageContent() {
             <h2 className="text-lg font-semibold text-gray-200">Session Clips</h2>
           </div>
           <div className="divide-y divide-gray-700">
-            {session.clips.map((clip, index) => (
+            {sessionData.clips.map((clip, index) => (
               <div
                 key={clip.id}
                 className={`p-4 cursor-pointer transition-colors ${

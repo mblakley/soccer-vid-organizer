@@ -4,13 +4,13 @@ import { useState, useEffect } from 'react'
 import { withAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import { apiClient } from '@/lib/api/client' // Import apiClient
-import { Video } from '@/lib/types' // Assuming a Video type exists or will be created
+import { Video, ListVideosApiResponse } from '@/lib/types' // Assuming a Video type exists or will be created
 
 // Define the expected API response structure for listing videos
-interface ListVideosApiResponse {
-  videos: Video[];
-  message?: string; // Optional error message
-}
+// interface ListVideosApiResponse {
+//   videos: Video[];
+//   message?: string; // Optional error message
+// }
 
 function VideosPage() {
   const [videos, setVideos] = useState<Video[]>([]) // Use Video type

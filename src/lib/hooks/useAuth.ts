@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { apiClient } from '@/lib/api/client'
-import { User } from '@supabase/supabase-js'
+// import { apiClient } from '@/lib/api/client' // No longer needed for core auth
+import { getSupabaseBrowserClient } from '@/lib/supabaseClient' // Import Supabase browser client
+import { User, Session, AuthError } from '@supabase/supabase-js'
 import { 
   JWTCustomClaims, 
   TeamRole, 
@@ -10,51 +11,91 @@ import {
   isGlobalAdmin,
   isTeamCoach
 } from '@/lib/types';
+import { jwtDecode } from 'jwt-decode'; // Helper to decode JWT
 
 interface AuthState {
   user: User | null
+  session: Session | null // Store the whole session for access to token
   loading: boolean
-  error: Error | null
+  error: AuthError | Error | null // Can be Supabase AuthError or generic Error
   claims?: JWTCustomClaims
 }
 
 export function useAuth() {
+  const supabase = getSupabaseBrowserClient();
   const [state, setState] = useState<AuthState>({
     user: null,
+    session: null,
     loading: true,
-    error: null
+    error: null,
+    claims: undefined
   })
 
   useEffect(() => {
+    setState(prev => ({ ...prev, loading: true }));
+
     // Get initial session
-    apiClient.get('/api/auth/session').then(({ data: { session }, error }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
-        setState(prev => ({ ...prev, error, loading: false }))
-        return
+        setState(prev => ({ ...prev, error, loading: false }));
+        return;
       }
-      setState(prev => ({ ...prev, user: session?.user ?? null, loading: false }))
-    })
+      let currentClaims: JWTCustomClaims | undefined = undefined;
+      if (session?.access_token) {
+        try {
+          currentClaims = jwtDecode<JWTCustomClaims>(session.access_token);
+        } catch (e) {
+          console.error("Failed to decode JWT:", e);
+        }
+      }
+      setState(prev => ({ ...prev, user: session?.user ?? null, session, claims: currentClaims, loading: false }));
+    });
 
     // Listen for auth changes
-    let subscription: any;
-    apiClient.get('/api/auth/subscription').then(({ data }) => {
-      subscription = data.subscription;
-      subscription.on('authStateChange', (_event: any, session: any) => {
-        setState(prev => ({ ...prev, user: session?.user ?? null }))
-      })
-    })
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      let currentClaims: JWTCustomClaims | undefined = undefined;
+      if (session?.access_token) {
+        try {
+          currentClaims = jwtDecode<JWTCustomClaims>(session.access_token);
+        } catch (e) {
+          console.error("Failed to decode JWT:", e);
+          // Potentially set an error state here if claims are critical and decoding fails
+        }
+      }
+      setState(prev => ({ ...prev, user: session?.user ?? null, session, claims: currentClaims, loading: false }));
+    });
 
     return () => {
-      subscription?.unsubscribe()
+      authListener?.subscription?.unsubscribe();
+    };
+  }, [supabase]);
+
+  const signOut = async () => {
+    setState(prev => ({ ...prev, loading: true }));
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      setState(prev => ({ ...prev, error, loading: false }));
+      // Optionally: toast.error(error.message) or similar user feedback
+    } else {
+      // State will be updated by onAuthStateChange listener
+      // but clear user/session/claims immediately for faster UI response
+      setState(prev => ({ 
+        ...prev, 
+        user: null, 
+        session: null, 
+        claims: undefined, 
+        loading: false, 
+        error: null 
+      }));
     }
-  }, [])
+  };
 
   // Expose helper methods for checking permissions
-  const { user, loading, error } = state
-  const claims = state.claims
+  const { user, session, loading, error, claims } = state
 
   return {
     user,
+    session, // Expose session if needed by components
     claims,
     loading,
     error,
@@ -67,6 +108,6 @@ export function useAuth() {
     // Team information
     getUserTeams: () => getUserTeams(claims),
     // Sign out method
-    signOut: () => apiClient.post('/api/auth/signout')
+    signOut
   }
 } 

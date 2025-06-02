@@ -5,8 +5,9 @@ import { signupSchema, signupResponseSchema } from '@/lib/types/auth'
 import { getSupabaseClient } from '@/lib/supabaseClient'
 import { Team } from '@/lib/types/teams'
 import { v4 as uuidv4 } from 'uuid'
+import { withApiAuth } from '@/lib/auth'
 
-export default async function handler(
+async function signupHandler(
   req: NextApiRequest,
   res: NextApiResponse<SignupApiResponse>
 ) {
@@ -99,4 +100,7 @@ export default async function handler(
     const errorResponse: ErrorResponse = { error: message };
     return res.status(statusCode).json(errorResponse);
   }
-} 
+}
+
+// Wrap the handler with withApiAuth, but allow unauthenticated access since this is a signup endpoint
+export default withApiAuth(signupHandler, { allowUnauthenticated: true }) 
