@@ -1,16 +1,17 @@
-import { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import { withAuth } from '@/components/auth';
-import { Tournament, TeamRole } from '@/lib/types';
+import { withApiAuth } from '@/lib/auth';
+import { Tournament } from '@/lib/types/tournaments';
+import { TeamRole } from '@/lib/types/auth';
+import { getCurrentUser, isAdmin } from '@/lib/auth';
 
 interface TournamentDetailResponse {
   tournament?: Tournament;
   message?: string;
 }
 
-const supabase = getSupabaseClient(); // Use service client or ensure RLS allows admin operations
-
 async function handler(req: NextApiRequest, res: NextApiResponse<TournamentDetailResponse | { message: string }>) {
+  const supabase = await getSupabaseClient(req.headers.authorization);
   const { tournamentId } = req.query;
 
   if (typeof tournamentId !== 'string') {
@@ -75,8 +76,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse<TournamentDetai
 }
 
 // Admin-only endpoint
-export default withAuth(handler, {
-  teamId: 'any',
-  roles: ['admin'] as TeamRole[],
-  requireRole: true,
-}); 
+export default withApiAuth(handler, { isUserAdmin: true }); 

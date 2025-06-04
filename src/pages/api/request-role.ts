@@ -1,13 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '@/lib/supabaseClient'
 import type {
-  RequestRoleApiResponse,
-  ErrorResponse
+  RequestRoleApiResponse
 } from '@/lib/types/teams' // Updated import path
 import {
   requestRoleSchema,
   requestRoleResponseSchema
 } from '@/lib/types/teams' // Updated import path
+import { ErrorResponse } from '@/lib/types/api'
 
 export default async function handler(
   req: NextApiRequest,
@@ -21,7 +21,7 @@ export default async function handler(
   }
 
   try {
-    const supabase = getSupabaseClient(req.headers.authorization)
+    const supabase = await getSupabaseClient(req.headers.authorization)
 
     const { data: { user }, error: userError } = await supabase.auth.getUser()
 

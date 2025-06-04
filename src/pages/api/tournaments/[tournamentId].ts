@@ -1,13 +1,13 @@
-import { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { withAuth } from '@/components/auth';
-import { TeamRole } from '@/lib/types';
+import { TeamRole } from '@/lib/types/auth';
 
 interface DeleteTournamentResponse {
   message: string;
 }
 
-const supabase = getSupabaseClient();
+const supabase = await getSupabaseClient();
 
 async function handler(req: NextApiRequest, res: NextApiResponse<DeleteTournamentResponse | { message: string }>) {
   if (req.method !== 'DELETE') {
@@ -22,10 +22,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse<DeleteTournamen
   }
 
   try {
-    // Potential cascading deletes or related data cleanup might be needed here or handled by DB constraints
-    // For example, deleting associated tournament_games, tournament_teams, etc.
-    // For simplicity, this example only deletes the tournament itself.
-    
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    // Check if user is admin
+    const { data: userData, error: userDataError } = await supabase
+      .from('user_roles')
+      .select('is_admin')
+      .eq('user_id', user.id)
+      .single();
+
+    if (userDataError || !userData?.is_admin) {
+      return res.status(403).json({ message: 'Forbidden: Admin access required' });
+    }
+
     // Check if tournament_games entries exist
     const { data: gameEntries, error: gameEntriesError } = await supabase
         .from('tournament_games')
@@ -82,6 +94,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse<DeleteTournamen
 // Admin-only endpoint
 export default withAuth(handler, {
   teamId: 'any',
-  roles: ['admin'] as TeamRole[],
+  roles: [],
   requireRole: true,
 }); 

@@ -1,64 +1,45 @@
 import React, { ReactElement } from 'react';
-import { VideoSource, VideoMetadata } from './types';
+import { VideoSource, VideoMetadata } from '@/lib/types/video-sources';
 
 const InstagramSource: VideoSource = {
   id: 'instagram',
   name: 'Instagram',
-  urlPattern: 'instagram\\.com\\/(?:p|reel)\\/([^\\/]+)',
-  
-  extractVideoId(url: string): string | null {
-    const match = url.match(new RegExp(this.urlPattern));
-    return match ? match[1] : null;
-  },
-  
-  getPlayerComponent(videoId: string, start: number = 0, end?: number): ReactElement {
-    // Instagram embeds don't support start/end times
-    const src = `https://www.instagram.com/p/${videoId}/embed/`;
-    
-    // Show time indicators since native controls don't support it
-    const showTimeIndicators = start > 0 || (end && end > start);
-    
-    return (
-      <div className="mb-4 overflow-hidden">
-        <iframe 
-          className="w-full"
-          src={src} 
-          frameBorder="0" 
-          scrolling="no" 
-          height="500"
-          allowTransparency
-        ></iframe>
-        {showTimeIndicators && (
-          <div className="text-xs text-gray-500 mt-1">
-            Start at {formatTime(start)} {end && end > start ? `- End at ${formatTime(end)}` : ''}
-          </div>
-        )}
-      </div>
-    );
-  },
-  
-  getThumbnailUrl(videoId: string, metadata?: VideoMetadata): string {
-    // Use metadata thumbnail if available
-    if (metadata?.thumbnailUrl) {
-      return metadata.thumbnailUrl;
+  urlPattern: '^(https?://)?(www\\.)?instagram\\.com/(p|reel)/[^/]+/?',
+  placeholderImage: '/logos/instagram.svg',
+
+  extractVideoId: (url: string): string | null => {
+    try {
+      const urlObj = new URL(url);
+      // Example: https://www.instagram.com/p/ABC123xyz/
+      // Example: https://www.instagram.com/reel/ABC123xyz/
+      const pathParts = urlObj.pathname.split('/');
+      if (pathParts.length >= 2) {
+        return pathParts[2]; // The post/reel ID is the third part
+      }
+      return null;
+    } catch (e) {
+      console.error('[InstagramSource] Error extracting video ID:', e);
+      return null;
     }
-    
-    // Instagram doesn't provide a standard thumbnail URL format
-    return this.placeholderImage;
   },
-  
-  getVideoUrl(videoId: string): string {
+
+  getVideoUrl: (videoId: string): string => {
     return `https://www.instagram.com/p/${videoId}/`;
   },
-  
-  placeholderImage: '/images/instagram-video.svg'
-};
 
-// Helper function to format time in MM:SS format
-function formatTime(seconds: number): string {
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.floor(seconds % 60);
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-}
+  getThumbnailUrl: (videoId: string, metadata?: any): string => {
+    // Instagram doesn't provide public thumbnails, so we'll use a placeholder
+    return '/logos/instagram.svg';
+  },
+
+  getPlayerComponent: (videoId: string, start?: number, end?: number): ReactElement => {
+    return (
+      <div className="instagram-player-placeholder">
+        <p>Instagram videos cannot be embedded directly.</p>
+        <p>Please visit the video at: <a href={InstagramSource.getVideoUrl(videoId)} target="_blank" rel="noopener noreferrer">Instagram Post</a></p>
+      </div>
+    );
+  }
+};
 
 export default InstagramSource; 

@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useTeam } from '@/contexts/TeamContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { TeamRole } from '@/lib/types';
+import { TeamRole } from '@/lib/types/auth';
 import { 
   Home, Users, Video as VideoIcon, Settings, ShieldCheck, BarChart3, 
   FolderKanban, ClipboardList, X as CloseIcon,

@@ -3,7 +3,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 // import { supabase } from '@/lib/supabaseClient'; // Will be removed
 import { apiClient } from '@/lib/api/client';
-import { Game, Player, RosterEntry } from '@/lib/types';
+import { Game } from '@/lib/types/games';
+import { Player, RosterEntry } from '@/lib/types/players';
 import { withAuth } from '@/components/auth';
 import { useTheme } from '@/contexts/ThemeContext';
 import { CheckCircle, XCircle, Edit3, HelpCircle, Users, ShieldCheck, CalendarDays, MapPin, PlusCircle } from 'lucide-react';

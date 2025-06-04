@@ -1,7 +1,8 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '@/lib/supabaseClient'
 import { withApiAuth, AuthenticatedApiRequest } from '@/lib/auth'
-import { TeamRole, Video, ListVideosApiResponse } from '@/lib/types'
+import { TeamRole } from '@/lib/types/auth'
+import { Video, ListVideosApiResponse } from '@/lib/types/videos'
 
 interface AuthenticatedRequest extends NextApiRequest {
   user?: {
@@ -18,7 +19,7 @@ interface ListVideosResponse {
 }
 
 // Initialize the service role client once
-const supabase = getSupabaseClient();
+const supabase = await getSupabaseClient();
 
 async function handler(req: NextApiRequest, res: NextApiResponse<ListVideosApiResponse>) {
   // Inside the handler, after withApiAuth has processed, req can be treated as AuthenticatedApiRequest
@@ -42,7 +43,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse<ListVideosApiRe
   const recent = apiReq.query.recent === 'true';
 
   try {
-    const supabase = getSupabaseClient(apiReq.headers.authorization); // User-context client for RLS
+    const supabase = await getSupabaseClient(apiReq.headers.authorization); // User-context client for RLS
     let query = supabase.from('videos').select('*');
 
     if (teamId) {

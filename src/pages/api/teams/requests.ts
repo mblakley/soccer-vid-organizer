@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '@/lib/supabaseClient'
-import type { TeamRequestsApiResponse, ErrorResponse } from '@/lib/types/teams'
+import type { TeamRequestsApiResponse } from '@/lib/types/teams'
 import { teamRequestsResponseSchema } from '@/lib/types/teams' // Import the schema
+import { ErrorResponse } from '@/lib/types/api'
 
 export default async function handler(
   req: NextApiRequest,
@@ -15,7 +16,7 @@ export default async function handler(
   }
 
   try {
-    const supabase = getSupabaseClient(req.headers.authorization)
+    const supabase = await getSupabaseClient(req.headers.authorization)
 
     // Add user authentication check - only admins or relevant users should access all requests
     const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -49,8 +50,19 @@ export default async function handler(
       throw new Error(error.message)
     }
 
-    const responseData = { requests: data || [] };
-    teamRequestsResponseSchema.parse(responseData); // Validate the response
+    const responseData = { 
+      requests: (data || []).map(request => ({
+        ...request,
+        user: request.user?.[0] ? {
+          email: request.user[0].email,
+          full_name: request.user[0].full_name
+        } : undefined,
+        team: request.team?.[0] ? {
+          name: request.team[0].name
+        } : undefined
+      }))
+    };
+    teamRequestsResponseSchema.parse(responseData);
 
     return res.status(200).json(responseData)
   } catch (error) {

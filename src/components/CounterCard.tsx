@@ -1,0 +1,3 @@
+import { Counter } from '@/lib/types/counters';
+
+// ... rest of the file unchanged ... 

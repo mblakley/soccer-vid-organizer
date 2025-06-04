@@ -6,7 +6,8 @@ import { withAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import { PlusCircle, Search, Calendar } from 'lucide-react'
 import { apiClient } from '@/lib/api/client'
-import { Review } from '@/lib/types' // Import Review from types
+import { Review } from '@/lib/types/reviews'
+import { toast } from 'react-toastify'
 
 /*
 // Removed local type definitions, assuming Review is now in src/lib/types.ts
@@ -39,6 +40,19 @@ interface ListReviewsApiResponse {
   message?: string;
   count?: number; // If pagination/total count is returned
   totalPages?: number;
+}
+
+interface CreateReviewApiResponse {
+  error?: string;
+  success?: boolean;
+}
+
+interface CreateReviewResponse {
+  success: boolean;
+}
+
+interface ErrorResponse {
+  error: string;
 }
 
 function ReviewsPage() {
@@ -102,14 +116,21 @@ function ReviewsPage() {
 
   const handleCreateReview = async (reviewData: any) => {
     try {
-      const { error } = await apiClient.post('/api/reviews/create', reviewData)
-      
-      if (error) throw error
-      
-      fetchReviews(1, '')
-    } catch (err: any) {
-      console.error('Error creating review:', err)
-      setError(err.message || 'Failed to create review')
+      const response = await apiClient.post<CreateReviewApiResponse>('/api/reviews/create', reviewData)
+
+      if ((response as ErrorResponse).error) {
+        throw new Error((response as ErrorResponse).error)
+      }
+
+      // If no error, it's a successful response
+      const successfulResponse = response as CreateReviewResponse
+      if (successfulResponse.success) {
+        toast.success('Review created successfully')
+        router.push('/videos/reviews')
+      }
+    } catch (error: any) {
+      console.error('Error creating review:', error)
+      toast.error(error.message || 'Failed to create review')
     }
   }
 
@@ -117,14 +138,17 @@ function ReviewsPage() {
     if (!confirm('Are you sure you want to delete this review?')) return
     
     try {
-      const { error } = await apiClient.post(`/api/reviews/${id}`, null)
+      const response = await apiClient.post<ErrorResponse>(`/api/reviews/${id}`, null)
       
-      if (error) throw error
+      if (response.error) {
+        throw new Error(response.error)
+      }
       
+      toast.success('Review deleted successfully')
       fetchReviews(1, '')
     } catch (err: any) {
       console.error('Error deleting review:', err)
-      setError(err.message || 'Failed to delete review')
+      toast.error(err.message || 'Failed to delete review')
     }
   }
 

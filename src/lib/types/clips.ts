@@ -1,32 +1,47 @@
 import { z } from 'zod';
-import type { ErrorResponse } from './auth'; // Assuming ErrorResponse is in auth.ts
+import type { ErrorResponse } from './api';
+import type { Video } from './videos';
 
 // ClipMarker interface for use in the frontend
 export interface ClipMarker {
   id: string;
-  startTime: number;
-  endTime: number;
+  video_id: string;
+  start_time: number;
+  end_time: number;
   title: string;
-  comment: string;
-  labels: string[];
+  comment?: string;
+  labels?: string[];
+  created_by: string;
+  created_at: string;
+  updated_at?: string;
+  startTime: number;  // Computed property for compatibility
+  endTime: number;    // Computed property for compatibility
+  duration: number;   // Computed property for compatibility
 }
 
 // Base Clip Schema - adjust fields as per your 'clips' table structure
 export const clipSchema = z.object({
-  id: z.string().uuid(),
-  video_id: z.string().uuid(),
-  start_time: z.number().positive(),
-  end_time: z.number().positive(),
-  title: z.string().optional(),
-  description: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-  created_by: z.string().uuid(),
-  created_at: z.string().datetime(),
-  updated_at: z.string().datetime().optional(),
-  // Add any other relevant fields from your clips table
+  id: z.string(),
+  title: z.string().nullable(),
+  video_id: z.string(),
+  start_time: z.number(),
+  end_time: z.number(),
+  created_by: z.string().nullable(),
+  created_at: z.string(),
+  tags: z.array(z.string()).nullable(),
+  description: z.string().nullable()
 });
 
-export type Clip = z.infer<typeof clipSchema>;
+export type Clip = z.infer<typeof clipSchema> & {
+  videos?: Partial<Video> & { url?: string };
+};
+
+export type ClipResponse = {
+  clip: Clip;
+  error?: string;
+};
+
+export type ClipApiResponse = ClipResponse | ErrorResponse;
 
 // For PUT /api/clips/[id] (Update Clip)
 export const updateClipRequestSchema = clipSchema.partial().omit({ id: true, video_id: true, created_by: true, created_at: true }); // id, video_id, created_by, created_at are usually not updated directly
@@ -57,7 +72,14 @@ export type ListClipsResponse = z.infer<typeof listClipsResponseSchema>;
 export type ListClipsApiResponse = ListClipsResponse | ErrorResponse;
 
 // For POST /api/clips/create (Create Clip)
-export const createClipRequestSchema = clipSchema.omit({ id: true, created_by: true, created_at: true, updated_at: true }); // id, created_by, created_at, updated_at are set by DB/server
+export const createClipRequestSchema = clipSchema.pick({
+  title: true,
+  video_id: true,
+  start_time: true,
+  end_time: true,
+  tags: true,
+  description: true
+}); // id, created_by, created_at, updated_at are set by DB/server
 
 export const createClipResponseSchema = z.object({
   clip: clipSchema,
@@ -65,4 +87,31 @@ export const createClipResponseSchema = z.object({
 
 export type CreateClipRequest = z.infer<typeof createClipRequestSchema>;
 export type CreateClipResponse = z.infer<typeof createClipResponseSchema>;
-export type CreateClipApiResponse = CreateClipResponse | ErrorResponse; 
+export type CreateClipApiResponse = CreateClipResponse | ErrorResponse;
+
+export interface CreateClipData {
+  video_id: string;
+  start_time: number;
+  end_time: number;
+  title: string;
+  created_by: string;
+}
+
+export interface ClipsResponse {
+  data?: {
+    clips: ClipMarker[];
+  };
+  error?: string;
+}
+
+// Add LibraryClip type definition
+export interface LibraryClip {
+  id: string;
+  title: string;
+  video_id: string;
+  start_time: number;
+  end_time: number;
+  thumbnail_url?: string;
+  created_by?: string;
+  created_at?: string;
+} 

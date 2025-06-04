@@ -7,13 +7,11 @@ import AppSidebar from '@/components/AppSidebar'
 import { useTeam } from '@/contexts/TeamContext'
 import HamburgerButton from '@/components/HamburgerButton'
 import { usePathname } from 'next/navigation'
+import type { User } from '@/components/auth'
 
 type AppLayoutProps = {
   children: ReactNode
-  user?: {
-    email?: string
-    roles?: string[]
-  }
+  user?: User | null
   title?: string
   fullWidth?: boolean
 }

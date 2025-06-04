@@ -2,32 +2,12 @@
 import { useState, useEffect } from 'react'
 import { toast } from 'react-toastify'
 import { apiClient } from '@/lib/api/client'
+import { Team, TeamsApiResponse } from '@/lib/types/teams'
+import { Game, GameApiResponse } from '@/lib/types/games'
+import { ErrorResponse } from '@/lib/types/api'
 
-interface Game {
-  id: string
-  home_team: string
-  away_team: string
-  home_team_name: string
-  away_team_name: string
-  location: string | null
-  game_date: string | null
-  start_time: string | null
-  flight: string | null
-  status: 'scheduled' | 'completed' | 'cancelled' | 'postponed'
-  score_home: number | null
-  score_away: number | null
-  created_at: string | null
-  updated_at: string | null
-}
-
-interface Team {
-  id: string
-  name: string
-  club_affiliation?: string
-  season?: string
-  age_group?: string
-  gender?: string
-}
+// Define the league game response type
+type LeagueGameResponse = { id: string }[] | ErrorResponse;
 
 interface GameFormProps {
   game?: Game | null
@@ -47,17 +27,21 @@ export default function GameForm({
   onSave
 }: GameFormProps) {
   const [newGame, setNewGame] = useState<Omit<Game, 'id' | 'created_at' | 'updated_at'>>({
-    home_team: '',
-    away_team: '',
-    home_team_name: '',
-    away_team_name: '',
-    location: '',
-    game_date: '',
-    start_time: '',
-    flight: selectedFlight || '',
+    home_team_id: null,
+    away_team_id: null,
+    home_team_name: null,
+    away_team_name: null,
+    location: null,
+    game_date: null,
+    start_time: null,
+    flight: selectedFlight || null,
     status: 'scheduled',
     score_home: null,
-    score_away: null
+    score_away: null,
+    type: null,
+    league_id: null,
+    tournament_id: null,
+    notes: null
   })
   
   const [teamSearchQuery, setTeamSearchQuery] = useState({ home: '', away: '' })
@@ -71,8 +55,8 @@ export default function GameForm({
     // Initialize the form with game data when editing
     if (game) {
       setNewGame({
-        home_team: game.home_team,
-        away_team: game.away_team,
+        home_team_id: game.home_team_id,
+        away_team_id: game.away_team_id,
         home_team_name: game.home_team_name,
         away_team_name: game.away_team_name,
         location: game.location || '',
@@ -81,7 +65,11 @@ export default function GameForm({
         flight: game.flight || '',
         status: game.status,
         score_home: game.score_home,
-        score_away: game.score_away
+        score_away: game.score_away,
+        type: game.type,
+        league_id: game.league_id,
+        tournament_id: game.tournament_id,
+        notes: game.notes
       })
       
       // Load team data
@@ -98,10 +86,13 @@ export default function GameForm({
   // Load team data when editing a game
   const loadTeamsForGame = async (game: Game) => {
     try {
-      const { data: homeTeam, error: homeError } = await apiClient.get(`/api/teams/${game.home_team}`);
-      if (homeError) throw homeError;
-      const { data: awayTeam, error: awayError } = await apiClient.get(`/api/teams/${game.away_team}`);
-      if (awayError) throw awayError;
+      const homeTeamResp = await apiClient.get<TeamsApiResponse>(`/api/teams/${game.home_team_id}`);
+      if ('error' in homeTeamResp && homeTeamResp.error) throw homeTeamResp.error;
+      const homeTeam = 'teams' in homeTeamResp ? homeTeamResp.teams[0] : undefined;
+      const awayTeamResp = await apiClient.get<TeamsApiResponse>(`/api/teams/${game.away_team_id}`);
+      if ('error' in awayTeamResp && awayTeamResp.error) throw awayTeamResp.error;
+      const awayTeam = 'teams' in awayTeamResp ? awayTeamResp.teams[0] : undefined;
+
       if (homeTeam) {
         setTeamSearchQuery(prev => ({ ...prev, home: homeTeam.name }))
         setSelectedTeams(prev => ({ ...prev, home: homeTeam }))
@@ -110,9 +101,9 @@ export default function GameForm({
         setTeamSearchQuery(prev => ({ ...prev, away: awayTeam.name }))
         setSelectedTeams(prev => ({ ...prev, away: awayTeam }))
       }
-    } catch (error: any) {
-      console.error('Error fetching details:', error)
-      setTeamSearchQuery({ home: game.home_team_name, away: game.away_team_name })
+    } catch (error) {
+      console.error('Error loading teams:', error);
+      toast.error('Failed to load team information');
     }
   }
 
@@ -145,11 +136,10 @@ export default function GameForm({
 
     setIsSearching(prev => ({ ...prev, [type]: true }))
     try {
-      const { data, error } = await apiClient.get(`/api/teams?name=${query}&type=${type}&limit=5`)
-
-      if (error) throw error
-      
-      setTeamSearchResults(prev => ({ ...prev, [type]: data || [] }))
+      const resp = await apiClient.get<TeamsApiResponse>(`/api/teams?name=${query}&type=${type}&limit=5`)
+      if ('error' in resp && resp.error) throw resp.error
+      const teams = 'teams' in resp ? resp.teams : []
+      setTeamSearchResults(prev => ({ ...prev, [type]: teams }))
       setShowTeamResults(prev => ({ ...prev, [type]: true }))
     } catch (error: any) {
       console.error(`Error searching for ${type} teams:`, error)
@@ -168,10 +158,10 @@ export default function GameForm({
     setNewGame(prev => {
       const newState = { ...prev }
       if (type === 'home') {
-        newState.home_team = team.id
+        newState.home_team_id = team.id
         newState.home_team_name = team.name
       } else {
-        newState.away_team = team.id
+        newState.away_team_id = team.id
         newState.away_team_name = team.name
       }
       return newState
@@ -202,47 +192,41 @@ export default function GameForm({
         game_time: newGame.start_time,
         status: newGame.status,
         score_home: newGame.score_home,
-        score_away: newGame.score_away
+        score_away: newGame.score_away,
+        type: newGame.type,
+        league_id: newGame.league_id,
+        tournament_id: newGame.tournament_id,
+        notes: newGame.notes
       }
 
       let gameId: string;
 
       if (game && game.id) {
-        // Update existing game
-        const { error } = await apiClient.put(`/api/games/${game.id}`, gameData)
-
-        if (error) throw error
+        const resp = await apiClient.put<GameApiResponse>(`/api/games/${game.id}`, gameData)
+        if ('error' in resp && resp.error) throw resp.error
         gameId = game.id;
       } else {
-        // Create new game
-        const { data, error } = await apiClient.post('/api/games', gameData)
-
-        if (error) throw error
-        if (!data || data.length === 0) throw new Error('Failed to create game')
-        gameId = data[0].id;
+        const resp = await apiClient.post<GameApiResponse>('/api/games', gameData)
+        if ('error' in resp && resp.error) throw resp.error
+        if (!('game' in resp) || !resp.game || !resp.game.id) throw new Error('Failed to create game')
+        gameId = resp.game.id;
       }
 
       // Now handle flight/division in the junction tables
       if (leagueId) {
-        // First check if the game-league connection already exists
-        const { data: existingConnection, error: checkError } = await apiClient.get(`/api/league_games?league_id=${leagueId}&game_id=${gameId}`)
-        
-        if (checkError) throw checkError
-        
+        const resp = await apiClient.get<LeagueGameResponse>(`/api/league_games?league_id=${leagueId}&game_id=${gameId}`)
+        if ('error' in resp && resp.error) throw resp.error
+        const existingConnection = Array.isArray(resp) ? resp : []
         if (existingConnection && existingConnection.length > 0) {
-          // Update the existing connection with the division
-          const { error: updateError } = await apiClient.put(`/api/league_games/${existingConnection[0].id}`, { division: newGame.flight })
-          
-          if (updateError) throw updateError
+          const updateResp = await apiClient.put<GameApiResponse>(`/api/league_games/${existingConnection[0].id}`, { division: newGame.flight })
+          if ('error' in updateResp && updateResp.error) throw updateResp.error
         } else {
-          // Create new connection with the division
-          const { error: insertError } = await apiClient.post('/api/league_games', { 
+          const insertResp = await apiClient.post<GameApiResponse>('/api/league_games', { 
             league_id: leagueId, 
             game_id: gameId,
             division: newGame.flight
           })
-          
-          if (insertError) throw insertError
+          if ('error' in insertResp && insertResp.error) throw insertResp.error
         }
       }
       
@@ -260,34 +244,26 @@ export default function GameForm({
       throw new Error(`${type === 'home' ? 'Home' : 'Away'} team name is required`)
     }
 
-    // Check if there's already a selected team with an ID
     if (selectedTeams[type]?.id) {
       return selectedTeams[type]!.id
     }
 
-    // Try to find an existing team with this exact name
-    const { data: existingTeams, error: searchError } = await apiClient.get(`/api/teams?name=${teamName.trim()}&type=${type}&limit=1`)
-
-    if (searchError) throw searchError
-
-    // If team already exists, return its ID
+    const resp = await apiClient.get<TeamsApiResponse>(`/api/teams?name=${teamName.trim()}&type=${type}&limit=1`)
+    if ('error' in resp && resp.error) throw resp.error
+    const existingTeams = 'teams' in resp ? resp.teams : []
     if (existingTeams && existingTeams.length > 0) {
       return existingTeams[0].id
     }
 
-    // Otherwise create a new team
-    const { data: createdTeam, error: createError } = await apiClient.post('/api/teams', {
+    const createResp = await apiClient.post<TeamsApiResponse>('/api/teams', {
       name: teamName.trim()
     })
 
-    if (createError) throw createError
+    if ('error' in createResp && createResp.error) throw createResp.error
+    const createdTeams = 'teams' in createResp ? createResp.teams : []
+    if (!createdTeams || createdTeams.length === 0) throw new Error(`Failed to create ${type === 'home' ? 'home' : 'away'} team`)
     
-    // If created successfully, return the new ID
-    if (createdTeam) {
-      return createdTeam.id
-    }
-
-    throw new Error(`Failed to create ${type === 'home' ? 'home' : 'away'} team`)
+    return createdTeams[0].id
   }
 
   return (
@@ -327,7 +303,7 @@ export default function GameForm({
                   // Also clear the game's team ID and name so a new team will be created
                   setNewGame(prev => ({ 
                     ...prev, 
-                    home_team: '',
+                    home_team_id: null,
                     home_team_name: query // Set name to current query for new team creation
                   }))
                 }
@@ -403,7 +379,7 @@ export default function GameForm({
                   // Also clear the game's team ID and name so a new team will be created
                   setNewGame(prev => ({ 
                     ...prev, 
-                    away_team: '',
+                    away_team_id: null,
                     away_team_name: query // Set name to current query for new team creation
                   }))
                 }

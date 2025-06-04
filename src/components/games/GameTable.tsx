@@ -10,23 +10,7 @@ import {
   useReactTable,
   SortingState,
 } from '@tanstack/react-table'
-
-interface Game {
-  id: string
-  home_team: string
-  away_team: string
-  home_team_name: string
-  away_team_name: string
-  location: string | null
-  game_date: string | null
-  start_time: string | null
-  flight: string | null
-  status: 'scheduled' | 'completed' | 'cancelled' | 'postponed'
-  score_home: number | null
-  score_away: number | null
-  created_at: string | null
-  updated_at: string | null
-}
+import { Game } from '@/lib/types/games'
 
 interface GameTableProps {
   games: Game[]
@@ -54,19 +38,19 @@ export default function GameTable({
   // Helper function to determine if a game is home or away for the selected team
   const getTeamContext = (game: Game) => {
     if (!selectedTeamId) return null
-    if (game.home_team === selectedTeamId) return 'Home'
-    if (game.away_team === selectedTeamId) return 'Away'
+    if (game.home_team_id === selectedTeamId) return 'Home'
+    if (game.away_team_id === selectedTeamId) return 'Away'
     return null
   }
 
   const columns = [
     columnHelper.accessor('home_team_name', {
       header: 'Home Team',
-      cell: info => info.getValue(),
+      cell: info => info.getValue() || '-',
     }),
     columnHelper.accessor('away_team_name', {
       header: 'Away Team',
-      cell: info => info.getValue(),
+      cell: info => info.getValue() || '-',
     }),
     columnHelper.accessor('location', {
       header: 'Location',
@@ -152,10 +136,10 @@ export default function GameTable({
           <button
             onClick={() => onEdit({
               id: '',
-              home_team: '',
-              away_team: '',
-              home_team_name: '',
-              away_team_name: '',
+              home_team_id: null,
+              away_team_id: null,
+              home_team_name: null,
+              away_team_name: null,
               location: null,
               game_date: null,
               start_time: null,
@@ -164,7 +148,13 @@ export default function GameTable({
               score_home: null,
               score_away: null,
               created_at: null,
-              updated_at: null
+              updated_at: null,
+              type: null,
+              league_id: null,
+              tournament_id: null,
+              notes: null,
+              home_team: undefined,
+              away_team: undefined
             })}
             className={`px-4 py-2 rounded-md ${
               isDarkMode

@@ -1,13 +1,12 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Video } from '@/pages/videos/analyze'
+import { Video } from '@/lib/types/videos'
 import { VideoPlayerControls } from '@/components/VideoPlayer'
 import CountersSection from '@/components/counters/CountersSection'
 import TimersSection from '@/components/timers/TimersSection'
 import ClipList from '@/components/ClipList'
 import ClipCreator from '@/components/clips/ClipCreator'
 import { useTheme } from '@/contexts/ThemeContext'
-import { supabase } from '@/lib/supabaseClient'
 import { useClips } from '@/hooks/useClips'
 import { toast } from 'react-toastify'
 import { PanelLeftClose, PanelRightOpen, PlusSquare, ListVideo, BarChart3, Timer, AlertCircle } from 'lucide-react'
@@ -80,7 +79,6 @@ const AnalysisSidebar: React.FC<AnalysisSidebarProps> = ({
     cancelClipCreation,
     playClip,
   } = useClips({
-    supabase,
     userId: user?.id,
     selectedVideo,
     playerRef,

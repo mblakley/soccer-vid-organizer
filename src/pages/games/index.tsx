@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { apiClient } from '@/lib/api/client';
-import { Game } from '@/lib/types';
+import { Game } from '@/lib/types/games';
 import { withAuth, User } from '@/components/auth';
 import { useTheme } from '@/contexts/ThemeContext';
 import { ListFilter, CalendarDays, Users, AlertTriangle, ExternalLink, Edit3Icon } from 'lucide-react';

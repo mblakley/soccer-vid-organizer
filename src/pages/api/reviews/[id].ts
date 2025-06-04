@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '@/lib/supabaseClient'
 import type { ReviewApiResponse } from '@/lib/types/reviews'
-import type { ErrorResponse } from '@/lib/types/auth'
+import type { ErrorResponse } from '@/lib/types/api'
 import { reviewResponseSchema } from '@/lib/types/reviews'
 import { z } from 'zod'
 
@@ -32,7 +32,7 @@ export default async function handler(
     }
     const { id } = queryValidation.data;
 
-    const supabase = getSupabaseClient(req.headers.authorization)
+    const supabase = await getSupabaseClient(req.headers.authorization)
 
     // Get the current user
     const { data: { user }, error: userError } = await supabase.auth.getUser()

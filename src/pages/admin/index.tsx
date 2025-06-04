@@ -4,12 +4,8 @@ import Link from 'next/link'
 import { withAdminAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import { apiClient } from '@/lib/api/client'
-import { DashboardStatsResponse, DashboardStatsApiResponse, ErrorResponse } from '@/lib/types/admin'
+import { DashboardStatsResponse, DashboardStatsApiResponse } from '@/lib/types/admin'
 import { toast } from 'react-toastify'
-
-function isErrorResponse(response: any): response is ErrorResponse {
-  return response && typeof response.error === 'string';
-}
 
 function AdminDashboard() {
   const [stats, setStats] = useState<DashboardStatsResponse>({
@@ -32,19 +28,13 @@ function AdminDashboard() {
       setLoading(true)
       try {
         const response = await apiClient.get<DashboardStatsApiResponse>('/api/admin/dashboard-stats')
-        
-        if (isErrorResponse(response)) {
-          console.error('Error fetching stats:', response.error)
-          toast.error(`Failed to fetch dashboard stats: ${response.error}`)
-        } else if (response) {
-          setStats(response)
-        } else {
-          console.error('Error fetching stats: Invalid response data')
-          toast.error('Failed to fetch dashboard stats: Invalid response.')
+        if ('error' in response) {
+          throw new Error(response.error)
         }
+        setStats(response)
       } catch (error) {
         console.error('Error fetching stats:', error)
-        toast.error('An unexpected error occurred while fetching dashboard stats.')
+        toast.error('Failed to fetch dashboard stats')
       } finally {
         setLoading(false)
       }

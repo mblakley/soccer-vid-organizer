@@ -1,0 +1,3 @@
+import { Team } from '@/lib/types/teams';
+
+// ... rest of the file unchanged ... 

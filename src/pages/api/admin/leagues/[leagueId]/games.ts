@@ -50,7 +50,7 @@ export default async function handler(
   }
   const validLeagueId = parsedLeagueId.data;
 
-  const supabase = getSupabaseClient(); // Use service role or admin-context client
+  const supabase = await getSupabaseClient(); // Use service role or admin-context client
 
   try {
     // 1. Fetch all divisions explicitly defined for this league

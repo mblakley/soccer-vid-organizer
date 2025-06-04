@@ -10,20 +10,7 @@ import {
   useReactTable,
   SortingState,
 } from '@tanstack/react-table'
-
-interface League {
-  id: string
-  name: string
-  season: string
-  age_group: string | null
-  gender: string | null
-  start_date: string | null
-  end_date: string | null
-  additional_info: any
-  created_at: string | null
-  updated_at: string | null
-  league_divisions: { name: string }[]
-}
+import { League } from '@/lib/types/leagues'
 
 interface LeagueTableProps {
   leagues: League[]

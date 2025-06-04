@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/router';
 import { apiClient } from '@/lib/api/client';
 import { Tournament, TournamentStatus } from '@/lib/types/tournaments';
-import { ErrorResponse } from '@/lib/types/auth';
+import { ErrorResponse } from '@/lib/types/api';
 import {
   AdminCreateTournamentRequest,
   AdminCreateTournamentApiResponse

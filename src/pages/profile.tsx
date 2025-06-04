@@ -5,7 +5,8 @@ import { withAuth } from '@/components/auth'
 import { getCurrentUser, refreshUserSession, User } from '@/lib/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import { apiClient } from '@/lib/api/client'
-import { TeamRole, TeamRolesResponse } from '@/lib/types/teams'
+import { TeamRole } from '@/lib/types/auth'
+import { TeamRolesResponse } from '@/lib/types/teams'
 
 function ProfilePage() {
   const [user, setUser] = useState<User | null>(null)
@@ -125,7 +126,7 @@ function ProfilePage() {
         )}
 
         {/* Team Roles */}
-        {hasTeamRoles && Object.entries(user.teamRoles).map(([teamId, teamData]: [string, { name: string; roles: TeamRole[] }]) => {
+        {hasTeamRoles && user.teamRoles && Object.entries(user.teamRoles).map(([teamId, teamData]: [string, { name: string; roles: TeamRole[] }]) => {
           const teamIdentifier = teamData.name || `Team ID: ${teamId.substring(0, 6)}...`;
           
           return (

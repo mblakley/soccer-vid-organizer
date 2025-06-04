@@ -4,7 +4,8 @@ import { withAuth, User } from '@/components/auth' // Ensure User is imported
 import { useTheme } from '@/contexts/ThemeContext'
 import { toast } from 'react-toastify'
 import { apiClient } from '@/lib/api/client'
-import { Clip, Video } from '@/lib/types' // Import Clip and Video types
+import { Clip } from '@/lib/types/clips'
+import { Video } from '@/lib/types/videos'
 import { PlusCircle, Edit, Trash2, AlertTriangle, RefreshCw, Loader2 } from 'lucide-react'
 
 interface CoachClipManagerProps { // Define props for type safety

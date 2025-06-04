@@ -1,11 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { AdminUserAttributes } from '@supabase/supabase-js'
-import type { ErrorResponse, SignupRequest, SignupApiResponse } from '@/lib/types/auth'
+import type { SignupRequest, SignupApiResponse } from '@/lib/types/auth'
 import { signupSchema, signupResponseSchema } from '@/lib/types/auth'
 import { getSupabaseClient } from '@/lib/supabaseClient'
 import { Team } from '@/lib/types/teams'
 import { v4 as uuidv4 } from 'uuid'
 import { withApiAuth } from '@/lib/auth'
+import { ErrorResponse } from '@/lib/types/api'
 
 async function signupHandler(
   req: NextApiRequest,
@@ -30,7 +31,7 @@ async function signupHandler(
       }
     }
 
-    const supabaseClient = getSupabaseClient()
+    const supabaseClient = await getSupabaseClient()
 
     const { data, error: signUpError } = await supabaseClient.auth.admin.createUser(userAttributes)
 

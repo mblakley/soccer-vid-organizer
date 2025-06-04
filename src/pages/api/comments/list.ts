@@ -1,7 +1,8 @@
-import { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { withAuth } from '@/components/auth';
-import { TeamRole, Comment } from '@/lib/types'; // Assuming Comment type exists or will be added
+import { TeamRole } from '@/lib/types/auth';
+import { Comment } from '@/lib/types/comments';
 
 interface ListCommentsResponse {
   comments?: Comment[];
@@ -9,7 +10,7 @@ interface ListCommentsResponse {
   message?: string;
 }
 
-const supabase = getSupabaseClient(); // Or user-context client if RLS is per user
+const supabase = await getSupabaseClient(); // Or user-context client if RLS is per user
 
 async function handler(req: NextApiRequest, res: NextApiResponse<ListCommentsResponse>) {
   if (req.method !== 'GET') {

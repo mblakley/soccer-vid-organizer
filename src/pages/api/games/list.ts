@@ -1,7 +1,8 @@
-import { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { withAuth } from '@/components/auth';
-import { Game, TeamRole } from '@/lib/types';
+import { Game } from '@/lib/types/games';
+import { TeamRole } from '@/lib/types/auth';
 
 interface ListGamesResponse {
   games?: Game[];
@@ -10,7 +11,7 @@ interface ListGamesResponse {
 
 // No user context needed for just listing games if RLS is set for public or role-based read access.
 // If created_by or team-specific filtering based on user is needed, use getSupabaseClient(req.headers.authorization).
-const supabase = getSupabaseClient(); 
+const supabase = await getSupabaseClient(); 
 
 async function handler(req: NextApiRequest, res: NextApiResponse<ListGamesResponse>) {
   if (req.method !== 'GET') {

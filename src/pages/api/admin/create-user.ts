@@ -1,92 +1,70 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '@/lib/supabaseClient'
-import type { ErrorResponse } from '@/lib/types/auth'
+import type { ErrorResponse } from '@/lib/types/api'
 import type { AdminCreateUserApiResponse } from '@/lib/types/admin'
 import { adminCreateUserRequestSchema, adminCreateUserResponseSchema } from '@/lib/types/admin'
-import { z } from 'zod'
-import { AdminUserAttributes } from '@supabase/supabase-js'
+import { withApiAuth } from '@/lib/auth'
 
-// Placeholder for admin check - replace with your actual implementation
-async function ensureAdmin(req: NextApiRequest): Promise<{ user: any; error?: ErrorResponse }> {
-  const supabaseUserClient = getSupabaseClient(req.headers.authorization);
-  const { data: { user }, error: authError } = await supabaseUserClient.auth.getUser();
-
-  if (authError || !user) {
-    return { user: null, error: { error: 'Unauthorized' } };
-  }
-  if (user.email !== process.env.NEXT_PUBLIC_ADMIN_EMAIL) { 
-      return { user: null, error: { error: 'Forbidden: Not an admin' } };
-  }
-  return { user };
-}
-
-export default async function handler(
-  req: NextApiRequest, 
-  res: NextApiResponse<AdminCreateUserApiResponse>
-) {
-  if (req.method !== 'POST') {
-    const errorResponse: ErrorResponse = { error: 'Method not allowed' };
-    res.setHeader('Allow', ['POST']);
-    return res.status(405).json(errorResponse);
-  }
-
-  const adminCheck = await ensureAdmin(req);
-  if (adminCheck.error || !adminCheck.user) {
-    return res.status(adminCheck.error?.error === 'Unauthorized' ? 401 : 403).json(adminCheck.error!);
-  }
-
-  try {
-    const { email, password, display_name, metadata } = adminCreateUserRequestSchema.parse(req.body);
-    
-    const supabaseAdmin = getSupabaseClient(); // Uses service role key
-
-    const userAttributes: AdminUserAttributes = {
-      email,
-      password,
-      email_confirm: true, // Automatically confirm email for admin-created users
-      user_metadata: {
-        ...metadata, // Spread any additional metadata
-        full_name: display_name
+export default withApiAuth(
+  async function handler(
+    req: NextApiRequest,
+    res: NextApiResponse<AdminCreateUserApiResponse>
+  ) {
+    if (req.method !== 'POST') {
+      const errorResponse: ErrorResponse = {
+        error: 'Method not allowed'
       }
-    };
+      return res.status(405).json(errorResponse)
+    }
 
-    const { data, error: createUserError } = await supabaseAdmin.auth.admin.createUser(userAttributes);
+    try {
+      const supabase = await getSupabaseClient(req.headers.authorization)
 
-    if (createUserError) {
-      console.error('Error creating user via admin:', createUserError);
-      // Handle specific errors, e.g., user already exists
-      if (createUserError.message.includes('User already exists')) {
-        const errResp: ErrorResponse = { error: 'User with this email already exists' };
-        return res.status(409).json(errResp); // 409 Conflict
+      // Validate request body
+      const createRequest = adminCreateUserRequestSchema.parse(req.body)
+      const { email, password, metadata } = createRequest
+
+      // Create user with Supabase Admin API
+      const { data: user, error: createError } = await supabase.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: metadata
+      })
+
+      if (createError) {
+        console.error('Error creating user:', createError)
+        throw new Error(createError.message)
       }
-      throw new Error(`Failed to create user: ${createUserError.message}`);
-    }
-    
-    if (!data || !data.user) {
-        console.error('Admin user creation error: User data not returned after creation.');
-        throw new Error('User creation failed: no user data returned from Supabase.');
-    }
 
-    const responseData = { user: data.user };
-    adminCreateUserResponseSchema.parse(responseData); // Validate response
-    
-    return res.status(201).json(responseData);
+      if (!user) {
+        throw new Error('User creation succeeded but no user data returned')
+      }
 
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      const errorResponse: ErrorResponse = { 
-        error: 'Invalid request body',
-        // issues: error.issues 
-      };
-      return res.status(400).json(errorResponse);
+      const response = {
+        user: {
+          id: user.user.id,
+          email: user.user.email || null,
+          created_at: user.user.created_at,
+          user_metadata: user.user.user_metadata
+        }
+      }
+
+      adminCreateUserResponseSchema.parse(response)
+      return res.status(200).json(response)
+    } catch (error) {
+      if (error instanceof Error) {
+        const errorResponse: ErrorResponse = {
+          error: error.message
+        }
+        return res.status(400).json(errorResponse)
+      }
+      console.error('Error in create-user handler:', error)
+      const errorResponse: ErrorResponse = {
+        error: 'An unknown error occurred'
+      }
+      return res.status(500).json(errorResponse)
     }
-    if (error instanceof Error) {
-      const errorResponse: ErrorResponse = { error: error.message };
-      // Check if status was already set (e.g., for 409)
-      return res.status(res.statusCode && res.statusCode !== 200 ? res.statusCode : 500).json(errorResponse);
-    }
-    console.error('Error in admin/create-user API:', error);
-    const errorResponse: ErrorResponse = { error: 'An unknown internal server error occurred' };
-    return res.status(500).json(errorResponse);
-  }
-} 
+  },
+  { isUserAdmin: true }
+) 

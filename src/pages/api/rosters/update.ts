@@ -1,7 +1,8 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { withAuth } from '@/components/auth';
-import { TeamRole, RosterEntry } from '@/lib/types';
+import { TeamRole } from '@/lib/types/auth';
+import { RosterEntry } from '@/lib/types/players';
 
 interface UpdateRosterEntryRequest extends RosterEntry { 
   // ensure all fields that can be sent from client are here
@@ -13,7 +14,7 @@ interface UpdateRosterResponse {
   message?: string;
 }
 
-const supabase = getSupabaseClient();
+const supabase = await getSupabaseClient();
 
 async function handler(req: NextApiRequest, res: NextApiResponse<UpdateRosterResponse>) {
   if (req.method === 'POST' || req.method === 'PUT') { // Allow PUT for update, POST for create

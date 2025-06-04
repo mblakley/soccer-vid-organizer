@@ -21,7 +21,7 @@ export default async function handler(
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const supabase = getSupabaseClient(req.headers.authorization)
+  const supabase = await getSupabaseClient(req.headers.authorization)
 
   try {
     // Check user session first, as even fetching roles might require authentication

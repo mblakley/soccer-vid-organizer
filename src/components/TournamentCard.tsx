@@ -1,0 +1,3 @@
+import { Tournament } from '@/lib/types/tournaments';
+
+// ... rest of the file unchanged ... 

@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { getCurrentUser, User, getUserTeams } from '@/lib/auth'
-import { TeamRole } from '@/lib/types'
+import { TeamRole } from '@/lib/types/auth'
 import { useRouter } from 'next/router'
 
 type TeamContextType = {

@@ -4,7 +4,9 @@ import { useTeam } from '@/contexts/TeamContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { withAuth, User } from '@/components/auth';
 import { apiClient } from '@/lib/api/client';
-import { League, Game, TeamRole } from '@/lib/types';
+import { League } from '@/lib/types/leagues';
+import { Game } from '@/lib/types/games';
+import { TeamRole } from '@/lib/types/auth';
 import { List, CalendarDays, Users, Edit2, Trash2, ExternalLink, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 
 // API Response Interfaces

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ErrorResponse } from './auth'; // Assuming ErrorResponse is in auth.ts
+import type { ErrorResponse } from './api'; // Import ErrorResponse from api.ts
 import { teamSchema } from './teams'; // Import teamSchema
 import { leagueSchema } from './leagues'; // Import leagueSchema
 import { gameSchema } from './games'; // Import gameSchema
@@ -92,6 +92,7 @@ export const checkUserResponseSchema = z.object({
     email: z.string().email(),
     name: z.string()
   }).optional(),
+  currentRoles: z.array(z.string()).optional(),
   error: z.string().optional() // Added to allow for errors in the response body itself if needed
 });
 
@@ -478,5 +479,14 @@ export const adminUpdateTournamentResponseSchema = z.object({
 });
 export type AdminUpdateTournamentResponse = z.infer<typeof adminUpdateTournamentResponseSchema>;
 export type AdminUpdateTournamentApiResponse = AdminUpdateTournamentResponse | ErrorResponse;
+
+// For GET /api/admin/team-members
+export const adminDisplayTeamMemberSchema = teamMemberSchema.extend({
+  user_email: z.string().email().optional(),
+  user_name: z.string().optional(),
+  team_name: z.string().optional(),
+});
+
+export type AdminDisplayTeamMember = z.infer<typeof adminDisplayTeamMemberSchema>;
 
 // Add other admin-specific types here as needed 

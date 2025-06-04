@@ -1,7 +1,7 @@
 import { jwtDecode, JwtPayload } from 'jwt-decode'
 import { getSupabaseBrowserClient, getSupabaseClient } from '@/lib/supabaseClient'
-import { Session, User as SupabaseUser } from '@supabase/supabase-js'
-import { JWTCustomClaims, TeamRole, TeamRolesMap } from './types'
+import { User as SupabaseUser } from '@supabase/supabase-js'
+import { JWTCustomClaims, TeamRole, TeamRolesMap } from './types/auth'
 import { NextApiRequest, NextApiResponse, NextApiHandler } from 'next'
 
 export interface User {
@@ -268,30 +268,75 @@ export function withApiAuth(
  */
 async function getUserAndClaims(req: NextApiRequest): Promise<{ user: SupabaseUser | null; claims: JWTCustomClaims | null; error?: string; status?: number }> {
   const authHeader = req.headers.authorization;
+  console.log('[ApiAuth] Checking authorization header:', {
+    hasHeader: !!authHeader,
+    startsWithBearer: authHeader?.startsWith('Bearer ')
+  });
+
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return { user: null, claims: null, error: 'Missing or invalid authorization header', status: 401 };
   }
   const token = authHeader.split(' ')[1];
 
-  const supabase = getSupabaseClient(authHeader);
+  const supabase = await getSupabaseClient(authHeader);
 
   try {
+    console.log('[ApiAuth] Getting user from token...');
     const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    console.log('[ApiAuth] User data:', {
+      userId: user?.id,
+      email: user?.email,
+      hasError: !!userError,
+      errorMessage: userError?.message
+    });
+
     if (userError || !user) {
       return { user: null, claims: null, error: userError?.message || 'User not authenticated', status: 401 };
     }
 
     let claims: JWTCustomClaims = { is_admin: false, team_roles: {} };
+    console.log('[ApiAuth] Getting session for claims...');
     const { data: { session } } = await supabase.auth.getSession();
+    
     if (session?.access_token) {
       try {
+        console.log('[ApiAuth] Decoding JWT claims...');
         claims = jwtDecode<JWTCustomClaims>(session.access_token);
+        console.log('[ApiAuth] Decoded claims:', {
+          isAdmin: claims.is_admin,
+          hasTeamRoles: Object.keys(claims.team_roles || {}).length > 0,
+          teamRoles: claims.team_roles
+        });
       } catch (e) {
         console.error('[ApiAuth] Error decoding JWT:', e);
       }
+    } else {
+      console.warn('[ApiAuth] No access_token in session to decode claims from');
     }
+
+    // Double-check admin status in database
+    console.log('[ApiAuth] Verifying admin status in database...');
+    const { data: userRole, error: roleError } = await supabase
+      .from('user_roles')
+      .select('is_admin')
+      .eq('user_id', user.id)
+      .single();
+    
+    console.log('[ApiAuth] Database admin check:', {
+      isAdmin: userRole?.is_admin,
+      hasError: !!roleError,
+      errorMessage: roleError?.message
+    });
+
+    // Update claims with database check
+    if (userRole?.is_admin) {
+      claims.is_admin = true;
+      console.log('[ApiAuth] Updated claims with database admin status');
+    }
+
     return { user, claims, status: 200 };
   } catch (e: any) {
+    console.error('[ApiAuth] Error in getUserAndClaims:', e);
     return { user: null, claims: null, error: e.message || 'Authentication error', status: 500 };
   }
 } 

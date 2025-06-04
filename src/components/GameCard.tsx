@@ -1,0 +1,3 @@
+import { Game } from '@/lib/types/games';
+
+// ... rest of the file unchanged ... 

@@ -1,0 +1,3 @@
+import { Clip } from '@/lib/types/clips';
+
+// ... rest of the file unchanged ... 

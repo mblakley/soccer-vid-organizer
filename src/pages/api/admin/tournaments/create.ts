@@ -1,16 +1,23 @@
-import { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { withAuth } from '@/components/auth'; // Assuming a general withAuth for API routes
-import { Tournament, TeamRole } from '@/lib/types';
+import { Tournament } from '@/lib/types/tournaments';
+import { TeamRole } from '@/lib/types/auth';
+import { getCurrentUser, isAdmin } from '@/lib/auth';
 
 interface CreateTournamentResponse {
   tournament?: Tournament;
   message?: string;
 }
 
-const supabase = getSupabaseClient(); // Use service client or ensure RLS allows admin inserts
+const supabase = await getSupabaseClient(); // Use service client or ensure RLS allows admin inserts
 
 async function handler(req: NextApiRequest, res: NextApiResponse<CreateTournamentResponse>) {
+  const user = await getCurrentUser();
+  if (!user || !isAdmin(user)) {
+    return res.status(403).json({ message: 'Forbidden: Admins only.' });
+  }
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).json({ message: 'Method not allowed' });
@@ -29,14 +36,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse<CreateTournamen
     const newTournament: Omit<Tournament, 'id' | 'created_at' | 'updated_at'> & { created_at?: string, updated_at?: string } = {
       name: tournamentData.name,
       description: tournamentData.description || null,
-      start_date: tournamentData.start_date, // Ensure this is a valid date string or null
-      end_date: tournamentData.end_date,     // Ensure this is a valid date string or null
+      start_date: tournamentData.start_date,
+      end_date: tournamentData.end_date,
       location: tournamentData.location || null,
       status: tournamentData.status || 'upcoming',
       format: tournamentData.format || null,
       age_group: tournamentData.age_group || null,
       additional_info: tournamentData.additional_info || null,
-      // created_at and updated_at will be set by the database by default
+      organizer: tournamentData.organizer || null,
+      contact_email: tournamentData.contact_email || null,
+      registration_deadline: tournamentData.registration_deadline || null,
+      max_teams: tournamentData.max_teams || null,
+      rules_url: tournamentData.rules_url || null,
+      image_url: tournamentData.image_url || null
     };
 
     const { data, error } = await supabase
@@ -63,8 +75,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse<CreateTournamen
 }
 
 // Admin-only endpoint
-export default withAuth(handler, {
-  teamId: 'any',
-  roles: ['admin'] as TeamRole[], // Only admins can create tournaments
-  requireRole: true,
-}); 
+export default withAuth(handler); 

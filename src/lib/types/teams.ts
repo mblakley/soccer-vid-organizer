@@ -1,5 +1,7 @@
 import { z } from 'zod'
-import type { ErrorResponse } from './auth'
+import type { ErrorResponse } from './api'
+
+export type TeamRole = 'admin' | 'coach' | 'player' | 'parent' | 'spectator'
 
 export const teamSchema = z.object({
   id: z.string().uuid(),
@@ -8,9 +10,9 @@ export const teamSchema = z.object({
   season: z.string().optional(),
   age_group: z.string().optional(),
   gender: z.string().optional(),
-  additional_info: z.string().optional(),
-  created_at: z.string().datetime(),
-  updated_at: z.string().datetime().optional(),
+  additional_info: z.record(z.any()).nullable(),
+  created_at: z.string().nullable(),
+  updated_at: z.string().nullable(),
   member_count: z.number().optional()
 })
 
@@ -141,4 +143,24 @@ export const availableTeamsResponseSchema = z.object({
 
 export type AvailableTeam = z.infer<typeof availableTeamSchema>;
 export type AvailableTeamsResponse = z.infer<typeof availableTeamsResponseSchema>;
-export type AvailableTeamsApiResponse = AvailableTeamsResponse | ErrorResponse; 
+export type AvailableTeamsApiResponse = AvailableTeamsResponse | ErrorResponse;
+
+export type TeamMemberFormData = {
+  name: string;
+  email: string;
+  jersey_number: string;
+  position: string;
+};
+
+export const teamCreateRequestSchema = teamSchema.omit({ 
+  id: true, 
+  created_at: true, 
+  updated_at: true, 
+  member_count: true 
+});
+
+export type TeamCreateRequest = z.infer<typeof teamCreateRequestSchema>
+
+export type SingleTeamResponse = z.infer<typeof teamSchema>;
+export type SingleTeamApiResponse = SingleTeamResponse | ErrorResponse;
+export type TeamMemberApiResponse = TeamMember | ErrorResponse; 

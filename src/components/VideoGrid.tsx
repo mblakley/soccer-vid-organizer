@@ -1,0 +1,3 @@
+import { Video } from '@/lib/types/videos';
+
+// ... rest of the file unchanged ... 

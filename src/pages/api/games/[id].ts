@@ -1,14 +1,15 @@
-import { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { withAuth } from '@/components/auth';
-import { TeamRole, Game } from '@/lib/types'; // Assuming Game type exists or will be added
+import { TeamRole } from '@/lib/types/auth';
+import { Game } from '@/lib/types/games';
 
 interface GameDetailsResponse {
   game?: Game;
   message?: string;
 }
 
-const supabase = getSupabaseClient();
+const supabase = await getSupabaseClient();
 
 async function handler(req: NextApiRequest, res: NextApiResponse<GameDetailsResponse | { message: string }>) {
   const { id } = req.query;
@@ -20,7 +21,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse<GameDetailsResp
   // Get a non-user-specific client for delete if RLS prevents user from deleting
   // Or ensure your RLS allows users with appropriate roles to delete games.
   // For simplicity, using the default client which might be service role if no auth header.
-  const clientForMutation = getSupabaseClient(); 
+  const clientForMutation = await getSupabaseClient(); 
 
   if (req.method === 'GET') {
     try {
@@ -49,7 +50,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse<GameDetailsResp
     }
   } else if (req.method === 'DELETE') {
     // Ensure user is authenticated and has rights to delete, if not handled by withAuth fully
-    // const userContextSupabase = getSupabaseClient(req.headers.authorization);
+    // const userContextSupabase = await getSupabaseClient(req.headers.authorization);
     // const { data: { user } } = await userContextSupabase.auth.getUser();
     // if (!user) return res.status(401).json({ message: 'Unauthorized' });
     // Add role check here if needed, e.g., only admin or coach of involved team can delete

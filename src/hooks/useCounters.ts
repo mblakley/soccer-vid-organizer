@@ -1,7 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '@/lib/api/client';
 import { CountTracker, CounterType } from '@/components/counters/CounterInterfaces';
-import { CounterEvent, CreateCounterEvent, isCounterEvent } from '@/types/counterTypes';
+import { 
+  CounterEvent, 
+  CreateCounterEvent, 
+  isCounterEvent, 
+  CounterApiResponse, 
+  CounterEventsApiResponse,
+  Counter 
+} from '@/lib/types/counters';
 import { toast } from 'react-toastify';
 
 interface UseCountersOptions {
@@ -36,19 +43,23 @@ export function useCounters({ userId, videoId, onError }: UseCountersOptions) {
         return;
       }
       setLoading(true);
-      const { data: countersData, error: countersError } = await apiClient.get(`/api/counters?videoId=${videoId}`);
-      if (countersError) throw countersError;
+      const resp = await apiClient.get<CounterApiResponse>(`/api/counters?videoId=${videoId}`);
+      if ('error' in resp) throw resp.error;
+      const countersData = 'counter' in resp ? [resp.counter] : [];
+      
       // For each counter, fetch its events
       const countersWithEvents = await Promise.all(
-        (countersData || []).map(async (counter: any) => {
-          const { data: events, error: eventsError } = await apiClient.get(`/api/counter-events?counterId=${counter.id}`);
-          if (eventsError) throw eventsError;
+        countersData.map(async (counter: Counter) => {
+          const eventsResp = await apiClient.get<CounterEventsApiResponse>(`/api/counter-events?counterId=${counter.id}`);
+          if ('error' in eventsResp) throw eventsResp.error;
+          const events = 'events' in eventsResp ? eventsResp.events : [];
+          
           const mappedCounter: CountTracker = {
             id: counter.id,
             name: counter.name,
             count: counter.count,
-            timestamps: events.map((e: CounterEvent) => e.timestamp),
-            type: counter.type,
+            timestamps: events.map(e => e.timestamp),
+            type: counter.type as CounterType,
           };
           if (counter.type === 'player-based') {
             mappedCounter.players = [];
@@ -95,16 +106,18 @@ export function useCounters({ userId, videoId, onError }: UseCountersOptions) {
       return;
     }
     try {
-      const { data: counterData, error: counterError } = await apiClient.post('/api/counters', {
+      const resp = await apiClient.post<CounterApiResponse>('/api/counters', {
         name: newCounterName,
         type: newCounterType,
         count: 0,
         videoId: videoId,
         createdBy: userId
       });
-      if (counterError) throw counterError;
+      if ('error' in resp) throw resp.error;
+      if (!('counter' in resp)) throw new Error('No counter data returned');
+      
       const newCounter: CountTracker = {
-        id: counterData.id,
+        id: resp.counter.id,
         name: newCounterName,
         count: 0,
         timestamps: [],
@@ -153,17 +166,23 @@ export function useCounters({ userId, videoId, onError }: UseCountersOptions) {
         value: 1,
         teamMemberId: null
       };
-      const { error: eventError } = await apiClient.post('/api/counter-events', newEvent);
-      if (eventError) throw eventError;
+      const eventResp = await apiClient.post<CounterEventsApiResponse>('/api/counter-events', newEvent);
+      if ('error' in eventResp) throw eventResp.error;
+      
       // Get the new count using RPC
-      const { data: newCount, error: rpcError } = await apiClient.post('/api/increment-counter', { counterId: counterId });
-      if (rpcError) throw rpcError;
+      const countResp = await apiClient.post<CounterApiResponse>('/api/increment-counter', { counterId: counterId });
+      if ('error' in countResp) throw countResp.error;
+      if (!('counter' in countResp)) throw new Error('Invalid count returned');
+      
       // Get all events for this counter to update timestamps
-      const { data: events, error: eventsError } = await apiClient.get(`/api/counter-events?counterId=${counterId}`);
-      if (eventsError) throw eventsError;
+      const eventsResp = await apiClient.get<CounterEventsApiResponse>(`/api/counter-events?counterId=${counterId}`);
+      if ('error' in eventsResp) throw eventsResp.error;
+      if (!('events' in eventsResp)) throw new Error('No events returned');
+      
+      const events = eventsResp.events;
       
       // Validate that all events match the CounterEvent interface
-      if (!Array.isArray(events) || !events.every(isCounterEvent)) {
+      if (!events.every(isCounterEvent)) {
         throw new Error('Invalid counter events data received from server');
       }
 
@@ -186,7 +205,7 @@ export function useCounters({ userId, videoId, onError }: UseCountersOptions) {
             };
             return {
               ...counter,
-              count: newCount,
+              count: countResp.counter.count,
               timestamps: events.map(e => e.timestamp),
               playerCounts: updatedPlayerCounts
             };
@@ -200,7 +219,7 @@ export function useCounters({ userId, videoId, onError }: UseCountersOptions) {
           }
           return {
             ...counter,
-            count: newCount,
+            count: countResp.counter.count,
             timestamps: events.map(e => e.timestamp)
           };
         })
@@ -213,11 +232,13 @@ export function useCounters({ userId, videoId, onError }: UseCountersOptions) {
   const removeCounter = useCallback(async (counterId: string) => {
     try {
       // First delete all counter events
-      const { error: eventsError } = await apiClient.post('/api/counter-events/delete', { counterId });
-      if (eventsError) throw eventsError;
+      const eventsResp = await apiClient.post<CounterEventsApiResponse>('/api/counter-events/delete', { counterId });
+      if ('error' in eventsResp) throw eventsResp.error;
+      
       // Then delete the counter
-      const { error: counterError } = await apiClient.post('/api/counters/delete', { id: counterId });
-      if (counterError) throw counterError;
+      const counterResp = await apiClient.post<CounterApiResponse>('/api/counters/delete', { id: counterId });
+      if ('error' in counterResp) throw counterResp.error;
+      
       setCounters(prevCounters => 
         prevCounters.filter(counter => counter.id !== counterId)
       );

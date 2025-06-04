@@ -1,19 +1,18 @@
 import { z } from 'zod';
-import type { ErrorResponse } from './auth'; // Correctly import from auth.ts
+import type { ErrorResponse } from './api'; // Correctly import from api.ts
 
 // Base Video Schema - adjust fields as per your 'videos' table structure
 export const videoSchema = z.object({
-  id: z.string().uuid(),
-  created_at: z.string().datetime(),
-  title: z.string().optional(),
-  description: z.string().optional(),
-  url: z.string().url().optional(), // URL can be optional if source is e.g. local upload
-  source: z.string(), // e.g., 'youtube', 'veo', 'upload'
-  user_id: z.string().uuid().optional(), // Creator of the video
-  team_id: z.string().uuid().optional(), // Associated team
-  thumbnail_url: z.string().url().optional(),
-  duration: z.number().optional(), // Duration in seconds
-  // Add any other relevant fields from your videos table
+  id: z.string(),
+  title: z.string(),
+  url: z.string().nullable(),
+  source: z.string().nullable(),
+  video_id: z.string().nullable(),
+  duration: z.number().nullable(),
+  start_time: z.number(),
+  end_time: z.number(),
+  metadata: z.record(z.any()).nullable(),
+  created_at: z.string().nullable()
 });
 
 export type Video = z.infer<typeof videoSchema>;
@@ -24,7 +23,11 @@ export const listVideosResponseSchema = z.object({
   // error: z.string().optional(), // ErrorResponse is a union type, so this isn't needed here
 });
 
-export type ListVideosResponse = z.infer<typeof listVideosResponseSchema>;
+export type ListVideosResponse = {
+  videos: Video[];
+  message?: string;
+};
+
 export type ListVideosApiResponse = ListVideosResponse | ErrorResponse;
 
 export interface VideoListResponse {

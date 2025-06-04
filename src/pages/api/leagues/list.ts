@@ -1,7 +1,8 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { withAuth } from '@/components/auth';
-import { TeamRole, League } from '@/lib/types';
+import { TeamRole } from '@/lib/types/auth';
+import { League } from '@/lib/types/leagues';
 
 interface AuthenticatedRequest extends NextApiRequest {
   user?: { id: string; }; // Assuming withAuth injects user with id
@@ -19,8 +20,8 @@ async function handler(req: AuthenticatedRequest, res: NextApiResponse<ListLeagu
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
-  const supabase = getSupabaseClient(req.headers.authorization); // User-context for RLS if applicable
-  // Or service client if complex joins bypass RLS effectively: const supabase = getSupabaseClient();
+  const supabase = await getSupabaseClient(req.headers.authorization); // User-context for RLS if applicable
+  // Or service client if complex joins bypass RLS effectively: const supabase = await getSupabaseClient();
 
   const { teamId, userTeamIds } = req.query; // userTeamIds expected as comma-separated string
 

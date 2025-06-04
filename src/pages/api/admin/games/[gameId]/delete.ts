@@ -40,7 +40,7 @@ export default async function handler(
     validLeagueId = parsedLeagueId.data;
   }
 
-  const supabase = getSupabaseClient(); // Use service role client
+  const supabase = await getSupabaseClient(); // Use service role client
 
   try {
     // If leagueId is provided, first delete the relationship from league_games

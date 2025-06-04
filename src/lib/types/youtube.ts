@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ErrorResponse } from './auth';
+import type { ErrorResponse } from './api';
 
 // Schema for query parameters for /api/youtube/playlist-videos
 export const playlistVideosQuerySchema = z.object({

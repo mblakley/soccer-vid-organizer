@@ -2,8 +2,10 @@
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router'; // Changed from next/navigation for Pages Router
-import { FilmReviewSessionClip, LibraryClip } from '@/lib/types';
-import { CreateReviewApiResponse, CreateReviewResponse, ErrorResponse } from '@/lib/types/reviews';
+import { FilmReviewSessionClip } from '@/lib/types/reviews';
+import { LibraryClip } from '@/lib/types/clips';
+import { CreateReviewApiResponse, CreateReviewResponse } from '@/lib/types/reviews';
+import { ErrorResponse } from '@/lib/types/api';
 import { PlusCircle, Save, Film, Search, ListVideo, X } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import AppLayout from '@/components/AppLayout';

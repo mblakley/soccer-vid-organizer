@@ -22,7 +22,7 @@ import {
   AdminLeagueGamesApiResponse,
   AdminLeagueGamesResponse
 } from '@/lib/types/admin';
-import { ErrorResponse } from '@/lib/types/auth';
+import { ErrorResponse } from '@/lib/types/api';
 
 // Import new components
 import LeagueTable from '@/components/leagues/LeagueTable'

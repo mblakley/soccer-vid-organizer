@@ -1,8 +1,9 @@
 import { useRouter } from 'next/router'
 import { useEffect, useState } from 'react'
 import { getCurrentUser, isAdmin, hasTeamRole } from '@/lib/auth'
-import { AppRole, TeamRole } from '@/lib/types'
+import { AppRole, TeamRole } from '@/lib/types/auth'
 import AppLayout from './AppLayout'
+import { useAuth } from '@/lib/hooks/useAuth'
 
 export interface User {
   id: string;

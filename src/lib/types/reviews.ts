@@ -1,15 +1,13 @@
 import { z } from 'zod'
-import type { ErrorResponse } from './auth'
+import type { ErrorResponse } from './api'
+import type { Clip } from './clips'
 
 export const reviewSchema = z.object({
   id: z.string(),
+  title: z.string(),
+  description: z.string(),
   created_at: z.string(),
-  updated_at: z.string().nullable(),
-  user_id: z.string(),
-  clip_id: z.string(),
-  rating: z.number(),
-  feedback: z.string().nullable(),
-  status: z.string()
+  clip_count: z.number()
 })
 
 export const createReviewRequestSchema = z.object({
@@ -52,4 +50,37 @@ export const creatorNamesResponseSchema = z.record(z.string().uuid(), z.string()
 
 export type CreatorNamesRequest = z.infer<typeof creatorNamesRequestSchema>;
 export type CreatorNamesResponse = z.infer<typeof creatorNamesResponseSchema>;
-export type CreatorNamesApiResponse = CreatorNamesResponse | ErrorResponse; 
+export type CreatorNamesApiResponse = CreatorNamesResponse | ErrorResponse;
+
+export interface FilmReviewSessionClip {
+  id: string;
+  clip_id: string;
+  display_order: number;
+  comment?: string;
+  clip?: {
+    id: string;
+    title: string;
+    video_id: string;
+    start_time: number;
+    end_time: number;
+    thumbnail_url?: string;
+    created_by?: string;
+    created_at?: string;
+  };
+}
+
+export interface FilmReviewSession {
+  id: string;
+  title: string;
+  description?: string;
+  tags?: string[];
+  creator_user_id: string;
+  team_id: string;
+  is_private: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FilmReviewSessionWithClips extends FilmReviewSession {
+  clips: FilmReviewSessionClip[];
+} 

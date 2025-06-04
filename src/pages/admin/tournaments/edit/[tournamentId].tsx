@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { apiClient } from '@/lib/api/client';
 import { Tournament, TournamentStatus } from '@/lib/types/tournaments';
-import { ErrorResponse } from '@/lib/types/auth';
+import { ErrorResponse } from '@/lib/types/api';
 import {
   AdminGetTournamentApiResponse,
   AdminUpdateTournamentRequest,
@@ -24,7 +24,7 @@ function EditTournamentPage() {
   const { tournamentId } = router.query as { tournamentId?: string };
   const { isDarkMode } = useTheme();
   
-  const [tournamentDetails, setTournamentDetails] = useState<AdminUpdateTournamentRequest>({});
+  const [tournamentDetails, setTournamentDetails] = useState<Tournament | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -47,9 +47,9 @@ function EditTournamentPage() {
         const fetchedTournament = response.tournament;
         setTournamentDetails({
           ...fetchedTournament,
-          start_date: fetchedTournament.start_date ? new Date(fetchedTournament.start_date).toISOString().split('T')[0] : '',
-          end_date: fetchedTournament.end_date ? new Date(fetchedTournament.end_date).toISOString().split('T')[0] : '',
-          status: fetchedTournament.status as TournamentStatus || 'upcoming',
+          start_date: fetchedTournament.start_date ? new Date(fetchedTournament.start_date).toISOString().split('T')[0] : null,
+          end_date: fetchedTournament.end_date ? new Date(fetchedTournament.end_date).toISOString().split('T')[0] : null,
+          status: fetchedTournament.status || 'upcoming',
         });
       } else {
         setPageError(response?.message || 'Failed to fetch tournament details: Tournament not found.');
@@ -73,11 +73,21 @@ function EditTournamentPage() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    if (name === 'status') {
-      setTournamentDetails(prev => ({ ...prev, [name]: value as TournamentStatus }));
-    } else {
-      setTournamentDetails(prev => ({ ...prev, [name]: value }));
-    }
+    if (!tournamentDetails) return;
+    
+    setTournamentDetails(prev => {
+      if (!prev) return null;
+      if (name === 'status') {
+        return {
+          ...prev,
+          [name]: value as TournamentStatus
+        };
+      }
+      return {
+        ...prev,
+        [name]: value
+      };
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -85,22 +95,39 @@ function EditTournamentPage() {
     setIsSubmitting(true);
     setFormError(null);
 
-    if (!tournamentDetails.name || !tournamentDetails.start_date || !tournamentDetails.end_date) {
-        setFormError('Tournament Name, Start Date, and End Date are required.');
-        setIsSubmitting(false);
-        return;
+    if (!tournamentDetails) {
+      setFormError('Tournament data is missing.');
+      setIsSubmitting(false);
+      return;
     }
+
+    if (!tournamentDetails.name || !tournamentDetails.start_date || !tournamentDetails.end_date) {
+      setFormError('Tournament Name, Start Date, and End Date are required.');
+      setIsSubmitting(false);
+      return;
+    }
+
     if (!tournamentId) {
-        setFormError('Tournament ID is missing. Cannot update.');
-        setIsSubmitting(false);
-        return;
+      setFormError('Tournament ID is missing. Cannot update.');
+      setIsSubmitting(false);
+      return;
     }
 
     try {
       const payload: AdminUpdateTournamentRequest = {
-        ...tournamentDetails,
+        name: tournamentDetails.name,
         start_date: tournamentDetails.start_date ? new Date(tournamentDetails.start_date).toISOString().split('T')[0] : undefined,
         end_date: tournamentDetails.end_date ? new Date(tournamentDetails.end_date).toISOString().split('T')[0] : undefined,
+        description: tournamentDetails.description || undefined,
+        location: tournamentDetails.location || undefined,
+        status: tournamentDetails.status || undefined,
+        organizer: tournamentDetails.organizer || undefined,
+        contact_email: tournamentDetails.contact_email || undefined,
+        registration_deadline: tournamentDetails.registration_deadline || undefined,
+        max_teams: tournamentDetails.max_teams || undefined,
+        rules_url: tournamentDetails.rules_url || undefined,
+        image_url: tournamentDetails.image_url || undefined,
+        additional_info: tournamentDetails.additional_info || undefined
       };
 
       const response = await apiClient.put<AdminUpdateTournamentApiResponse>(`/api/admin/tournaments/${tournamentId}`, payload);
@@ -137,7 +164,7 @@ function EditTournamentPage() {
     );
   }
 
-  if (pageError && !tournamentDetails.id) {
+  if (pageError && !tournamentDetails?.id) {
     return (
       <div className={`min-h-screen flex flex-col items-center justify-center p-4 ${isDarkMode ? 'bg-gray-900 text-red-400' : 'bg-gray-100 text-red-600'}`}>
         <AlertTriangle size={48} className="mb-4" />
@@ -152,7 +179,7 @@ function EditTournamentPage() {
     );
   }
   
-  if (!tournamentDetails.id && !initialLoading) {
+  if (!tournamentDetails?.id && !initialLoading) {
      return (
         <div className={`min-h-screen flex flex-col items-center justify-center p-4 ${isDarkMode ? 'bg-gray-900 text-gray-400' : 'bg-gray-100 text-gray-600'}`}>
             <Info size={48} className="mb-4" />
@@ -175,7 +202,7 @@ function EditTournamentPage() {
                 <ChevronLeft size={18} className="mr-1" /> Back to Tournaments List
             </a>
         </Link>
-        <h1 className="text-3xl font-bold mb-6">Edit Tournament: {tournamentDetails.name || ''}</h1>
+        <h1 className="text-3xl font-bold mb-6">Edit Tournament: {tournamentDetails?.name || ''}</h1>
 
         <form onSubmit={handleSubmit} className={`p-6 rounded-lg shadow-md space-y-4 ${isDarkMode ? 'bg-gray-700' : 'bg-white'}`}>
             {formError && (
@@ -186,34 +213,34 @@ function EditTournamentPage() {
 
             <div>
                 <label htmlFor="name" className={`${labelClasses} required-field`}>Tournament Name</label>
-                <input type="text" name="name" id="name" value={tournamentDetails.name || ''} onChange={handleChange} className={inputClasses} required />
+                <input type="text" name="name" id="name" value={tournamentDetails?.name || ''} onChange={handleChange} className={inputClasses} required />
             </div>
 
             <div>
                 <label htmlFor="description" className={labelClasses}>Description</label>
-                <textarea name="description" id="description" value={tournamentDetails.description || ''} onChange={handleChange} rows={3} className={inputClasses} />
+                <textarea name="description" id="description" value={tournamentDetails?.description || ''} onChange={handleChange} rows={3} className={inputClasses} />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label htmlFor="start_date" className={`${labelClasses} required-field`}>Start Date</label>
-                    <input type="date" name="start_date" id="start_date" value={tournamentDetails.start_date || ''} onChange={handleChange} className={inputClasses} required />
+                    <input type="date" name="start_date" id="start_date" value={tournamentDetails?.start_date || ''} onChange={handleChange} className={inputClasses} required />
                 </div>
                 <div>
                     <label htmlFor="end_date" className={`${labelClasses} required-field`}>End Date</label>
-                    <input type="date" name="end_date" id="end_date" value={tournamentDetails.end_date || ''} onChange={handleChange} className={inputClasses} required />
+                    <input type="date" name="end_date" id="end_date" value={tournamentDetails?.end_date || ''} onChange={handleChange} className={inputClasses} required />
                 </div>
             </div>
             
             <div>
                 <label htmlFor="location" className={labelClasses}>Location</label>
-                <input type="text" name="location" id="location" value={tournamentDetails.location || ''} onChange={handleChange} className={inputClasses} placeholder="e.g., City, State or Venue Name"/>
+                <input type="text" name="location" id="location" value={tournamentDetails?.location || ''} onChange={handleChange} className={inputClasses} placeholder="e.g., City, State or Venue Name"/>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                  <div>
                     <label htmlFor="status" className={labelClasses}>Status</label>
-                    <select name="status" id="status" value={tournamentDetails.status || 'upcoming'} onChange={handleChange} className={inputClasses}>
+                    <select name="status" id="status" value={tournamentDetails?.status || 'upcoming'} onChange={handleChange} className={inputClasses}>
                         <option value="upcoming">Upcoming</option>
                         <option value="registration_open">Registration Open</option>
                         <option value="registration_closed">Registration Closed</option>

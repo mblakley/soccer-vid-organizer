@@ -5,7 +5,13 @@ import { withAuth, User } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import Link from 'next/link'
 import { apiClient } from '@/lib/api/client'
-import { Video, Clip, Comment as CommentType, TeamRole } from '@/lib/types'
+import { Video } from '@/lib/types/videos'
+import { Clip } from '@/lib/types/clips'
+import { Comment as CommentType } from '@/lib/types/comments'
+import { TeamRole } from '@/lib/types/auth'
+import { useAuth } from '@/lib/hooks/useAuth'
+import { useRouter } from 'next/router'
+import { cn } from '@/lib/utils'
 import { PlayCircle, ListVideo, Film, MessageCircle, Users, AlertTriangle, LogIn } from 'lucide-react'
 
 interface Comment extends CommentType {
@@ -214,22 +220,22 @@ function HomePage({ user }: HomePageProps) {
 
   if (loading) {
     return (
-      <div className={`min-h-screen flex items-center justify-center ${isDarkMode ? 'bg-gray-900' : 'bg-gray-100'}`}>
+      <div className={cn("min-h-screen flex items-center justify-center", isDarkMode ? "bg-gray-900" : "bg-gray-100")}>
         <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-blue-500"></div>
-        <p className={`ml-4 text-lg ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Loading your dashboard...</p>
+        <p className={cn("ml-4 text-lg", isDarkMode ? "text-gray-300" : "text-gray-700")}>Loading your dashboard...</p>
       </div>
     )
   }
 
   if (pageError && !user) {
     return (
-      <div className={`min-h-screen flex flex-col items-center justify-center p-4 ${isDarkMode ? 'bg-gray-900 text-red-400' : 'bg-gray-100 text-red-600'}`}>
+      <div className={cn("min-h-screen flex flex-col items-center justify-center p-4", isDarkMode ? "bg-gray-900 text-red-400" : "bg-gray-100 text-red-600")}>
         <AlertTriangle size={48} className="mb-4" />
         <h2 className="text-xl font-semibold mb-2">Could not load dashboard</h2>
         <p className="text-center">{pageError}</p>
         <button
           onClick={() => window.location.reload()}
-          className={`mt-6 px-4 py-2 rounded-md font-medium transition-colors ${isDarkMode ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'}`}>
+          className={cn("mt-6 px-4 py-2 rounded-md font-medium transition-colors", isDarkMode ? "bg-blue-600 hover:bg-blue-500 text-white" : "bg-blue-500 hover:bg-blue-600 text-white")}>
           Try Again
         </button>
       </div>
@@ -238,15 +244,15 @@ function HomePage({ user }: HomePageProps) {
 
   if (!user) {
     return (
-      <div className={`min-h-screen flex flex-col items-center justify-center p-8 ${isDarkMode ? 'bg-gray-900 text-gray-200' : 'bg-gray-100 text-gray-800'}`}>
-        <LogIn size={64} className={`mb-6 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
+      <div className={cn("min-h-screen flex flex-col items-center justify-center p-8", isDarkMode ? "bg-gray-900 text-gray-200" : "bg-gray-100 text-gray-800")}>
+        <LogIn size={64} className={cn("mb-6", isDarkMode ? "text-blue-400" : "text-blue-600")} />
         <h1 className="text-3xl font-bold mb-4">Welcome to Soccer Vid Organizer</h1>
-        <p className={`mb-8 text-lg text-center max-w-md ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+        <p className={cn("mb-8 text-lg text-center max-w-md", isDarkMode ? "text-gray-400" : "text-gray-600")}>
           Please log in to access your dashboard, manage videos, clips, and more.
         </p>
         <Link 
           href="/login" 
-          className={`px-6 py-3 rounded-lg font-semibold text-white transition-colors ${isDarkMode ? 'bg-blue-600 hover:bg-blue-500' : 'bg-blue-500 hover:bg-blue-600'}`}
+          className={cn("px-6 py-3 rounded-lg font-semibold text-white transition-colors", isDarkMode ? "bg-blue-600 hover:bg-blue-500" : "bg-blue-500 hover:bg-blue-600")}
         >
           Log In
         </Link>
@@ -255,28 +261,20 @@ function HomePage({ user }: HomePageProps) {
   }
 
   return (
-    <div className={`p-4 md:p-8 space-y-8 ${isDarkMode ? 'bg-gray-800 text-gray-200' : 'bg-gray-100 text-gray-800'}`}>
+    <div className={cn("p-4 md:p-8 space-y-8", isDarkMode ? "bg-gray-800 text-gray-200" : "bg-gray-100 text-gray-800")}>
       {pageError && (
-        <div className={`p-4 mb-6 border rounded-lg ${isDarkMode ? 'bg-red-900 border-red-700 text-red-100' : 'bg-red-100 border-red-300 text-red-700'}`} role="alert">
+        <div className={cn("p-4 mb-6 border rounded-lg", isDarkMode ? "bg-red-900 border-red-700 text-red-100" : "bg-red-100 border-red-300 text-red-700")} role="alert">
           <h3 className="font-bold flex items-center"><AlertTriangle size={18} className="mr-2" />Information</h3>
           <pre className="whitespace-pre-wrap">{pageError}</pre>
         </div>
       )}
 
       {hasNoRoles && user && (
-        <div className={`p-4 mb-6 border rounded-lg ${
-          isDarkMode 
-            ? 'bg-blue-900 border-blue-800 text-blue-100' 
-            : 'bg-blue-50 border-blue-200 text-blue-800'
-        } text-center`}>
+        <div className={cn("p-4 mb-6 border rounded-lg text-center", isDarkMode ? "bg-blue-900 border-blue-800 text-blue-100" : "bg-blue-50 border-blue-200 text-blue-800")}>
           <p className="mb-2">You don't have any team roles assigned yet.</p>
           <Link 
             href="/role-request" 
-            className={`inline-block px-4 py-2 rounded font-medium ${
-              isDarkMode 
-                ? 'bg-blue-700 hover:bg-blue-600 text-white' 
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
-            }`}
+            className={cn("inline-block px-4 py-2 rounded font-medium", isDarkMode ? "bg-blue-700 hover:bg-blue-600 text-white" : "bg-blue-600 hover:bg-blue-700 text-white")}
           >
             Request Team Role
           </Link>
@@ -297,7 +295,7 @@ function HomePage({ user }: HomePageProps) {
             </div>
 
             {clips.length === 0 && !loading ? (
-              <p className={`py-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>No clips available yet.</p>
+              <p className={cn("py-4", isDarkMode ? "text-gray-400" : "text-gray-600")}>No clips available yet.</p>
             ) : clips.length > 0 && (
               <div>
                 <h3 className="text-xl font-semibold mb-3">
@@ -329,14 +327,14 @@ function HomePage({ user }: HomePageProps) {
                 
                 <div className="space-x-2 mt-3">
                   <button 
-                    className={`${isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} px-4 py-2 rounded transition-colors`} 
+                    className={cn("px-4 py-2 rounded transition-colors", isDarkMode ? "bg-gray-700 hover:bg-gray-600" : "bg-gray-200 hover:bg-gray-300")} 
                     onClick={() => setCurrentIndex(i => Math.max(0, i - 1))}
                     disabled={currentIndex === 0}
                   >
                     Prev
                   </button>
                   <button 
-                    className={`${isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} px-4 py-2 rounded transition-colors`} 
+                    className={cn("px-4 py-2 rounded transition-colors", isDarkMode ? "bg-gray-700 hover:bg-gray-600" : "bg-gray-200 hover:bg-gray-300")} 
                     onClick={() => setCurrentIndex(i => Math.min(clips.length - 1, i + 1))}
                     disabled={currentIndex === clips.length - 1}
                   >
@@ -359,7 +357,7 @@ function HomePage({ user }: HomePageProps) {
             </div>
 
             {videos.length === 0 && !loading ? (
-              <p className={`py-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>No videos available yet.</p>
+              <p className={cn("py-4", isDarkMode ? "text-gray-400" : "text-gray-600")}>No videos available yet.</p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {videos.map(video => {
@@ -371,7 +369,7 @@ function HomePage({ user }: HomePageProps) {
                       <a
                         target="_blank"
                         rel="noopener noreferrer"
-                        className={`block rounded-lg overflow-hidden shadow-lg transition-all hover:shadow-xl ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-white hover:bg-gray-50'}`}
+                        className={cn("block rounded-lg overflow-hidden shadow-lg transition-all hover:shadow-xl", isDarkMode ? "bg-gray-700 hover:bg-gray-600" : "bg-white hover:bg-gray-50")}
                       >
                         <div className="relative pb-[56.25%]">
                           <img src={getThumbnailUrl(video)} alt={video.title} className="absolute inset-0 w-full h-full object-cover" />

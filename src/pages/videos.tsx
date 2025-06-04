@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { withAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
 import { apiClient } from '@/lib/api/client' // Import apiClient
-import { Video, ListVideosApiResponse } from '@/lib/types' // Assuming a Video type exists or will be created
+import { Video, ListVideosApiResponse } from '@/lib/types/videos' // Assuming a Video type exists or will be created
 
 // Define the expected API response structure for listing videos
 // interface ListVideosApiResponse {
@@ -30,14 +30,14 @@ function VideosPage() {
       // Use apiClient to fetch videos from the new endpoint
       const data = await apiClient.get<ListVideosApiResponse>('/api/videos/list')
       
-      if (data && data.videos) {
+      if ('videos' in data) {
         setVideos(data.videos)
       } else {
-        // Handle cases where data or data.videos might be undefined, or if there's a message
+        // Handle cases where data or data.videos might be undefined, or if there's an error
         setVideos([])
-        if (data && data.message) {
-          setPageError(data.message)
-          console.error('Error fetching videos:', data.message)
+        if ('error' in data) {
+          setPageError(data.error)
+          console.error('Error fetching videos:', data.error)
         } else {
           setPageError('Failed to fetch videos or no videos found.')
           console.error('Error fetching videos: Response did not contain videos.')

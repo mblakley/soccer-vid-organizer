@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { withAuth } from '@/components/auth';
-import { TeamRole } from '@/lib/types'; // Assuming some types might be relevant
+import { TeamRole } from '@/lib/types/auth';
 
 // Define expected request body if any, and response structure
 interface AttendanceStatsParams {
@@ -23,9 +23,9 @@ interface RpcAttendanceStatsResponse {
 }
 
 // Use a user-context client if the RPC function depends on the calling user's permissions or ID
-// const supabase = getSupabaseClient(req.headers.authorization); 
+// const supabase = await getSupabaseClient(req.headers.authorization); 
 // Otherwise, a service client might be fine if RLS is handled by the RPC or it's public data.
-const supabase = getSupabaseClient();
+const supabase = await getSupabaseClient();
 
 async function handler(req: NextApiRequest, res: NextApiResponse<RpcAttendanceStatsResponse>) {
   if (req.method !== 'POST') { // Supabase RPCs are typically called via POST

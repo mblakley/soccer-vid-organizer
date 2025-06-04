@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '@/lib/supabaseClient'
-import type { RequestTeamApiResponse, ErrorResponse } from '@/lib/types/teams'
+import type { RequestTeamApiResponse } from '@/lib/types/teams'
 import { requestTeamRequestSchema, requestTeamResponseSchema } from '@/lib/types/teams'
+import { ErrorResponse } from '@/lib/types/api'
 
 const PENDING_TEAM_ID = '00000000-0000-0000-0000-000000000000'; // Consider if this is still the best approach
 
@@ -15,7 +16,7 @@ export default async function handler(
   }
 
   try {
-    const supabase = getSupabaseClient(req.headers.authorization);
+    const supabase = await getSupabaseClient(req.headers.authorization);
 
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {

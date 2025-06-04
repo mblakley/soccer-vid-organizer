@@ -20,7 +20,7 @@ export default async function handler(
 
   const adminCheckResult = await ensureAdmin(req);
   if (adminCheckResult.error) {
-    return res.status(adminCheckResult.status).json({ error: adminCheckResult.error });
+    return res.status(adminCheckResult.status || 403).json({ error: adminCheckResult.error });
   }
 
   const { leagueId } = req.query;
@@ -35,7 +35,7 @@ export default async function handler(
   }
 
   const validLeagueId = parsedLeagueId.data;
-  const supabase = getSupabaseClient(); // Use service role client for deletion
+  const supabase = await getSupabaseClient(); // Use service role client for deletion
 
   try {
     // It's good practice to check if the league exists before attempting to delete,

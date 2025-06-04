@@ -1,7 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { withAuth } from '@/components/auth';
-import { TeamRole } from '@/lib/types'; // Assuming Video type is defined in @/lib/types
+import { TeamRole } from '@/lib/types/auth';
 
 interface VideoSourceInfo {
   video_id: string; // This is likely the video_id column from your 'videos' table
@@ -15,7 +15,7 @@ interface VideoSourcesResponse {
   message?: string;
 }
 
-const supabase = getSupabaseClient();
+const supabase = await getSupabaseClient();
 
 async function handler(req: NextApiRequest, res: NextApiResponse<VideoSourcesResponse>) {
   if (req.method !== 'GET') {

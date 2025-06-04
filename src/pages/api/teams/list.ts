@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '@/lib/supabaseClient'
-import type { ListTeamsApiResponse, ErrorResponse } from '@/lib/types/teams'
+import type { ListTeamsApiResponse } from '@/lib/types/teams'
 import { listTeamsResponseSchema } from '@/lib/types/teams'
+import { ErrorResponse } from '@/lib/types/api'
 
 export default async function handler(
   req: NextApiRequest,
@@ -13,7 +14,7 @@ export default async function handler(
   }
 
   try {
-    const supabase = getSupabaseClient(req.headers.authorization);
+    const supabase = await getSupabaseClient(req.headers.authorization);
 
     // Authentication check (optional for a public list, but good practice)
     const { data: { user }, error: authError } = await supabase.auth.getUser();

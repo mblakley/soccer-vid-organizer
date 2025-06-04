@@ -1,14 +1,14 @@
-import { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { withAuth } from '@/components/auth';
-import { TeamRole } from '@/lib/types';
+import { TeamRole } from '@/lib/types/auth';
 
 interface TournamentFlightsResponse {
   flights?: string[];
   message?: string;
 }
 
-const supabase = getSupabaseClient();
+const supabase = await getSupabaseClient();
 
 async function handler(req: NextApiRequest, res: NextApiResponse<TournamentFlightsResponse>) {
   if (req.method !== 'GET') {

@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '@/lib/supabaseClient'
 import type { CreatorNamesApiResponse } from '@/lib/types/reviews'
-import type { ErrorResponse } from '@/lib/types/auth' // Shared ErrorResponse
+import type { ErrorResponse } from '@/lib/types/api' // Shared ErrorResponse
 import {
   creatorNamesRequestSchema,
   creatorNamesResponseSchema
@@ -19,7 +19,7 @@ export default async function handler(
   }
 
   try {
-    const supabaseUserClient = getSupabaseClient(req.headers.authorization);
+    const supabaseUserClient = await getSupabaseClient(req.headers.authorization);
     const { data: { user: requestingUser }, error: authError } = await supabaseUserClient.auth.getUser();
 
     if (authError || !requestingUser) {
@@ -35,7 +35,7 @@ export default async function handler(
 
     // Use a service role client for operations requiring admin privileges like listing users or unrestricted table access.
     // Ensure this is only used when necessary and after initial auth & authz checks.
-    const supabaseAdmin = getSupabaseClient(); // Service role client
+    const supabaseAdmin = await getSupabaseClient(); // Service role client
 
     console.log('Fetching team members for IDs:', teamMemberIds);
     const { data: teamMembers, error: teamError } = await supabaseAdmin

@@ -2,11 +2,11 @@
 import { useState, useEffect } from 'react'
 import { withAuth } from '@/components/auth'
 import { useTheme } from '@/contexts/ThemeContext'
-import { VideoSourceType, YouTubeSource } from '@/lib/video-sources/types'
+import { VideoSourceType, YouTubeSource } from '@/lib/types/video-sources'
 import { toast } from 'react-toastify'
 import { apiClient } from '@/lib/api/client'
-import { Video } from '@/lib/types'
-import { ErrorResponse } from '@/lib/types/auth'
+import { Video } from '@/lib/types/videos'
+import { ErrorResponse } from '@/lib/types/api'
 
 // Import video sources
 import YouTubeSourceModule from '@/lib/video-sources/youtube'

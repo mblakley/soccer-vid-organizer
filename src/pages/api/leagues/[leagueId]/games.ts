@@ -1,7 +1,8 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { withAuth } from '@/components/auth';
-import { TeamRole, Game } from '@/lib/types'; // Game type should be comprehensive
+import { TeamRole } from '@/lib/types/auth';
+import { Game } from '@/lib/types/games';
 
 interface LeagueGamesResponse {
   games?: Game[];
@@ -20,7 +21,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse<LeagueGamesResp
     return res.status(400).json({ message: 'leagueId path parameter is required.' });
   }
 
-  const supabase = getSupabaseClient(req.headers.authorization); // User-context client
+  const supabase = await getSupabaseClient(req.headers.authorization); // User-context client
 
   try {
     // 1. Get game_ids from the league_games junction table for the given leagueId

@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '@/lib/supabaseClient'
 import type { ListClipsApiResponse } from '@/lib/types/clips'
-import type { ErrorResponse } from '@/lib/types/auth' // Shared ErrorResponse
+import type { ErrorResponse } from '@/lib/types/api' // Shared ErrorResponse
 import { listClipsResponseSchema } from '@/lib/types/clips'
 import { z } from 'zod'
 
@@ -16,7 +16,7 @@ export default async function handler(
   }
 
   try {
-    const supabase = getSupabaseClient(req.headers.authorization);
+    const supabase = await getSupabaseClient(req.headers.authorization);
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
     if (authError || !user) {

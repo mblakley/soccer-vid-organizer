@@ -1,7 +1,7 @@
 import React from 'react';
 // Assuming ClipMarker is exported from analyze-video or a shared types file.
 // If this path is incorrect, it may need adjustment based on ClipMarker's actual location.
-import { ClipMarker } from '@/types/clips';
+import { ClipMarker } from '@/lib/types/clips';
 import { Play } from 'lucide-react'; // Import Play icon
 
 // --- Data Utility Functions (from original clipFactory.ts) ---
@@ -14,11 +14,18 @@ export const createClipMarkerFromData = (data: any): ClipMarker => {
   // And that comments and labels will be populated separately after initial fetch.
   return {
     id: data.id,
-    startTime: data.start_time,
-    endTime: data.end_time,
-    title: data.title,
-    comment: data.comment || '', // Initialize comment if not present
-    labels: data.labels || [],   // Initialize labels if not present
+    video_id: data.video_id,
+    start_time: data.start_time,
+    end_time: data.end_time,
+    title: data.title || '',
+    comment: data.comment || '',
+    labels: data.labels || [],
+    created_by: data.created_by,
+    created_at: data.created_at,
+    updated_at: data.updated_at,
+    startTime: data.start_time,  // Computed property for compatibility
+    endTime: data.end_time,      // Computed property for compatibility
+    duration: data.end_time - data.start_time  // Computed property for compatibility
   };
 };
 

@@ -16,8 +16,9 @@ import {
 } from '@tanstack/react-table'
 import { Switch } from '@headlessui/react'
 import type { UserWithRole, UpdateUserRoleRequest, UsersWithRolesApiResponse, UpdateUserRoleApiResponse } from '@/lib/types/auth'
+import type { ErrorResponse } from '@/lib/types/api'
 import { apiClient } from '@/lib/api/client'
-import type { DisableUserRequest, DisableUserResponse, DisableUserApiResponse, RemoveUserRequest, RemoveUserResponse, RemoveUserApiResponse, ErrorResponse } from '@/lib/types/admin'
+import type { DisableUserRequest, DisableUserResponse, DisableUserApiResponse, RemoveUserRequest, RemoveUserResponse, RemoveUserApiResponse } from '@/lib/types/admin'
 
 const columnHelper = createColumnHelper<UserWithRole>()
 

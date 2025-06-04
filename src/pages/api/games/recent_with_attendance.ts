@@ -1,7 +1,9 @@
-import { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { withAuth } from '@/components/auth';
-import { Game, RosterEntry, TeamRole } from '@/lib/types'; // Assuming Game and RosterEntry types
+import { Game } from '@/lib/types/games';
+import { RosterEntry } from '@/lib/types/players';
+import { TeamRole } from '@/lib/types/auth';
 
 // Define the structure for the response, matching GameAttendance from the page
 interface GameAttendance {
@@ -19,7 +21,7 @@ interface RecentGamesAttendanceResponse {
   message?: string;
 }
 
-const supabase = getSupabaseClient();
+const supabase = await getSupabaseClient();
 
 async function handler(req: NextApiRequest, res: NextApiResponse<RecentGamesAttendanceResponse>) {
   if (req.method !== 'GET') {

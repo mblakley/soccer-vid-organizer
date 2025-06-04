@@ -5,12 +5,13 @@ import { useTheme } from '@/contexts/ThemeContext'
 import AppLayout from '@/components/AppLayout'
 import { toast } from 'react-toastify'
 import { useAuth } from '@/lib/hooks/useAuth'
-import { FilmReviewSessionWithClips } from '@/lib/types'
+import { FilmReviewSessionWithClips } from '@/lib/types/reviews'
 import { ArrowLeft, Play, Pause, SkipBack, SkipForward, MessageSquare } from 'lucide-react'
 import VideoPlayer, { VideoPlayerControls } from '@/components/VideoPlayer'
 import { Video } from '@/lib/types/videos'
-import { ReviewApiResponse, ErrorResponse as ReviewErrorResponse } from '@/lib/types/reviews'
-import apiClient from '@/lib/apiClient'
+import { ReviewApiResponse } from '@/lib/types/reviews'
+import { ErrorResponse } from '@/lib/types/api'
+import { apiClient } from '@/lib/api/client'
 
 function FilmReviewSessionPageContent() {
   const router = useRouter()
@@ -50,12 +51,13 @@ function FilmReviewSessionPageContent() {
 
         const reviewResponse = await apiClient.get<ReviewApiResponse>(`/api/reviews/${id}`);
 
-        if (reviewResponse && (reviewResponse as ReviewErrorResponse).error) {
-          console.error('API error response:', (reviewResponse as ReviewErrorResponse).error);
-          throw new Error((reviewResponse as ReviewErrorResponse).error || 'Failed to fetch session');
+        if (reviewResponse && (reviewResponse as ErrorResponse).error) {
+          console.error('API error response:', (reviewResponse as ErrorResponse).error);
+          throw new Error((reviewResponse as ErrorResponse).error || 'Failed to fetch session');
         }
         
-        const successfulResponse = reviewResponse as { review: FilmReviewSessionWithClips }; 
+        // Cast to unknown first to safely convert between incompatible types
+        const successfulResponse = reviewResponse as unknown as { review: FilmReviewSessionWithClips };
 
         console.log('Successfully fetched session:', {
           id: successfulResponse.review.id,
@@ -317,7 +319,11 @@ function FilmReviewSessionPageContent() {
                     title: sessionData.clips[currentClipIndex].clip.title || '',
                     source: determineVideoSource(sessionData.clips[currentClipIndex].clip.video_id),
                     start_time: sessionData.clips[currentClipIndex].clip.start_time,
-                    end_time: sessionData.clips[currentClipIndex].clip.end_time
+                    end_time: sessionData.clips[currentClipIndex].clip.end_time,
+                    url: null,
+                    duration: null,
+                    metadata: null,
+                    created_at: null
                   }}
                   onStateChange={handlePlayerStateChange}
                   onTimeUpdate={handleTimeUpdate}

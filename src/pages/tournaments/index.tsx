@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 // import { supabase } from '@/lib/supabaseClient'; // To be removed
 import { apiClient } from '@/lib/api/client'; // Import apiClient
-import { Tournament } from '@/lib/types'; // Import Tournament type
+import { Tournament } from '@/lib/types/tournaments'; // Import Tournament type
 import { withAuth } from '@/components/auth'; // Assuming withAuth is used for page access control
 import { useTheme } from '@/contexts/ThemeContext'; // Assuming theme context for styling
+import { TeamRole } from '@/lib/types/auth';
 
 /*
 // Local Tournament interface to be removed

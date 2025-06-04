@@ -1,16 +1,22 @@
 import React from 'react';
-import { VideoSource, VideoMetadata, VideoSourceProgress, VideoSourceImporter, VideoImportResult, VideoSourceError } from './types';
-import { supabase } from '@/lib/supabaseClient';
-import { Video, videoSchema } from '@/lib/types/videos';
+import { VideoSource, VideoMetadata, VideoSourceProgress, VideoSourceImporter, VideoImportResult, VideoSourceError } from '@/lib/types/video-sources';
+import { getSupabaseBrowserClient } from '@/lib/supabaseClient';
+import { Video, videoSchema, VideoCreateRequest } from '@/lib/types/videos';
 import { apiClient } from '@/lib/api/client';
+import { ErrorResponse } from '@/lib/types/api';
+
+class FacebookVideoSourceError extends Error implements VideoSourceError {
+  constructor(message: string, public code: string, public details?: any) {
+    super(message);
+    this.name = 'FacebookVideoSourceError';
+  }
+}
 
 const FacebookSource: VideoSource = {
   id: 'facebook',
   name: 'Facebook',
-  description: 'Import videos from Facebook Watch',
-  logoUrl: '/logos/facebook.svg',
-  isReady: true,
-  requiresAuth: false,
+  urlPattern: '^(https?://)?(www\\.)?facebook\\.com/watch/\\?v=\\d+|https?://(www\\.)?facebook\\.com/[^/]+/videos/\\d+/',
+  placeholderImage: '/logos/facebook.svg',
 
   extractVideoId: (url: string): string | null => {
     try {
@@ -36,82 +42,76 @@ const FacebookSource: VideoSource = {
     return `https://www.facebook.com/watch/?v=${videoId}`;
   },
 
-  getThumbnailUrl: async (videoId: string): Promise<string | null> => {
+  getThumbnailUrl: (videoId: string, metadata?: any): string => {
     // Facebook oEmbed might provide thumbnail, but requires App Token or Client Token
-    // For now, returning placeholder or null
-    // console.warn('[FacebookSource] Thumbnail fetching not implemented yet for Facebook.')
-    return null; // Or a placeholder image
+    // For now, returning placeholder
+    return '/logos/facebook.svg';
+  },
+
+  getPlayerComponent: (videoId: string, start?: number, end?: number): React.ReactElement => {
+    return (
+      <iframe
+        src={`https://www.facebook.com/plugins/video.php?href=https://www.facebook.com/watch/?v=${videoId}&show_text=false&width=560&height=315&appId`}
+        width="560"
+        height="315"
+        style={{ border: 'none', overflow: 'hidden' }}
+        scrolling="no"
+        frameBorder="0"
+        allowFullScreen
+        allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+      />
+    );
   },
 
   importSingleVideo: async (
     videoId: string,
     originalUrl: string,
     userId: string,
-    // progressCallback?: (progress: VideoSourceProgress) => void
-  ): Promise<VideoImportResult> => {
+    apiToken?: string
+  ): Promise<void> => {
     try {
       // Fetch basic video metadata (title, description, duration, etc.)
       // This is complex for Facebook without official API access for general URLs.
       // For now, we'll create a basic entry and user can edit details later.
-      // progressCallback?.({ status: 'fetching_metadata', progress: 25, message: 'Fetching video details...' })
       
       // Placeholder title - ideally, try to scrape or use oEmbed if possible
       let videoTitle = `Facebook Video ${videoId}`;
       let videoDescription = originalUrl;
 
-      // const oEmbedUrl = `https://graph.facebook.com/v19.0/oembed_video?url=${encodeURIComponent(originalUrl)}&access_token=YOUR_APP_ACCESS_TOKEN`
-      // The above requires an App Access Token or Client Token, not feasible for client-side only or general use without setup
-
-      const videoDataForApi = {
+      const videoData: VideoCreateRequest = {
         video_id: videoId,
-        title: videoTitle, // Will need a way to get actual title
+        title: videoTitle,
         url: originalUrl,
-        source: 'facebook' as const,
-        status: 'active' as const,
-        // duration: fetchedDuration, // Need to fetch this
-        // metadata: { /* any fetched metadata */ },
-        // description: fetchedDescription,
+        source: 'facebook',
+        status: 'active',
         last_synced: new Date().toISOString(),
-        // created_by: userId, // user_id is set by the API based on auth
+        created_by: userId
       };
 
-      // progressCallback?.({ status: 'saving_to_db', progress: 75, message: 'Saving video to library...' })
+      const response = await apiClient.post<Video | ErrorResponse>('/api/videos/create', videoData);
       
-      const { data, error } = await apiClient.post('/api/videos/create', videoDataForApi as any); // Use as any to bypass strict type check if API expects more fields
-
-      if (error) {
-        console.error('[FacebookSource] API error creating video:', error);
+      if ('error' in response) {
+        console.error('[FacebookSource] API error creating video:', response.error);
         // Check if it's a conflict (duplicate)
-        if (error.message && error.message.toLowerCase().includes('conflict') || error.message.toLowerCase().includes('duplicate')) {
-          return { status: 'existing', videoId };
+        if (response.error.toLowerCase().includes('conflict') || 
+            response.error.toLowerCase().includes('duplicate')) {
+          return; // Video already exists
         }
-        throw new VideoSourceError(error.message || 'Failed to save video via API', 'api_error');
+        throw new FacebookVideoSourceError(
+          response.error,
+          'api_error'
+        );
       }
-      
-      if (!data || !data.video) {
-        throw new VideoSourceError('No video data returned from API after creation', 'api_error');
-      }
-      
-      // Validate with Zod schema (optional here as API should ensure it, but good for client confidence)
-      const validation = videoSchema.safeParse(data.video);
-      if (!validation.success) {
-        console.warn('[FacebookSource] API returned video data that did not match schema:', validation.error.issues);
-        // Decide if this is a critical error or if we can proceed with potentially partial data
-      }
-
-      // progressCallback?.({ status: 'completed', progress: 100, message: 'Video imported successfully!' })
-      return { status: 'added', videoId, video: validation.success ? validation.data : data.video as Video };
 
     } catch (e: any) {
       console.error('[FacebookSource] Error importing video:', e);
-      // progressCallback?.({ status: 'error', progress: 0, message: e.message || 'Import failed' })
-      if (e instanceof VideoSourceError) throw e;
-      throw new VideoSourceError(e.message || 'Unknown error during Facebook video import', e.type || 'unknown');
+      if (e instanceof FacebookVideoSourceError) throw e;
+      throw new FacebookVideoSourceError(
+        e.message || 'Unknown error during Facebook video import',
+        'unknown'
+      );
     }
-  },
-  // Playlist import is not typically supported for general Facebook video URLs in the same way as YouTube.
-  // If there's a specific type of Facebook playlist, this could be implemented.
-  // importPlaylist: async (playlistId, userId, progressCallback) => { ... }
+  }
 };
 
 export default FacebookSource; 

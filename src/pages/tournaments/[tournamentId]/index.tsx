@@ -2,7 +2,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { apiClient } from '@/lib/api/client';
-import { Tournament, Game, TeamRole, Player, GameStatus } from '@/lib/types'; // Assuming GameStatus is defined or add it
+import { Tournament, TournamentGameEntry } from '@/lib/types/tournaments';
+import { Game } from '@/lib/types/games';
+import { TeamRole } from '@/lib/types/auth';
+import { Player } from '@/lib/types/players';
+import { GameStatus } from '@/lib/types/games';
 import { withAuth, User } from '@/components/auth';
 import { useTheme } from '@/contexts/ThemeContext';
 import Link from 'next/link';
@@ -57,7 +61,7 @@ function TournamentPage({ user }: TournamentPageProps) {
   const [flightFilter, setFlightFilter] = useState<string>('');
   const [availableFlights, setAvailableFlights] = useState<string[]>([]);
 
-  const canManageTournament = user?.roles?.includes('admin') || user?.roles?.includes('coach');
+  const canManageTournament = user?.roles?.includes('manager') || user?.roles?.includes('coach');
 
   const fetchTournamentDetails = useCallback(async () => {
     if (!tournamentId) return;

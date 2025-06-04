@@ -5,7 +5,7 @@ import RequestRoleForm from '@/components/RequestRoleForm';
 import { useTheme } from '@/contexts/ThemeContext';
 import { apiClient } from '@/lib/api/client';
 import { withAuth, User } from '@/components/auth';
-import { TeamRole } from '@/lib/types';
+import { TeamRole } from '@/lib/types/auth';
 import { ListTeamsResponse, TeamRolesResponse, AvailableTeam } from '@/lib/types/teams';
 
 interface RoleRequestPageProps {

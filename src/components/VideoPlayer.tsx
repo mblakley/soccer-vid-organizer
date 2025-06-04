@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react'
+import { Video } from '@/lib/types/videos'
 
 // Add Veo player interface from analyze-video.tsx - This will be removed as Veo will use HTML5 video directly
 // interface VeoPlayer {
@@ -9,18 +10,6 @@ import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 're
 //   pauseVideo: () => void;
 //   getPlayerState: () => number;
 // }
-
-// Video interface from analyze-video.tsx
-interface Video {
-  id: string;
-  video_id: string;
-  title: string;
-  source: string;
-  duration?: number;
-  url?: string;
-  start_time?: number;  // Add start_time
-  end_time?: number;    // Add end_time
-}
 
 export interface VideoPlayerControls {
   playVideo: () => void;
@@ -504,6 +493,12 @@ const VideoPlayer = forwardRef<VideoPlayerControls, VideoPlayerProps>(
             if (playerContainerRef.current) {
               console.log("Creating YouTube player for video ID:", video.video_id);
               
+              // Add null check for video_id
+              if (!video.video_id) {
+                onError?.({ message: 'YouTube video ID is required' });
+                return;
+              }
+
               const playerDiv = document.createElement('div');
               playerDiv.id = `youtube-player-${Math.random().toString(36).substring(7)}`; // Unique ID for multiple players
               playerContainerRef.current.appendChild(playerDiv);

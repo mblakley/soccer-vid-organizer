@@ -1,7 +1,9 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { withAuth } from '@/components/auth';
-import { Game, TeamRole, TournamentGameEntry } from '@/lib/types';
+import { TeamRole } from '@/lib/types/auth';
+import { Game } from '@/lib/types/games';
+import { TournamentGameEntry } from '@/lib/types/tournaments';
 
 interface AuthenticatedRequest extends NextApiRequest {
   user?: { id: string };
@@ -26,7 +28,7 @@ async function handler(req: AuthenticatedRequest, res: NextApiResponse<ListTourn
     return res.status(400).json({ message: 'tournamentId path parameter is required and must be a string.' });
   }
 
-  const supabase = getSupabaseClient(req.headers.authorization);
+  const supabase = await getSupabaseClient(req.headers.authorization);
 
   if (req.method === 'GET') {
     try {

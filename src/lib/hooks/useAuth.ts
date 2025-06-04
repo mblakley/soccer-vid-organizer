@@ -1,20 +1,21 @@
-import { useState, useEffect } from 'react'
-// import { apiClient } from '@/lib/api/client' // No longer needed for core auth
-import { getSupabaseBrowserClient } from '@/lib/supabaseClient' // Import Supabase browser client
-import { User, Session, AuthError } from '@supabase/supabase-js'
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
+import { Session, User as SupabaseUser, AuthError } from '@supabase/supabase-js';
 import { 
   JWTCustomClaims, 
   TeamRole, 
+  TeamRolesMap,
   hasTeamRole, 
   isTeamMember,
   getUserTeams,
   isGlobalAdmin,
   isTeamCoach
-} from '@/lib/types';
-import { jwtDecode } from 'jwt-decode'; // Helper to decode JWT
+} from '@/lib/types/auth';
+import { getSupabaseBrowserClient } from '@/lib/supabaseClient';
+import { jwtDecode } from 'jwt-decode';
 
 interface AuthState {
-  user: User | null
+  user: SupabaseUser | null
   session: Session | null // Store the whole session for access to token
   loading: boolean
   error: AuthError | Error | null // Can be Supabase AuthError or generic Error

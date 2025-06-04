@@ -1,10 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabaseClient'
 import { useTheme } from '@/contexts/ThemeContext'
 import ThemeToggle from '@/components/ThemeToggle'
 import { withAdminAuth } from '@/components/auth'
-import { User } from '@supabase/supabase-js'
 import { Pencil, Eye, ArrowLeft } from 'lucide-react'
 import { toast } from 'react-toastify'
 import Link from 'next/link'
@@ -19,8 +17,8 @@ import {
   SortingState,
 } from '@tanstack/react-table'
 import { apiClient } from '@/lib/api/client'
-import { Team, TeamMember, TeamCreateRequest } from '@/lib/types/teams'
-import { UserWithRole } from '@/lib/types/auth'
+import { Team, TeamMember } from '@/lib/types/teams'
+import { ErrorResponse } from '@/lib/types/api'
 import {
   AdminListTeamsApiResponseForTeamsPage,
   AdminCreateTeamRequest,
@@ -28,8 +26,7 @@ import {
   AdminUpdateTeamRequest,
   AdminUpdateTeamApiResponse,
   AdminDeleteApiResponse,
-  AdminTeamMembersApiResponse,
-  ErrorResponse
+  AdminTeamMembersApiResponse
 } from '@/lib/types/admin'
 
 function isErrorResponse(response: any): response is ErrorResponse {
@@ -257,7 +254,7 @@ function TeamsPage() {
       season: teamToEdit.season || '',
       age_group: teamToEdit.age_group || '',
       gender: teamToEdit.gender || '',
-      additional_info: teamToEdit.additional_info || {}
+      additional_info: teamToEdit.additional_info || ''
     });
     setShowTeamModal(true);
   };
@@ -271,7 +268,7 @@ function TeamsPage() {
       season: '',
       age_group: '',
       gender: '',
-      additional_info: {}
+      additional_info: ''
     });
     setShowTeamModal(true);
   };
@@ -289,11 +286,11 @@ function TeamsPage() {
     try {
       const teamData = {
         name: newTeam.name,
-        club_affiliation: newTeam.club_affiliation || null,
-        season: newTeam.season || null,
-        age_group: newTeam.age_group || null,
-        gender: newTeam.gender || null,
-        additional_info: newTeam.additional_info
+        club_affiliation: newTeam.club_affiliation || undefined,
+        season: newTeam.season || undefined,
+        age_group: newTeam.age_group || undefined,
+        gender: newTeam.gender || undefined,
+        additional_info: newTeam.additional_info || undefined
       };
 
       if (editingTeamId) {
@@ -314,7 +311,7 @@ function TeamsPage() {
         season: '',
         age_group: '',
         gender: '',
-        additional_info: {}
+        additional_info: ''
       })
 
       await fetchTeams() // Refresh the teams list

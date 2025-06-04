@@ -71,6 +71,42 @@ export interface VideoMetadata {
 }
 
 /**
+ * Progress information for video source operations
+ */
+export interface VideoSourceProgress {
+  current: number;
+  total: number;
+  status: string;
+  error?: string;
+}
+
+/**
+ * Interface for video source importers
+ */
+export interface VideoSourceImporter {
+  importVideo(videoId: string, userId: string, onProgress?: (progress: VideoSourceProgress) => void): Promise<VideoImportResult>;
+}
+
+/**
+ * Result of a video import operation
+ */
+export interface VideoImportResult {
+  success: boolean;
+  videoId?: string;
+  error?: VideoSourceError;
+  metadata?: VideoMetadata;
+}
+
+/**
+ * Error information for video source operations
+ */
+export interface VideoSourceError {
+  code: string;
+  message: string;
+  details?: any;
+}
+
+/**
  * Supported video sources
  */
 export type VideoSourceType = 

@@ -1,30 +1,15 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { toast } from 'react-toastify'
-import { supabase } from '@/lib/supabaseClient'
-
-interface League {
-  id: string
-  name: string
-  season: string
-  age_group: string | null
-  gender: string | null
-  start_date: string | null
-  end_date: string | null
-  additional_info: any
-  created_at: string | null
-  updated_at: string | null
-}
-
-interface LeagueDivision {
-  id: string
-  league_id: string
-  name: string
-  description: string | null
-  team_count?: number
-  created_at: string | null
-  updated_at: string | null
-}
+import { apiClient } from '@/lib/api/client'
+import { 
+  League, 
+  LeagueDivision, 
+  CreateLeagueRequest, 
+  CreateLeagueDivisionRequest,
+  LeagueApiResponse,
+  LeaguesListApiResponse
+} from '@/lib/types/leagues'
 
 interface LeagueFormProps {
   league?: League | null
@@ -39,7 +24,7 @@ export default function LeagueForm({
   onClose,
   onSave
 }: LeagueFormProps) {
-  const [newLeague, setNewLeague] = useState({
+  const [newLeague, setNewLeague] = useState<CreateLeagueRequest>({
     name: '',
     season: '',
     age_group: '',
@@ -48,7 +33,7 @@ export default function LeagueForm({
     end_date: '',
     additional_info: {}
   })
-  const [newDivision, setNewDivision] = useState({ name: '', description: '' })
+  const [newDivision, setNewDivision] = useState<CreateLeagueDivisionRequest>({ name: '', league_id: '', description: '' })
   const [currentDivisions, setCurrentDivisions] = useState<LeagueDivision[]>([])
   const [loadingDivisions, setLoadingDivisions] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -73,51 +58,20 @@ export default function LeagueForm({
   const fetchLeagueDivisions = async (leagueId: string) => {
     setLoadingDivisions(true)
     try {
-      // Get all divisions for this league from league_divisions
-      const { data: divisionsData, error: divisionsError } = await supabase
-        .from('league_divisions')
-        .select('*')
-        .eq('league_id', leagueId)
-        .order('name')
-
-      if (divisionsError) throw divisionsError
-
-      // Get team counts for each division
-      const { data: membershipData, error: membershipError } = await supabase
-        .from('team_league_memberships')
-        .select('division, league_divisions!inner(name)')
-        .eq('league_id', leagueId)
-        .not('division', 'is', null)
-
-      if (membershipError) throw membershipError
-
-      // Count teams per division
-      const teamCounts: Record<string, number> = {}
-      
-      membershipData.forEach((membership) => {
-        if (!membership.division) return;
-        
-        // Fix: league_divisions is an array, not an object
-        const divisionName = membership.league_divisions && 
-          membership.league_divisions[0]?.name || 
-          membership.division;
-        
-        if (!teamCounts[divisionName]) {
-          teamCounts[divisionName] = 0
-        }
-        
-        teamCounts[divisionName]++
-      })
-
-      // Add team counts to division objects
-      const divisionsWithCounts = divisionsData.map(division => ({
-        ...division,
-        team_count: teamCounts[division.name] || 0
-      }))
-
-      setCurrentDivisions(divisionsWithCounts)
+      const response = await apiClient.get<LeaguesListApiResponse>(`/api/leagues/divisions?league_id=${leagueId}`)
+      if ('error' in response) throw response.error
+      if ('leagues' in response) {
+        const divisions = response.leagues.flatMap(league => 
+          league.league_divisions?.map(div => ({
+            ...div,
+            league_id: league.id
+          })) || []
+        )
+        setCurrentDivisions(divisions)
+      }
     } catch (error: any) {
       console.error('Error fetching league divisions:', error)
+      toast.error(error.message || 'Failed to fetch divisions')
     } finally {
       setLoadingDivisions(false)
     }
@@ -136,41 +90,26 @@ export default function LeagueForm({
     }
 
     try {
-      // First check if this division already exists
-      const { data: existingDivisions, error: checkError } = await supabase
-        .from('league_divisions')
-        .select('id')
-        .eq('league_id', league.id)
-        .eq('name', newDivision.name.trim())
+      const response = await apiClient.post<LeagueApiResponse>('/api/leagues/divisions', {
+        ...newDivision,
+        league_id: league.id
+      })
 
-      if (checkError) throw checkError
-
-      if (existingDivisions && existingDivisions.length > 0) {
-        toast.error('This division already exists')
-        return
-      }
-
-      // Add the division
-      const { data, error } = await supabase
-        .from('league_divisions')
-        .insert([
-          {
-            league_id: league.id,
-            name: newDivision.name.trim(),
-            description: newDivision.description || null
-          }
-        ])
-        .select()
-
-      if (error) throw error
+      if ('error' in response) throw response.error
 
       // Add the new division to our current list
-      if (data) {
-        setCurrentDivisions([...currentDivisions, { ...data[0], team_count: 0 }])
+      if ('league' in response && response.league.league_divisions) {
+        const newDivision = response.league.league_divisions[0]
+        if (newDivision) {
+          setCurrentDivisions([...currentDivisions, {
+            ...newDivision,
+            league_id: league.id
+          }])
+        }
       }
 
       // Reset the form
-      setNewDivision({ name: '', description: '' })
+      setNewDivision({ name: '', league_id: '', description: '' })
       toast.success('Division added successfully')
     } catch (error: any) {
       console.error('Error adding division:', error)
@@ -183,27 +122,8 @@ export default function LeagueForm({
     if (!league) return
     
     try {
-      // Check if the division is being used by any teams
-      const { data: teams, error: checkError } = await supabase
-        .from('team_league_memberships')
-        .select('id')
-        .eq('league_id', league.id)
-        .eq('division', currentDivisions.find(d => d.id === divisionId)?.name || '')
-
-      if (checkError) throw checkError
-
-      if (teams && teams.length > 0) {
-        toast.error('Cannot delete a division that has teams assigned to it')
-        return
-      }
-
-      // Delete the division
-      const { error } = await supabase
-        .from('league_divisions')
-        .delete()
-        .eq('id', divisionId)
-
-      if (error) throw error
+      const response = await apiClient.delete<LeagueApiResponse>(`/api/leagues/divisions/${divisionId}`)
+      if ('error' in response) throw response.error
 
       // Remove from our list
       setCurrentDivisions(currentDivisions.filter(d => d.id !== divisionId))
@@ -243,20 +163,13 @@ export default function LeagueForm({
 
       if (league) {
         // Update existing league
-        const { error } = await supabase
-          .from('leagues')
-          .update(leagueData)
-          .eq('id', league.id)
-        if (error) throw error
+        const response = await apiClient.put<LeagueApiResponse>(`/api/leagues/${league.id}`, leagueData)
+        if ('error' in response) throw response.error
         toast.success('League updated successfully!')
       } else {
         // Create new league
-        const { data, error } = await supabase
-          .from('leagues')
-          .insert([leagueData])
-          .select()
-          .single()
-        if (error) throw error
+        const response = await apiClient.post<LeagueApiResponse>('/api/leagues', leagueData)
+        if ('error' in response) throw response.error
         
         toast.success('League created successfully!')
       }
@@ -330,7 +243,7 @@ export default function LeagueForm({
             <label className="block text-sm font-medium mb-2">Age Group</label>
             <input
               type="text"
-              value={newLeague.age_group}
+              value={newLeague.age_group || ''}
               onChange={(e) => setNewLeague({ ...newLeague, age_group: e.target.value })}
               className={`w-full p-2 rounded border ${
                 isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
@@ -341,7 +254,7 @@ export default function LeagueForm({
           <div>
             <label className="block text-sm font-medium mb-2">Gender</label>
             <select
-              value={newLeague.gender}
+              value={newLeague.gender || ''}
               onChange={(e) => setNewLeague({ ...newLeague, gender: e.target.value })}
               className={`w-full p-2 rounded border ${
                 isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
@@ -357,7 +270,7 @@ export default function LeagueForm({
             <label className="block text-sm font-medium mb-2">Start Date</label>
             <input
               type="date"
-              value={newLeague.start_date}
+              value={newLeague.start_date || ''}
               onChange={(e) => setNewLeague({ ...newLeague, start_date: e.target.value })}
               className={`w-full p-2 rounded border ${
                 isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
@@ -368,7 +281,7 @@ export default function LeagueForm({
             <label className="block text-sm font-medium mb-2">End Date</label>
             <input
               type="date"
-              value={newLeague.end_date}
+              value={newLeague.end_date || ''}
               onChange={(e) => setNewLeague({ ...newLeague, end_date: e.target.value })}
               className={`w-full p-2 rounded border ${
                 isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'
@@ -396,7 +309,7 @@ export default function LeagueForm({
                   />
                   <input
                     type="text"
-                    value={newDivision.description}
+                    value={newDivision.description || ''}
                     onChange={(e) => setNewDivision({ ...newDivision, description: e.target.value })}
                     placeholder="Description (optional)"
                     className={`w-full p-2 rounded border ${

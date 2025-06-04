@@ -1,6 +1,6 @@
 import { NextApiResponse, NextApiRequest } from 'next';
 import { withApiAuth, AuthenticatedApiRequest } from '@/lib/auth'; // Import server-side HOC
-import { TeamRolesMap } from '@/lib/types';
+import { TeamRolesMap } from '@/lib/types/auth';
 
 interface UserRolesResponse {
   roles?: TeamRolesMap;

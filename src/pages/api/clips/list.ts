@@ -31,7 +31,7 @@ async function handler(
   // }
 
   try {
-    const supabase = getSupabaseClient(apiReq.headers.authorization);
+    const supabase = await getSupabaseClient(apiReq.headers.authorization);
     let query;
 
     if (joinVideoUrl) {

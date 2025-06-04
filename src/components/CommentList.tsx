@@ -1,0 +1,3 @@
+import { Comment } from '@/lib/types/comments';
+
+// ... rest of the file unchanged ... 

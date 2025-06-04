@@ -1,5 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 
+// Declare YouTube API types
+declare global {
+  interface Window {
+    onYouTubeIframeAPIReady: () => void;
+    YT: {
+      Player: any;
+      PlayerState: {
+        ENDED: number;
+        PLAYING: number;
+        PAUSED: number;
+        BUFFERING: number;
+        CUED: number;
+        UNSTARTED: number;
+      };
+    };
+  }
+}
+
 interface ClipPlayerProps {
   videoId: string;
   start: number;

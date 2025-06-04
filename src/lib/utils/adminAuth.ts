@@ -4,7 +4,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 interface AdminCheckResult {
   user?: any; // Replace 'any' with your actual User type from Supabase if available
   error?: string;
-  status?: number;
+  status: number; // Now required
 }
 
 /**
@@ -13,7 +13,7 @@ interface AdminCheckResult {
  * Checks if the user's email matches the admin email from environment variables.
  */
 export async function ensureAdmin(req: NextApiRequest): Promise<AdminCheckResult> {
-  const supabaseUserClient = getSupabaseClient(req.headers.authorization);
+  const supabaseUserClient = await getSupabaseClient(req.headers.authorization);
   const { data: { user }, error: authError } = await supabaseUserClient.auth.getUser();
 
   if (authError) {
@@ -30,5 +30,5 @@ export async function ensureAdmin(req: NextApiRequest): Promise<AdminCheckResult
     return { user, error: 'Forbidden: Admin access required.', status: 403 };
   }
   
-  return { user }; // User is admin
+  return { user, status: 200 }; // User is admin, return 200 status
 } 

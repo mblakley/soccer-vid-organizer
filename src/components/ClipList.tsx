@@ -1,6 +1,6 @@
 'use client'
 import { Fragment } from 'react'
-import { ClipMarker } from '@/types/clips'
+import { ClipMarker } from '@/lib/types/clips'
 import { useTheme } from '@/contexts/ThemeContext'
 
 export interface ClipListProps {

@@ -1,13 +1,14 @@
 import { z } from 'zod'
-import type { ErrorResponse } from './auth'
+import type { ErrorResponse } from './api'
 
 export const commentSchema = z.object({
   id: z.string(),
   clip_id: z.string(),
   user_id: z.string(),
-  content: z.string(),
-  role_visibility: z.string(),
-  created_at: z.string()
+  text: z.string(),
+  created_at: z.string(),
+  updated_at: z.string().nullable(),
+  parent_comment_id: z.string().nullable()
 })
 
 export const createCommentRequestSchema = z.object({
@@ -22,4 +23,9 @@ export type Comment = z.infer<typeof commentSchema>
 export type CreateCommentRequest = z.infer<typeof createCommentRequestSchema>
 export type CreateCommentResponse = z.infer<typeof createCommentResponseSchema>
 
-export type CreateCommentApiResponse = CreateCommentResponse | ErrorResponse 
+export type CommentResponse = {
+  comment: Comment;
+  error?: string;
+};
+
+export type CommentApiResponse = CommentResponse | ErrorResponse 

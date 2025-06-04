@@ -1,14 +1,15 @@
-import { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { withAuth } from '@/components/auth';
-import { TeamRole, Player } from '@/lib/types'; // Assuming Player type exists or will be added
+import { TeamRole } from '@/lib/types/auth';
+import { Player } from '@/lib/types/players';
 
 interface ListPlayersResponse {
   players?: Player[];
   message?: string;
 }
 
-const supabase = getSupabaseClient();
+const supabase = await getSupabaseClient();
 
 async function handler(req: NextApiRequest, res: NextApiResponse<ListPlayersResponse>) {
   if (req.method === 'GET') {

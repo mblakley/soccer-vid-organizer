@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '@/lib/supabaseClient'
-import type { CreateReviewApiResponse, ErrorResponse } from '@/lib/types/reviews'
+import type { CreateReviewApiResponse } from '@/lib/types/reviews'
+import type { ErrorResponse } from '@/lib/types/api'
 import { createReviewRequestSchema, createReviewResponseSchema } from '@/lib/types/reviews'
 import { z } from 'zod'
 
@@ -17,7 +18,7 @@ export default async function handler(
   }
 
   try {
-    const supabase = getSupabaseClient(req.headers.authorization)
+    const supabase = await getSupabaseClient(req.headers.authorization)
 
     const { data: { user }, error: userError } = await supabase.auth.getUser()
     if (userError) {

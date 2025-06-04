@@ -1,15 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Video } from '@/pages/videos/analyze';
+import { Video } from '@/lib/types/videos';
 import { ClipMarker } from '@/lib/types/clips';
 import { VideoPlayerControls } from '@/components/VideoPlayer';
 import { createClipMarkerFromData, parseLabelsFromCommentString, createLabelsCommentString } from '@/components/clips/ClipFactory';
 import { apiClient } from '@/lib/api/client';
-import { ErrorResponse } from '@/lib/types/auth';
-
-interface ApiResponse<T> {
-  data?: T;
-  error?: string;
-}
+import { ErrorResponse } from '@/lib/types/api';
 
 interface ClipsResponse {
   clips: any[];
@@ -21,6 +16,10 @@ interface CommentsResponse {
 
 interface ClipResponse {
   clip: any;
+}
+
+interface EmptyResponse {
+  success: true;
 }
 
 export interface UseClipsProps {
@@ -78,27 +77,27 @@ export const useClips = ({
     const fetchClipsAndComments = async () => {
       setLoadingClips(true);
       try {
-        const response = await apiClient.get<ApiResponse<ClipsResponse>>(`/api/clips/list?videoId=${selectedVideo.video_id}&recent=true&joinVideoUrl=true`);
+        const response = await apiClient.get<ClipsResponse | ErrorResponse>(`/api/clips/list?videoId=${selectedVideo.video_id}&recent=true&joinVideoUrl=true`);
         
-        if (response.error) {
+        if ('error' in response) {
           throw new Error(response.error);
         }
 
-        let fetchedClips: ClipMarker[] = (response.data?.clips || []).map(clip => createClipMarkerFromData(clip));
+        let fetchedClips: ClipMarker[] = (response.clips || []).map(clip => createClipMarkerFromData(clip));
 
         if (fetchedClips.length > 0) {
           const clipIds = fetchedClips.map(c => c.id);
-          const commentsResponse = await apiClient.get<ApiResponse<CommentsResponse>>(`/api/comments/list?clipIds=${clipIds.join(',')}`);
+          const commentsResponse = await apiClient.get<CommentsResponse | ErrorResponse>(`/api/comments/list?clipIds=${clipIds.join(',')}`);
 
-          if (commentsResponse.error) {
+          if ('error' in commentsResponse) {
             throw new Error(commentsResponse.error);
           }
 
           fetchedClips = fetchedClips.map(clip => {
-            const regularComments = commentsResponse.data?.comments?.filter(c => 
+            const regularComments = commentsResponse.comments?.filter(c => 
               c.clip_id === clip.id && (!c.comment_type || c.comment_type !== 'labels')
             ) || [];
-            const labelsComment = commentsResponse.data?.comments?.find(c => 
+            const labelsComment = commentsResponse.comments?.find(c => 
               c.clip_id === clip.id && c.comment_type === 'labels'
             );
             
@@ -188,27 +187,27 @@ export const useClips = ({
         created_by: userId,
       };
 
-      const response = await apiClient.post<ApiResponse<ClipResponse>>('/api/clips/create', clipPayload);
+      const response = await apiClient.post<ClipResponse | ErrorResponse>('/api/clips/create', clipPayload);
       
-      if (response.error) {
+      if ('error' in response) {
         throw new Error(response.error);
       }
 
-      const clipId = response.data?.clip.id;
+      const clipId = response.clip.id;
       if (!clipId) {
         throw new Error('Failed to create clip: No clip ID returned');
       }
 
       // Save regular comment if exists
       if (clipData.comment.trim()) {
-        const commentResponse = await apiClient.post<ApiResponse<void>>('/api/comments/create', {
+        const commentResponse = await apiClient.post<EmptyResponse | ErrorResponse>('/api/comments/create', {
           clip_id: clipId,
           user_id: userId,
           content: clipData.comment,
           role_visibility: 'both'
         });
 
-        if (commentResponse.error) {
+        if ('error' in commentResponse) {
           console.warn('Failed to save comment:', commentResponse.error);
         }
       }
@@ -216,7 +215,7 @@ export const useClips = ({
       // Save labels if any
       if (clipData.labels.length > 0) {
         const labelsString = createLabelsCommentString(clipData.labels);
-        const labelsResponse = await apiClient.post<ApiResponse<void>>('/api/comments/create', {
+        const labelsResponse = await apiClient.post<EmptyResponse | ErrorResponse>('/api/comments/create', {
           clip_id: clipId,
           content: labelsString,
           created_by: userId,
@@ -224,7 +223,7 @@ export const useClips = ({
           comment_type: 'labels'
         });
 
-        if (labelsResponse.error) {
+        if ('error' in labelsResponse) {
           console.warn('Failed to save labels comment:', labelsResponse.error);
         }
         
@@ -236,7 +235,7 @@ export const useClips = ({
       }
 
       const fullyFormedClip: ClipMarker = {
-        ...createClipMarkerFromData(response.data?.clip),
+        ...createClipMarkerFromData(response.clip),
         comment: clipData.comment.trim(),
         labels: [...clipData.labels]
       };

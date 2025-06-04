@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '@/lib/supabaseClient'
-import type { ErrorResponse } from '@/lib/types/auth'
+import type { ErrorResponse } from '@/lib/types/api'
 import { z } from 'zod'
 
 const teamStatsResponseSchema = z.object({
@@ -36,7 +36,7 @@ export default async function handler(
   }
 
   try {
-    const supabase = getSupabaseClient(req.headers.authorization)
+    const supabase = await getSupabaseClient(req.headers.authorization)
     const { data: { user }, error: authError } = await supabase.auth.getUser()
 
     if (authError || !user) {

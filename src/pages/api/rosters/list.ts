@@ -1,7 +1,8 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { withAuth } from '@/components/auth';
-import { TeamRole, RosterEntry, Player } from '@/lib/types';
+import { TeamRole } from '@/lib/types/auth';
+import { RosterEntry, Player } from '@/lib/types/players';
 
 // Define the response for listing roster entries, potentially with joined player data
 interface ListRosterEntriesResponse {
@@ -9,7 +10,7 @@ interface ListRosterEntriesResponse {
   message?: string;
 }
 
-const supabase = getSupabaseClient();
+const supabase = await getSupabaseClient();
 
 async function handler(req: NextApiRequest, res: NextApiResponse<ListRosterEntriesResponse>) {
   if (req.method === 'GET') {

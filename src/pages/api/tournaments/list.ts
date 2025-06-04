@@ -1,7 +1,8 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '@/lib/supabaseClient'
-import { withAuth } from '@/components/auth' // Assuming a general withAuth for API routes
-import { Tournament, TeamRole } from '@/lib/types' // Assuming TeamRole is the general role type
+import { withApiAuth } from '@/lib/auth'
+import { TeamRole } from '@/lib/types/auth'
+import { Tournament } from '@/lib/types/tournaments'
 
 // Define a basic Tournament type, assuming it will be moved to or matched with src/lib/types.ts
 interface ApiTournament {
@@ -19,8 +20,6 @@ interface ListTournamentsResponse {
   message?: string;
 }
 
-const supabase = getSupabaseClient();
-
 async function handler(req: NextApiRequest, res: NextApiResponse<ListTournamentsResponse>) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', ['GET']);
@@ -34,6 +33,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse<ListTournaments
   const isAscending = typeof orderAscending === 'string' ? orderAscending === 'true' : true; // Default ascending for dates
 
   try {
+    const supabase = await getSupabaseClient(req.headers.authorization);
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    // Check if user is admin
+    const { data: userData, error: userDataError } = await supabase
+      .from('user_roles')
+      .select('is_admin')
+      .eq('user_id', user.id)
+      .single();
+
+    if (userDataError || !userData?.is_admin) {
+      return res.status(403).json({ message: 'Forbidden: Admin access required' });
+    }
+
     let query = supabase
       .from('tournaments')
       .select(selectFields)
@@ -66,8 +82,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse<ListTournaments
 }
 
 // Admin-only endpoint
-export default withAuth(handler, {
-  teamId: 'any',
-  roles: ['admin'] as TeamRole[],
-  requireRole: true,
-}); 
+export default withApiAuth(handler, { isUserAdmin: true }); 

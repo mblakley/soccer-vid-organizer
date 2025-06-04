@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '@/lib/api/client';
 import { PlayerTimer, TimerSession } from '@/components/timers/TimerInterfaces';
+import { TimerResponse, TimersResponse, TimerEventResponse, TimerEventsResponse } from '@/lib/types/timers';
 import { toast } from 'react-toastify';
 
 interface UseTimersOptions {
@@ -37,12 +38,14 @@ export function useTimers({ userId, videoId, onError }: UseTimersOptions) {
         return;
       }
       setLoading(true);
-      const { data: timersData, error: timersError } = await apiClient.get(`/api/timers?videoId=${videoId}`);
+      const response = await apiClient.get<TimersResponse>(`/api/timers?videoId=${videoId}`);
+      const { data: timersData, error: timersError } = response;
       if (timersError) throw timersError;
       // For each timer, fetch its events
       const timersWithEvents = await Promise.all(
-        (timersData || []).map(async (timer: any) => {
-          const { data: events, error: eventsError } = await apiClient.get(`/api/timer-events?timerId=${timer.id}`);
+        (timersData?.timers || []).map(async (timer: any) => {
+          const response = await apiClient.get<TimerEventsResponse>(`/api/timer-events?timerId=${timer.id}`);
+          const { data: events, error: eventsError } = response;
           if (eventsError) throw eventsError;
           // Calculate total duration from sessions
           const totalDurationFromSessions = (events || []).reduce((acc: number, session: any) => acc + (session.duration || 0), 0);
@@ -114,12 +117,13 @@ export function useTimers({ userId, videoId, onError }: UseTimersOptions) {
     
     try {
       // Create timer in database
-      const { data: timerData, error: timerError } = await apiClient.post('/api/timers', {
+      const response = await apiClient.post<TimerResponse>('/api/timers', {
         name: newTimerName,
         type: newTimerType,
         video_id: videoId,
         created_by: userId
       });
+      const { data: timerData, error: timerError } = response;
 
       if (timerError) throw timerError;
 
@@ -187,13 +191,14 @@ export function useTimers({ userId, videoId, onError }: UseTimersOptions) {
       const currentTime = Date.now() / 1000; // Use current timestamp if no player
       
       // Create timer event
-      const { data: eventData, error: eventError } = await apiClient.post('/api/timer-events', {
+      const response = await apiClient.post<TimerEventResponse>('/api/timer-events', {
         timer_id: timerId,
         start_time: currentTime,
         end_time: null,
         duration: null,
         team_member_id: null
       });
+      const { data: eventData, error: eventError } = response;
 
       if (eventError) throw eventError;
 
@@ -230,16 +235,18 @@ export function useTimers({ userId, videoId, onError }: UseTimersOptions) {
       const currentTime = Date.now() / 1000; // Use current timestamp if no player
       
       // Get the most recent timer event for this timer
-      const { data: events, error: eventsError } = await apiClient.get(`/api/timer-events?timerId=${timerId}&end_time=null`);
+      const response = await apiClient.get<TimerEventResponse>(`/api/timer-events?timerId=${timerId}&end_time=null`);
+      const { data: events, error: eventsError } = response;
 
       if (eventsError) throw eventsError;
 
       if (events) {
         // Update the timer event
-        const { error: updateError } = await apiClient.put(`/api/timer-events/${events.id}`, {
+        const updateResponse = await apiClient.put<TimerEventResponse>(`/api/timer-events/${events.id}`, {
           end_time: currentTime,
           duration: currentTime - events.start_time
         });
+        const { error: updateError } = updateResponse;
 
         if (updateError) throw updateError;
       }
@@ -302,12 +309,14 @@ export function useTimers({ userId, videoId, onError }: UseTimersOptions) {
   const removeTimer = useCallback(async (timerId: string) => {
     try {
       // First delete all timer events
-      const { error: eventsError } = await apiClient.delete(`/api/timer-events?timerId=${timerId}`);
+      const deleteEventsResponse = await apiClient.delete<TimerEventResponse>(`/api/timer-events?timerId=${timerId}`);
+      const { error: eventsError } = deleteEventsResponse;
 
       if (eventsError) throw eventsError;
 
       // Then delete the timer
-      const { error: timerError } = await apiClient.delete(`/api/timers/${timerId}`);
+      const deleteTimerResponse = await apiClient.delete<TimerResponse>(`/api/timers/${timerId}`);
+      const { error: timerError } = deleteTimerResponse;
 
       if (timerError) throw timerError;
 

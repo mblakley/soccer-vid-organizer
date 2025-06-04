@@ -4,14 +4,13 @@ import { withAuth } from '@/components/auth'
 import VideoPlayer, { VideoPlayerControls } from '@/components/VideoPlayer'
 import AnalysisSidebar from '@/components/AnalysisSidebar'
 import { apiClient } from '@/lib/api/client'
+import { ListVideosApiResponse, Video } from '@/lib/types/videos'
+import { ErrorResponse } from '@/lib/types/api'
 
-export interface Video {
-  id: string;
-  video_id: string;
-  title: string;
-  source: string;
-  duration?: number;
-  url?: string;
+// Add type for comment API responses
+interface CommentApiResponse {
+  error?: string;
+  success?: boolean;
 }
 
 function AnalyzeVideoPage({ user }: { user: any }) {
@@ -26,17 +25,22 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   
   const playerRef = useRef<VideoPlayerControls>(null)
 
+  // Add type guard for video
+  const isValidVideo = (video: Video | null): video is Video & { video_id: string } => {
+    return video !== null && typeof video.video_id === 'string';
+  };
+
   // Load videos on component mount
   useEffect(() => {
     const fetchVideos = async () => {
       try {
         setLoading(true)
-        const { data, error } = await apiClient.get('/api/videos/list')
+        const response = await apiClient.get<ListVideosApiResponse>('/api/videos/list')
         
-        if (error) {
-          console.error('Error fetching videos:', error)
-        } else {
-          setVideos(data || [])
+        if ('message' in response) {
+          console.error('Error fetching videos:', response.message)
+        } else if ('videos' in response) {
+          setVideos(response.videos || [])
         }
       } catch (err) {
         console.error('Exception fetching videos:', err)
@@ -74,13 +78,12 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   const fetchVideo = async () => {
     setLoading(true)
     try {
-      const { data, error } = await apiClient.get(`/api/videos/${selectedVideo?.id}`)
-      
-      if (error) {
-        console.error('Error fetching video:', error)
-        setError(error.message || 'Failed to fetch video')
+      const response = await apiClient.get<Video | ErrorResponse>(`/api/videos/${selectedVideo?.id}`)
+      if ('error' in response) {
+        console.error('Error fetching video:', response.error)
+        setError(response.error || 'Failed to fetch video')
       } else {
-        setSelectedVideo(data)
+        setSelectedVideo(response)
       }
     } catch (err: any) {
       console.error('Exception fetching video:', err)
@@ -93,12 +96,12 @@ function AnalyzeVideoPage({ user }: { user: any }) {
   // Replace the handleAddComment function
   const handleAddComment = async (commentData: any) => {
     try {
-      const { error } = await apiClient.post('/api/comments/create', {
+      const response = await apiClient.post<CommentApiResponse>('/api/comments/create', {
         ...commentData,
         video_id: selectedVideo?.id
       })
       
-      if (error) throw error
+      if (response.error) throw new Error(response.error)
       
       fetchVideo() // Refresh to get updated comments
     } catch (err: any) {
@@ -112,9 +115,9 @@ function AnalyzeVideoPage({ user }: { user: any }) {
     if (!confirm('Are you sure you want to delete this comment?')) return
     
     try {
-      const { error } = await apiClient.post(`/api/comments/${commentId}`, null)
+      const response = await apiClient.post<CommentApiResponse>(`/api/comments/${commentId}`, null)
       
-      if (error) throw error
+      if (response.error) throw new Error(response.error)
       
       fetchVideo() // Refresh to get updated comments
     } catch (err: any) {
@@ -134,17 +137,21 @@ function AnalyzeVideoPage({ user }: { user: any }) {
         <div className="flex-1 min-w-0 bg-black flex items-center justify-center relative h-full">
           {selectedVideo ? (
             <div className="h-full flex items-center justify-center w-full max-w-full overflow-hidden">
-              <VideoPlayer
-                ref={playerRef}
-                video={selectedVideo}
-                onPlayerReady={() => setPlayerReady(true)}
-                onTimeUpdate={handleTimeUpdate}
-                onStateChange={handlePlayerStateChange}
-                onPlay={() => setPlayerState('playing')}
-                onPause={() => setPlayerState('paused')}
-                onError={handlePlayerError}
-                className="aspect-video bg-black w-full max-w-full"
-              />
+              {isValidVideo(selectedVideo) ? (
+                <VideoPlayer
+                  ref={playerRef}
+                  video={selectedVideo}
+                  onPlayerReady={() => setPlayerReady(true)}
+                  onTimeUpdate={handleTimeUpdate}
+                  onStateChange={handlePlayerStateChange}
+                  onPlay={() => setPlayerState('playing')}
+                  onPause={() => setPlayerState('paused')}
+                  onError={handlePlayerError}
+                  className="aspect-video bg-black w-full max-w-full"
+                />
+              ) : (
+                <div className="text-gray-400 text-lg">Video ID is required</div>
+              )}
             </div>
           ) : (
             <div className="text-gray-400 text-lg">Select a video to begin</div>

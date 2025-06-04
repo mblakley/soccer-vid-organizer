@@ -1,12 +1,31 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSupabaseClient } from '@/lib/supabaseClient'
-import type { TeamMembersApiResponse, ErrorResponse } from '@/lib/types/teams'
+import type { TeamMembersApiResponse } from '@/lib/types/teams'
 import { teamMembersResponseSchema } from '@/lib/types/teams'
 import { z } from 'zod'
+import { ErrorResponse } from '@/lib/types/api'
 
 const queryParamsSchema = z.object({
   teamId: z.string().uuid()
 });
+
+type TeamMemberWithUser = {
+  id: string;
+  team_id: string;
+  user_id: string;
+  roles: string[];
+  jersey_number?: string;
+  position?: string;
+  joined_date?: string;
+  left_date?: string;
+  is_active?: boolean;
+  user: Array<{
+    email: string;
+    user_metadata: {
+      full_name?: string;
+    };
+  }>;
+};
 
 export default async function handler(
   req: NextApiRequest,
@@ -18,7 +37,7 @@ export default async function handler(
   }
 
   try {
-    const supabase = getSupabaseClient(req.headers.authorization);
+    const supabase = await getSupabaseClient(req.headers.authorization);
 
     const { data: { user: requestingUser }, error: authError } = await supabase.auth.getUser();
     if (authError || !requestingUser) {
@@ -54,7 +73,7 @@ export default async function handler(
         is_active,
         user:user_id (
           email,
-          user_metadata->>full_name
+          user_metadata
         )
       `)
       .eq('team_id', teamId)
@@ -66,10 +85,10 @@ export default async function handler(
     }
 
     // Transform data to match teamMemberSchema (user_email, user_name)
-    const members = data?.map(member => ({
+    const members = (data as unknown as TeamMemberWithUser[])?.map(member => ({
         ...member,
-        user_email: member.user?.email,
-        user_name: member.user?.user_metadata?.full_name,
+        user_email: member.user?.[0]?.email || undefined,
+        user_name: member.user?.[0]?.user_metadata?.full_name || undefined,
         user: undefined // remove the nested user object after extracting details
     })) || [];
 

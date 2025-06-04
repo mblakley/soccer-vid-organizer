@@ -6,7 +6,8 @@ import { useTheme } from '@/contexts/ThemeContext'
 import ThemeToggle from '@/components/ThemeToggle'
 import { toast } from 'react-toastify'
 import { getSupabaseBrowserClient } from '@/lib/supabaseClient'
-import { AuthLoginRequest, ErrorResponse } from '@/lib/types/auth'
+import { AuthLoginRequest } from '@/lib/types/auth'
+import { ErrorResponse } from '@/lib/types/api'
 import { AuthError, Session, User } from '@supabase/supabase-js'
 
 // Type guard for Supabase AuthError

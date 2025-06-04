@@ -17,4 +17,19 @@ export interface YouTubePlaylist {
   publishedAt: string;
   itemCount: number;
   videos: YouTubeVideo[];
+}
+
+interface Window {
+  onYouTubeIframeAPIReady: () => void;
+  YT: {
+    Player: any;
+    PlayerState: {
+      ENDED: number;
+      PLAYING: number;
+      PAUSED: number;
+      BUFFERING: number;
+      CUED: number;
+      UNSTARTED: number;
+    };
+  };
 } 

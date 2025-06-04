@@ -1,6 +1,10 @@
 import React, { ReactElement } from 'react';
-import { VideoSource, VideoMetadata } from './types';
+import { VideoSource, VideoMetadata } from '@/lib/types/video-sources';
 import { apiClient } from '@/lib/api/client';
+import type { VideoCreateRequest, ListVideosApiResponse } from '@/lib/types/videos';
+import type { ClipResponse, ClipsResponse } from '@/lib/types/clips';
+import type { CreateClipApiResponse } from '@/lib/types/clips';
+import type { CommentApiResponse } from '@/lib/types/comments';
 
 const VeoSource: VideoSource = {
   id: 'veo',
@@ -41,7 +45,8 @@ const VeoSource: VideoSource = {
 
   async importSingleVideo(videoId: string, originalUrl: string, userId: string, apiToken?: string) {
     // Check if video already exists
-    const { data: existingVideo } = await apiClient.get(`/api/videos?video_id=${videoId}&source=veo`);
+    const response = await apiClient.get<ListVideosApiResponse>(`/api/videos?video_id=${videoId}&source=veo`);
+    const existingVideo = 'videos' in response ? response.videos[0] : null;
     
     // Use the passed apiToken parameter
     if (!apiToken) {
@@ -50,18 +55,18 @@ const VeoSource: VideoSource = {
 
     try {
       // Fetch recording details from Veo API /recordings/{videoId}
-      const response = await fetch(`https://api.veo.co/recordings/${videoId}`, {
+      const recordingResponse = await fetch(`https://api.veo.co/recordings/${videoId}`, {
         headers: {
           'Authorization': `Bearer ${apiToken}`,
           'Accept': 'application/json'
         }
       });
 
-      if (!response.ok) {
+      if (!recordingResponse.ok) {
         throw new Error('Failed to fetch recording details from Veo API');
       }
 
-      const recordingData = await response.json();
+      const recordingData = await recordingResponse.json();
       console.log('Veo recordingData:', recordingData);
       const streamUrl = recordingData.followcam?.links?.find((l: any) => l.rel === 'stream' && l.type === 'video/mp4')?.href;
       console.log('Direct streamUrl:', streamUrl);
@@ -172,16 +177,16 @@ const VeoSource: VideoSource = {
                 // Debug log before select
                 console.log('[DEBUG] SELECT for video_id:', videoId, 'start_time:', start_time, 'end_time:', end_time);
                 // Check if this clip already exists by matching video_id, start_time, and end_time
-                const { data: existingClip, error: selectError } = await apiClient.get(`/api/clips?video_id=${videoId}&start_time=${start_time}&end_time=${end_time}`);
+                const { data: existingClip, error: selectError } = await apiClient.get<ClipsResponse>(`/api/clips?video_id=${videoId}&start_time=${start_time}&end_time=${end_time}`);
 
-                if (selectError && selectError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+                if (selectError) {
                   console.error('[VEO IMPORT] Supabase select error for clip:', selectError);
                 }
 
                 if (existingClip) {
                   // Update the existing clip
-                  const { error: updateError } = await apiClient.post('/api/clips/update', {
-                    id: existingClip.id,
+                  const { error: updateError } = await apiClient.post<ClipResponse>('/api/clips/update', {
+                    id: existingClip?.clips[0]?.id,
                     title,
                     start_time,
                     end_time
@@ -195,25 +200,25 @@ const VeoSource: VideoSource = {
                   // Optionally, update the comment in the comments table if needed
                 } else {
                   // Insert new clip
-                  const { data: insertedClip, error: insertError } = await apiClient.post('/api/clips', dbClipData);
-                  if (insertError) {
-                    console.error('[VEO IMPORT] Supabase insert error for clip:', insertError);
+                  const response = await apiClient.post<CreateClipApiResponse>('/api/clips', dbClipData);
+                  if ('error' in response) {
+                    console.error('[VEO IMPORT] Supabase insert error for clip:', response.error);
                     console.log('[VEO IMPORT] FAILURE inserting clip:', dbClipData);
-                  } else {
+                  } else if ('clip' in response) {
                     console.log('[VEO IMPORT] SUCCESS inserting new clip:', dbClipData);
-                  }
-                  if (comment && insertedClip?.id) {
-                    // Insert the comment into the comments table
-                    const { error: commentError } = await apiClient.post('/api/comments', {
-                      clip_id: insertedClip.id,
-                      user_id: userId,
-                      content: comment,
-                      role_visibility: 'both'
-                    });
-                    if (commentError) {
-                      console.error('[VEO IMPORT] Supabase insert error for comment:', commentError);
-                    } else {
-                      console.log('[VEO IMPORT] SUCCESS inserting comment for clip:', insertedClip.id);
+                    if (comment && response.clip.id) {
+                      // Insert the comment into the comments table
+                      const commentResponse = await apiClient.post<CommentApiResponse>('/api/comments', {
+                        clip_id: response.clip.id,
+                        content: comment,
+                        created_by: userId
+                      });
+                      
+                      if ('error' in commentResponse) {
+                        console.error('[VEO IMPORT] Error inserting comment:', commentResponse.error);
+                      } else {
+                        console.log('[VEO IMPORT] SUCCESS inserting comment for clip:', response.clip.id);
+                      }
                     }
                   }
                 }
@@ -230,7 +235,7 @@ const VeoSource: VideoSource = {
     } catch (error) {
       console.error('Error importing Veo video:', error);
       // Fallback to basic import if API call fails
-      const { error: dbError } = await apiClient.post('/api/videos', {
+      const response = await apiClient.post<ListVideosApiResponse>('/api/videos', {
         title: `Veo Match ${videoId}`,
         url: originalUrl,
         video_id: videoId,
@@ -243,9 +248,9 @@ const VeoSource: VideoSource = {
         status: 'active',
         last_synced: new Date().toISOString(),
         created_by: userId
-      });
+      } as VideoCreateRequest);
 
-      if (dbError) throw dbError;
+      if ('error' in response) throw new Error(response.error);
     }
   }
 };
