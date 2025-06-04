@@ -23,6 +23,8 @@ export const tournamentSchema = z.object({
   status: tournamentStatusSchema.nullable(),
   format: z.string().nullable(),
   age_group: z.string().nullable(),
+  gender: z.string().nullable(),
+  flight: z.string().nullable(),
   additional_info: z.record(z.any()).nullable(),
   created_at: z.string().nullable(),
   updated_at: z.string().nullable(),

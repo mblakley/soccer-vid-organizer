@@ -64,9 +64,9 @@ export type NotifyApprovalApiResponse = NotifyApprovalResponse | ErrorResponse;
 export const notifyRejectionRequestSchema = z.object({
   email: z.string().email('Invalid email address'),
   team_name: z.string(),
-  roles: z.array(z.string()).optional(),      // Included as per original body
-  request_type: z.string().optional(), // Included as per original body
-  // team_id is not in the original req.body for rejection but sendTeamNotificationEmail takes it
+  team_id: z.string().uuid('Invalid team ID'),
+  roles: z.array(z.string()).optional(),
+  request_type: z.string().optional()
 });
 
 export const notifyRejectionResponseSchema = z.object({
@@ -479,6 +479,14 @@ export const adminUpdateTournamentResponseSchema = z.object({
 });
 export type AdminUpdateTournamentResponse = z.infer<typeof adminUpdateTournamentResponseSchema>;
 export type AdminUpdateTournamentApiResponse = AdminUpdateTournamentResponse | ErrorResponse;
+
+// For GET /api/admin/tournaments/:tournamentId/games
+export const adminTournamentGamesResponseSchema = z.object({
+  games: z.array(gameSchema)
+});
+
+export type AdminTournamentGamesResponse = z.infer<typeof adminTournamentGamesResponseSchema>;
+export type AdminTournamentGamesApiResponse = AdminTournamentGamesResponse | ErrorResponse;
 
 // For GET /api/admin/team-members
 export const adminDisplayTeamMemberSchema = teamMemberSchema.extend({

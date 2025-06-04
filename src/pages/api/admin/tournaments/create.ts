@@ -42,6 +42,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse<CreateTournamen
       status: tournamentData.status || 'upcoming',
       format: tournamentData.format || null,
       age_group: tournamentData.age_group || null,
+      gender: tournamentData.gender || null,
+      flight: tournamentData.flight || null,
       additional_info: tournamentData.additional_info || null,
       organizer: tournamentData.organizer || null,
       contact_email: tournamentData.contact_email || null,

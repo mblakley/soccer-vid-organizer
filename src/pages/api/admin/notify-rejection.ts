@@ -25,18 +25,19 @@ export default withApiAuth(
       const supabase = await getSupabaseClient(req.headers.authorization)
 
       // Validate request body
-      const { email, teamName, role, reason } = notifyRejectionRequestSchema.parse(req.body)
+      const { email, team_name, team_id, roles, request_type } = notifyRejectionRequestSchema.parse(req.body)
 
       // Send notification email
-      await sendTeamNotificationEmail({
-        to: email,
-        teamName,
-        role,
-        type: 'rejection',
-        reason
-      })
+      const result = await sendTeamNotificationEmail(
+        email,
+        team_name,
+        team_id
+      )
 
-      const response = { success: true }
+      const response = { 
+        message: 'Rejection notification sent successfully',
+        messageId: result.messageId
+      }
       notifyRejectionResponseSchema.parse(response)
       return res.status(200).json(response)
     } catch (error) {

@@ -43,18 +43,18 @@ export default withApiAuth(
           throw new Error(error.message)
         }
 
-        const response = { team_member: data }
+        const response = { member: data }
         addTeamMemberResponseSchema.parse(response)
         return res.status(200).json(response)
       }
 
       if (req.method === 'PUT') {
-        const { team_id, user_id, role } = updateTeamMemberRequestSchema.parse(req.body)
+        const { id, role } = updateTeamMemberRequestSchema.parse(req.body)
 
         const { data, error } = await supabaseAdmin
           .from('team_members')
           .update({ role, updated_at: new Date().toISOString() })
-          .match({ team_id, user_id })
+          .match({ id })
           .select()
           .single()
 
@@ -63,18 +63,18 @@ export default withApiAuth(
           throw new Error(error.message)
         }
 
-        const response = { team_member: data }
+        const response = { member: data }
         updateTeamMemberResponseSchema.parse(response)
         return res.status(200).json(response)
       }
 
       if (req.method === 'DELETE') {
-        const { team_id, user_id } = removeTeamMemberRequestSchema.parse(req.body)
+        const { id } = removeTeamMemberRequestSchema.parse(req.body)
 
         const { error } = await supabaseAdmin
           .from('team_members')
           .delete()
-          .match({ team_id, user_id })
+          .match({ id })
 
         if (error) {
           console.error('Error removing team member:', error)

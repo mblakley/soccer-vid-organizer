@@ -39,6 +39,7 @@ function TeamsPage() {
   const router = useRouter()
   const [newTeam, setNewTeam] = useState<AdminCreateTeamRequest>({
     name: '',
+    additional_info: {}
   })
   const { isDarkMode } = useTheme()
   const [teams, setTeams] = useState<Team[]>([])
@@ -158,7 +159,7 @@ function TeamsPage() {
         throw new Error(response.error);
       }
       toast.success('Team created successfully');
-      setNewTeam({ name: '' }); // Reset form, ensure all fields of AdminCreateTeamRequest are reset
+      setNewTeam({ name: '', additional_info: {} }); // Reset form, ensure all fields of AdminCreateTeamRequest are reset
       fetchTeams();
       setShowTeamModal(false); // Close modal on success
     } catch (error: any) {
@@ -254,28 +255,22 @@ function TeamsPage() {
       season: teamToEdit.season || '',
       age_group: teamToEdit.age_group || '',
       gender: teamToEdit.gender || '',
-      additional_info: teamToEdit.additional_info || ''
+      additional_info: teamToEdit.additional_info || {}
     });
     setShowTeamModal(true);
   };
 
   // Handle opening the create team modal
   const handleCreateClick = () => {
+    setNewTeam({ name: '', additional_info: {} });
     setEditingTeamId(null);
-    setNewTeam({
-      name: '',
-      club_affiliation: '',
-      season: '',
-      age_group: '',
-      gender: '',
-      additional_info: ''
-    });
     setShowTeamModal(true);
   };
 
   // Handle closing the team modal
   const handleCloseTeamModal = () => {
     setShowTeamModal(false);
+    setNewTeam({ name: '', additional_info: {} });
     setEditingTeamId(null);
     setFormError(null);
   };
@@ -311,7 +306,7 @@ function TeamsPage() {
         season: '',
         age_group: '',
         gender: '',
-        additional_info: ''
+        additional_info: null
       })
 
       await fetchTeams() // Refresh the teams list
@@ -355,7 +350,7 @@ function TeamsPage() {
             <input
               type="text"
               value={newTeam.name}
-              onChange={e => setNewTeam({ name: e.target.value })}
+              onChange={e => setNewTeam({ ...newTeam, name: e.target.value })}
               placeholder="Team name"
               className={`flex-1 px-4 py-2 rounded border ${
                 isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'

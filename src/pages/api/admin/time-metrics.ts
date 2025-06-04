@@ -47,16 +47,10 @@ export default withApiAuth(
       ])
 
       const response: TimeMetricsResponse = {
-        totalUsers: users?.users.length || 0,
-        adminUsers: adminUsers?.length || 0,
-        disabledUsers: users?.users.filter(u => u.user_metadata?.disabled).length || 0,
-        totalTeams: teams?.length || 0,
-        activeTeams: teams?.filter(t => t.club_affiliation !== 'System').length || 0,
-        totalTeamMembers: teamMembers?.length || 0,
-        pendingJoinRequests: joinRequests?.length || 0,
-        pendingRoleRequests: roleRequests?.length || 0,
-        totalLeagues: leaguesCount || 0,
-        totalTournaments: tournamentsCount || 0
+        newUsers: users?.users.length || 0,
+        newClips: 0, // TODO: Implement clip counting
+        newComments: 0, // TODO: Implement comment counting
+        uniqueLogins: users?.users.filter(u => u.last_sign_in_at).length || 0
       }
 
       timeMetricsResponseSchema.parse(response)

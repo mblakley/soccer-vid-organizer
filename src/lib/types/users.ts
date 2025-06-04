@@ -42,4 +42,36 @@ export interface UsersResponse {
 }
 
 export type UserApiResponse = UserResponse | ErrorResponse;
-export type UsersApiResponse = UsersResponse | ErrorResponse; 
+export type UsersApiResponse = UsersResponse | ErrorResponse;
+
+export const updateUserStatusSchema = z.object({
+  id: z.string().uuid('Invalid user ID'),
+  disabled: z.boolean()
+});
+
+export type UpdateUserStatusResponse = {
+  user: {
+    id: string;
+    email: string;
+    created_at: string;
+    user_metadata: Record<string, any>;
+  }
+};
+
+export type UpdateUserStatusApiResponse = UpdateUserStatusResponse | ErrorResponse;
+
+export const updateUserSchema = z.object({
+  id: z.string().uuid('Invalid user ID'),
+  metadata: z.record(z.unknown())
+});
+
+export type UpdateUserResponse = {
+  user: {
+    id: string;
+    email: string;
+    created_at: string;
+    user_metadata: Record<string, any>;
+  }
+};
+
+export type UpdateUserApiResponse = UpdateUserResponse | ErrorResponse; 

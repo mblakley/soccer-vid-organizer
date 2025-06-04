@@ -11,29 +11,15 @@ import {
   SortingState,
 } from '@tanstack/react-table'
 
-interface Tournament {
-  id: string
-  name: string
-  start_date: string
-  end_date: string
-  location: string | null
-  status: 'upcoming' | 'in_progress' | 'completed' | 'cancelled'
-  format: string | null
-  description: string | null
-  flight: string | null
-  age_group: string | null
-  additional_info: any
-  created_at: string | null
-  updated_at: string | null
-}
+import { Tournament } from '@/lib/types/tournaments'
 
 interface TournamentTableProps {
   tournaments: Tournament[]
   isDarkMode: boolean
   onEdit: (tournament: Tournament) => void
   onDelete: (id: string) => void
-  onManageGames: (tournament: Tournament) => void
-  selectedTournamentId: string | null
+  onSelectForGames: (tournament: Tournament) => void
+  selectedTournament: Tournament | null
 }
 
 const columnHelper = createColumnHelper<Tournament>()
@@ -43,8 +29,8 @@ export default function TournamentTable({
   isDarkMode,
   onEdit,
   onDelete,
-  onManageGames,
-  selectedTournamentId,
+  onSelectForGames,
+  selectedTournament,
 }: TournamentTableProps) {
   const [sorting, setSorting] = useState<SortingState>([])
 
@@ -67,15 +53,24 @@ export default function TournamentTable({
     }),
     columnHelper.accessor('start_date', {
       header: 'Start Date',
-      cell: info => info.getValue() ? new Date(info.getValue()).toLocaleDateString() : '-',
+      cell: info => {
+        const value = info.getValue();
+        return value ? new Date(value as string).toLocaleDateString() : '-';
+      },
     }),
     columnHelper.accessor('end_date', {
       header: 'End Date',
-      cell: info => info.getValue() ? new Date(info.getValue()).toLocaleDateString() : '-',
+      cell: info => {
+        const value = info.getValue();
+        return value ? new Date(value as string).toLocaleDateString() : '-';
+      },
     }),
     columnHelper.accessor('created_at', {
       header: 'Created',
-      cell: info => info.getValue() ? new Date(info.getValue()!).toLocaleDateString() : '-',
+      cell: info => {
+        const value = info.getValue();
+        return value ? new Date(value as string).toLocaleDateString() : '-';
+      },
     }),
     columnHelper.display({
       id: 'actions',
@@ -90,9 +85,9 @@ export default function TournamentTable({
             <Pencil size={20} />
           </button>
           <button
-            onClick={() => onManageGames(props.row.original)}
+            onClick={() => onSelectForGames(props.row.original)}
             className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 ${
-              selectedTournamentId === props.row.original.id
+              selectedTournament?.id === props.row.original.id
                 ? 'text-blue-600 dark:text-blue-400'
                 : 'text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200'
             }`}
@@ -211,4 +206,4 @@ export default function TournamentTable({
       </div>
     </div>
   )
-} 
+}

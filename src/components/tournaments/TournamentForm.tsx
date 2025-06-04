@@ -2,18 +2,7 @@
 import { useState, useEffect } from 'react'
 import { toast } from 'react-toastify'
 import { apiClient } from '@/lib/api/client'
-
-interface Tournament {
-  id: string
-  name: string
-  start_date: string | null
-  end_date: string | null
-  location: string | null
-  age_group: string | null
-  gender: string | null
-  created_at: string | null
-  updated_at: string | null
-}
+import { Tournament } from '@/lib/types/tournaments'
 
 interface TournamentResponse {
   tournament: Tournament;
@@ -34,11 +23,22 @@ export default function TournamentForm({
 }: TournamentFormProps) {
   const [newTournament, setNewTournament] = useState<Omit<Tournament, 'id' | 'created_at' | 'updated_at'>>({
     name: '',
-    start_date: '',
-    end_date: '',
-    location: '',
-    age_group: '',
-    gender: ''
+    description: null,
+    start_date: null,
+    end_date: null,
+    location: null,
+    status: 'upcoming',
+    format: null,
+    age_group: null,
+    gender: null,
+    flight: null,
+    additional_info: null,
+    organizer: null,
+    contact_email: null,
+    registration_deadline: null,
+    max_teams: null,
+    rules_url: null,
+    image_url: null
   })
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -46,11 +46,22 @@ export default function TournamentForm({
     if (tournament) {
       setNewTournament({
         name: tournament.name,
-        start_date: tournament.start_date || '',
-        end_date: tournament.end_date || '',
-        location: tournament.location || '',
-        age_group: tournament.age_group || '',
-        gender: tournament.gender || ''
+        description: tournament.description,
+        start_date: tournament.start_date,
+        end_date: tournament.end_date,
+        location: tournament.location,
+        status: tournament.status || 'upcoming',
+        format: tournament.format,
+        age_group: tournament.age_group,
+        gender: tournament.gender,
+        flight: tournament.flight,
+        additional_info: tournament.additional_info,
+        organizer: tournament.organizer,
+        contact_email: tournament.contact_email,
+        registration_deadline: tournament.registration_deadline,
+        max_teams: tournament.max_teams,
+        rules_url: tournament.rules_url,
+        image_url: tournament.image_url
       })
     }
   }, [tournament])
@@ -61,11 +72,22 @@ export default function TournamentForm({
     try {
       const tournamentData = {
         name: newTournament.name,
+        description: newTournament.description || null,
         start_date: newTournament.start_date || null,
         end_date: newTournament.end_date || null,
         location: newTournament.location || null,
+        status: newTournament.status || 'upcoming',
+        format: newTournament.format || null,
         age_group: newTournament.age_group || null,
-        gender: newTournament.gender || null
+        gender: newTournament.gender || null,
+        flight: newTournament.flight || null,
+        additional_info: newTournament.additional_info || null,
+        organizer: newTournament.organizer || null,
+        contact_email: newTournament.contact_email || null,
+        registration_deadline: newTournament.registration_deadline || null,
+        max_teams: newTournament.max_teams || null,
+        rules_url: newTournament.rules_url || null,
+        image_url: newTournament.image_url || null
       }
 
       // Validate required fields
@@ -93,11 +115,22 @@ export default function TournamentForm({
       // Reset form and notify parent
       setNewTournament({
         name: '',
-        start_date: '',
-        end_date: '',
-        location: '',
-        age_group: '',
-        gender: ''
+        description: null,
+        start_date: null,
+        end_date: null,
+        location: null,
+        status: 'upcoming',
+        format: null,
+        age_group: null,
+        gender: null,
+        flight: null,
+        additional_info: null,
+        organizer: null,
+        contact_email: null,
+        registration_deadline: null,
+        max_teams: null,
+        rules_url: null,
+        image_url: null
       })
       onSave()
     } catch (error: any) {

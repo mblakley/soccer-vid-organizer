@@ -4,7 +4,6 @@ import { useTheme } from '@/contexts/ThemeContext'
 import { withAdminAuth } from '@/components/auth'
 import { useTeam } from '@/contexts/TeamContext'
 import { toast } from 'react-toastify'
-import Link from 'next/link'
 import { apiClient } from '@/lib/api/client'
 
 // Import shared types
@@ -234,6 +233,7 @@ function TournamentsPage() {
         <div className="space-y-6">
           <TournamentTable
             tournaments={tournaments}
+            isDarkMode={isDarkMode}
             onEdit={handleEditClick}
             onDelete={handleDelete}
             onSelectForGames={handleSelectTournamentForGames}
@@ -261,6 +261,8 @@ function TournamentsPage() {
               ) : (
                 <GameTable
                   games={tournamentGames}
+                  isDarkMode={isDarkMode}
+                  selectedTeamId={selectedTeamId}
                   onEdit={handleEditGame}
                   onDelete={handleDeleteGame}
                 />
@@ -273,6 +275,7 @@ function TournamentsPage() {
       {showTournamentModal && (
         <TournamentForm
           tournament={editingTournament}
+          isDarkMode={isDarkMode}
           onClose={handleCloseTournamentModal}
           onSave={handleSaveTournament}
         />
@@ -281,7 +284,8 @@ function TournamentsPage() {
       {showGameModal && (
         <GameForm
           game={editingGame}
-          tournamentId={selectedTournamentForGames?.id}
+          isDarkMode={isDarkMode}
+          selectedFlight={selectedTournamentForGames?.flight}
           onClose={handleCloseGameModal}
           onSave={handleSaveGame}
         />
