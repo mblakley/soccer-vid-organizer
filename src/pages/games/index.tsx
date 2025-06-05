@@ -2,11 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { apiClient } from '@/lib/api/client';
 import { Game } from '@/lib/types/games';
-import { withAuth, User, TeamRole } from '@/components/auth';
+import { withAuth } from '@/components/auth';
+import type { User } from '@/components/auth';
 import { useTheme } from '@/contexts/ThemeContext';
 import { ListFilter, CalendarDays, Users, AlertTriangle, ExternalLink, Edit3Icon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
+import { TeamRole } from '@/lib/types/auth';
 
 interface GamesPageProps {
   user: User;

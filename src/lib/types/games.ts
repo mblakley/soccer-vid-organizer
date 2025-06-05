@@ -27,6 +27,7 @@ export const gameSchema = z.object({
 export type Game = z.infer<typeof gameSchema> & {
   home_team?: { id: string; name: string; short_name?: string };
   away_team?: { id: string; name: string; short_name?: string };
+  attendance_count?: number;
 };
 
 export type GameStatus = z.infer<typeof gameStatusSchema>;

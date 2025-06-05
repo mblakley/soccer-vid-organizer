@@ -5,6 +5,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient'
 interface GameResponse {
   game?: any;
   message?: string;
+  success?: boolean;
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse<GameResponse>) {

@@ -35,10 +35,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse<VideoSourcesRes
 
   try {
     // Fetching id (PK), video_id (source-specific ID), and source for each video
-    const { data, error } = await getSupabaseClient()
+    const supabase = await getSupabaseClient()
+    const { data, error } = await supabase
       .from('videos')
       .select('id, video_id, source') // Ensure 'video_id' here is the column containing YouTube/Vimeo ID etc.
-      .in('video_id', videoIdsArray); // Querying by the source-specific video_id 
+      .in('video_id', videoIdsArray); // Querying by the source-specific video_id
 
     if (error) {
       console.error('Error fetching video sources:', error);

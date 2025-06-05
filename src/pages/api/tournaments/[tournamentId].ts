@@ -91,8 +91,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse<DeleteTournamen
 }
 
 // Admin-only endpoint
-export default withAuth(handler, {
-  teamId: 'any',
-  roles: [],
-  requireRole: true,
+export default withApiAuth(handler, {
+  isUserAdmin: true
 }); 

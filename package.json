@@ -10,7 +10,8 @@
     "push-db": "dotenv -e .env.push -- supabase db push --include-all",
     "reset-db": "dotenv -e .env.push -- supabase db reset",
     "use:local": "cp .env.local .env",
-    "use:cloud": "cp .env.cloud .env"
+    "use:cloud": "cp .env.cloud .env",
+    "prepare": "husky"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.3",
@@ -50,9 +51,16 @@
     "dotenv-cli": "^8.0.0",
     "eslint": "^9",
     "eslint-config-next": "15.3.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.1.0",
     "mini-css-extract-plugin": "^2.7.6",
     "supabase": "^2.22.12",
     "tailwindcss": "^4.1.7",
     "typescript": "^5"
+  },
+  "husky": {
+    "hooks": {
+      "pre-push": "npm run build"
+    }
   }
 }
