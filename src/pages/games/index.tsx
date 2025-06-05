@@ -2,9 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { apiClient } from '@/lib/api/client';
 import { Game } from '@/lib/types/games';
-import { withAuth, User } from '@/components/auth';
+import { withAuth, User, TeamRole } from '@/components/auth';
 import { useTheme } from '@/contexts/ThemeContext';
 import { ListFilter, CalendarDays, Users, AlertTriangle, ExternalLink, Edit3Icon } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import Link from 'next/link';
 
 interface GamesPageProps {
   user: User;
@@ -16,7 +18,7 @@ interface ListGamesApiResponse {
   // Add count/totalPages if your API provides them for pagination
 }
 
-export default function GamesPage({ user }: GamesPageProps) {
+function GamesPage({ user }: GamesPageProps) {
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [gameTypeFilter, setGameTypeFilter] = useState<'all' | 'league' | 'tournament' | string>('all');
@@ -65,97 +67,131 @@ export default function GamesPage({ user }: GamesPageProps) {
   };
 
   return (
-    <div className={`p-4 md:p-8 ${isDarkMode ? 'bg-gray-800 text-gray-200' : 'bg-gray-100 text-gray-800'}`}>
-      <h1 className="text-3xl font-bold mb-6 flex items-center"><CalendarDays size={32} className="mr-3"/>All Games</h1>
-
-      {error && (
-        <div className={`p-3 mb-4 border rounded ${isDarkMode ? 'bg-red-800 border-red-600 text-red-200' : 'bg-red-100 border-red-300 text-red-700'}`} role="alert">
-          <h3 className="font-semibold flex items-center"><AlertTriangle size={18} className="mr-2"/>Error</h3>
-          <p>{error}</p>
-        </div>
-      )}
-
-      <div className={`mb-6 p-4 rounded-lg ${isDarkMode ? 'bg-gray-700' : 'bg-white shadow-sm'}`}>
-        <label htmlFor="game-type-filter" className="block text-sm font-medium mb-1">Filter by Game Type:</label>
-        <select
-          id="game-type-filter"
-          value={gameTypeFilter}
-          onChange={(e) => setGameTypeFilter(e.target.value)}
-          className={`w-full md:w-1/3 px-3 py-2 rounded-md border ${isDarkMode ? 'bg-gray-600 border-gray-500 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:ring-blue-500 focus:border-blue-500`}
-        >
-          <option value="all">All Types</option>
-          <option value="league">League</option>
-          <option value="tournament">Tournament</option>
-          {/* Add other types if applicable */}
-        </select>
-      </div>
-
-      {loading ? (
-        <div className="text-center py-10">
-          <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
-          <p className={`mt-3 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Loading games...</p>
-        </div>
-      ) : games.length === 0 ? (
-        <div className={`text-center py-10 px-4 rounded-lg ${isDarkMode ? 'bg-gray-700' : 'bg-white shadow'}`}>
-          <Users size={48} className={`mx-auto mb-4 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
-          <h3 className="text-xl font-semibold mb-2">No Games Found</h3>
-          <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>
-            No games match your current filter.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {games.map((game) => (
-            <div key={game.id} className={`p-4 rounded-lg shadow-md ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-white hover:bg-gray-50'} transition-colors`}>
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
-                <div className="mb-2 sm:mb-0">
-                  <h2 className="text-xl font-semibold">
-                    {game.home_team_name || 'TBD'} vs {game.away_team_name || 'TBD'}
-                  </h2>
-                  <p className={`text-xs uppercase font-semibold tracking-wider ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>{game.type}</p>
-                </div>
-                <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mb-2 sm:mb-0`}>
-                  {game.status && <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${game.status === 'completed' ? (isDarkMode ? 'bg-green-700 text-green-200' : 'bg-green-200 text-green-800') : (isDarkMode ? 'bg-yellow-700 text-yellow-200' : 'bg-yellow-200 text-yellow-800')}`}>{game.status}</span>}
-                </div>
-              </div>
-              <p className={`mt-1 text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} flex items-center`}>
-                <CalendarDays size={15} className="mr-2" /> {formatDate(game.game_date)} at {game.start_time || 'TBD'}
-                {game.location && <span className="ml-2">| {game.location}</span>}
-              </p>
-              {game.status === 'completed' && game.score_home !== null && game.score_away !== null && (
-                <p className={`mt-1 text-sm font-bold ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>
-                  Final Score: {game.score_home} - {game.score_away}
-                </p>
+    <div className="min-h-screen">
+      <div className="p-6">
+        <div className="flex flex-col space-y-6">
+          {/* Game Type Filter */}
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={() => setGameTypeFilter('all')}
+              className={cn(
+                "px-4 py-2 rounded-md font-medium transition-colors",
+                gameTypeFilter === 'all' 
+                  ? (isDarkMode ? "bg-blue-600 text-white" : "bg-blue-500 text-white")
+                  : (isDarkMode ? "bg-gray-700 text-gray-300 hover:bg-gray-600" : "bg-gray-200 text-gray-700 hover:bg-gray-300")
               )}
-              {game.league_id && <p className={`mt-1 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>League ID: {game.league_id}</p>}
-              {game.tournament_id && <p className={`mt-1 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Tournament ID: {game.tournament_id}</p>}
-              <div className="mt-3 flex space-x-2">
-                <button 
-                  onClick={() => router.push(`/games/${game.id}`)} 
-                  className={`px-3 py-1 text-xs rounded-md font-medium flex items-center ${isDarkMode ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'} transition-colors`}
-                >
-                  <ExternalLink size={14} className="mr-1.5" /> View Details
-                </button>
-                {/* Add Edit button if applicable/permissions allow */}
-                {/* <button 
-                  onClick={() => router.push(`/admin/games/${game.id}/edit`)} 
-                  className={`px-3 py-1 text-xs rounded-md font-medium flex items-center ${isDarkMode ? 'bg-yellow-500 hover:bg-yellow-400 text-gray-800' : 'bg-yellow-400 hover:bg-yellow-500 text-gray-800'} transition-colors`}
-                >
-                  <Edit3Icon size={14} className="mr-1.5" /> Edit
-                </button> */}
+            >
+              All Games
+            </button>
+            <button
+              onClick={() => setGameTypeFilter('league')}
+              className={cn(
+                "px-4 py-2 rounded-md font-medium transition-colors",
+                gameTypeFilter === 'league' 
+                  ? (isDarkMode ? "bg-blue-600 text-white" : "bg-blue-500 text-white")
+                  : (isDarkMode ? "bg-gray-700 text-gray-300 hover:bg-gray-600" : "bg-gray-200 text-gray-700 hover:bg-gray-300")
+              )}
+            >
+              League Games
+            </button>
+            <button
+              onClick={() => setGameTypeFilter('tournament')}
+              className={cn(
+                "px-4 py-2 rounded-md font-medium transition-colors",
+                gameTypeFilter === 'tournament' 
+                  ? (isDarkMode ? "bg-blue-600 text-white" : "bg-blue-500 text-white")
+                  : (isDarkMode ? "bg-gray-700 text-gray-300 hover:bg-gray-600" : "bg-gray-200 text-gray-700 hover:bg-gray-300")
+              )}
+            >
+              Tournament Games
+            </button>
+          </div>
+
+          {/* Loading State */}
+          {loading && (
+            <div className="flex items-center justify-center p-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+              <span className="ml-3">Loading games...</span>
+            </div>
+          )}
+
+          {/* Error State */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start">
+              <AlertTriangle className="h-5 w-5 text-red-500 mt-0.5" />
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-red-800">Error loading games</h3>
+                <p className="text-sm text-red-700 mt-1">{error}</p>
               </div>
             </div>
-          ))}
+          )}
+
+          {/* Game List */}
+          {!loading && !error && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {games.map((game) => (
+                <div
+                  key={game.id}
+                  className={cn(
+                    "rounded-lg shadow-sm border transition-all duration-200 hover:shadow-md",
+                    isDarkMode ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"
+                  )}
+                >
+                  <div className="p-4">
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <h3 className={cn("font-semibold", isDarkMode ? "text-white" : "text-gray-900")}>
+                          {game.home_team_name || 'TBD'} vs {game.away_team_name || 'TBD'}
+                        </h3>
+                        <p className={cn("text-sm", isDarkMode ? "text-gray-400" : "text-gray-500")}>
+                          {game.type}
+                        </p>
+                      </div>
+                      <div className="flex space-x-2">
+                        <Link
+                          href={`/games/${game.id}`}
+                          className={cn(
+                            "p-2 rounded-md transition-colors",
+                            isDarkMode ? "hover:bg-gray-700" : "hover:bg-gray-100"
+                          )}
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </Link>
+                        <Link
+                          href={`/games/${game.id}/edit`}
+                          className={cn(
+                            "p-2 rounded-md transition-colors",
+                            isDarkMode ? "hover:bg-gray-700" : "hover:bg-gray-100"
+                          )}
+                        >
+                          <Edit3Icon className="h-4 w-4" />
+                        </Link>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center text-sm">
+                        <CalendarDays className="h-4 w-4 mr-2" />
+                        <span>{formatDate(game.game_date)}</span>
+                      </div>
+                      <div className="flex items-center text-sm">
+                        <Users className="h-4 w-4 mr-2" />
+                        <span>{game.attendance_count || 0} players</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
-      {/* TODO: Add pagination controls if API supports count/totalPages */}
+      </div>
     </div>
   );
 }
 
 // Applying withAuth for consistency, adjust roles/requirements as needed
-// export default withAuth(GamesPage, {
-//   teamId: 'any',
-//   roles: [] as TeamRole[], 
-//   requireRole: false,
-// }); 
+export default withAuth(GamesPage, {
+  teamId: 'any',
+  roles: [] as TeamRole[], 
+  requireRole: false,
+}, 'All Games'); 

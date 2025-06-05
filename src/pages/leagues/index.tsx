@@ -171,12 +171,6 @@ function LeaguesPage({ user }: LeaguesPageProps) {
 
   return (
     <div className={`p-4 md:p-8 space-y-6 ${isDarkMode ? 'bg-gray-800 text-gray-200' : 'bg-gray-100 text-gray-800'}`}>
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold flex items-center"><List size={32} className="mr-3"/>Leagues</h1>
-        {/* TODO: Add New League button for admins/authorized roles */}
-        {/* <button onClick={() => router.push('/admin/leagues/new')} className="btn btn-primary"><PlusCircle size={18} /> New League</button> */}
-      </div>
-
       {pageError && (
         <div className={`p-3 mb-4 border rounded ${isDarkMode ? 'bg-red-800 border-red-600 text-red-200' : 'bg-red-100 border-red-300 text-red-700'}`} role="alert">
           <h3 className="font-semibold flex items-center"><AlertTriangle size={18} className="mr-2"/>Error</h3>
@@ -297,8 +291,8 @@ export default withAuth(
   LeaguesPage,
   {
     teamId: 'any',
-    roles: ['coach', 'player', 'parent', 'manager'] as TeamRole[], 
-    requireRole: true,
+    roles: [] as TeamRole[], 
+    requireRole: false,
   },
   'Leagues'
 ); 

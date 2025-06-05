@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import { withAuth } from '@/components/auth';
+import { withApiAuth } from '@/lib/auth';
 import { TeamRole } from '@/lib/types/auth';
 
 interface VideoSourceInfo {
@@ -14,8 +14,6 @@ interface VideoSourcesResponse {
   sources?: VideoSourceInfo[];
   message?: string;
 }
-
-const supabase = await getSupabaseClient();
 
 async function handler(req: NextApiRequest, res: NextApiResponse<VideoSourcesResponse>) {
   if (req.method !== 'GET') {
@@ -37,7 +35,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse<VideoSourcesRes
 
   try {
     // Fetching id (PK), video_id (source-specific ID), and source for each video
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseClient()
       .from('videos')
       .select('id, video_id, source') // Ensure 'video_id' here is the column containing YouTube/Vimeo ID etc.
       .in('video_id', videoIdsArray); // Querying by the source-specific video_id 
@@ -56,8 +54,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse<VideoSourcesRes
 }
 
 // Adjust auth as needed. Accessing video sources might be public or restricted.
-export default withAuth(handler, {
-  teamId: 'any',
-  roles: [] as TeamRole[], // Example: any authenticated user
-  requireRole: false,
+export default withApiAuth(handler, {
+  allowUnauthenticated: false
 }); 

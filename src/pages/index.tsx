@@ -140,16 +140,22 @@ function HomePage({ user }: HomePageProps) {
   useEffect(() => {
     setLoading(true)
     setPageError(null)
-    Promise.all([
-      fetchUserRoles(),
-      fetchRecentClips(),
-      fetchRecentVideos(),
-    ]).finally(() => setLoading(false))
-  }, [fetchUserRoles, fetchRecentClips, fetchRecentVideos])
+    
+    // Only fetch data if we have a user
+    if (user) {
+      Promise.all([
+        fetchUserRoles(),
+        fetchRecentClips(),
+        fetchRecentVideos(),
+      ]).finally(() => setLoading(false))
+    } else {
+      setLoading(false)
+    }
+  }, [fetchUserRoles, fetchRecentClips, fetchRecentVideos, user])
 
   useEffect(() => {
     const fetchCommentsForCurrentClip = async () => {
-      if (clips.length > 0 && currentIndex < clips.length) {
+      if (clips.length > 0 && currentIndex < clips.length && user) {
         const currentClip = clips[currentIndex]
         if (currentClip?.id) {
           try {
@@ -162,7 +168,7 @@ function HomePage({ user }: HomePageProps) {
       }
     }
     fetchCommentsForCurrentClip()
-  }, [currentIndex, clips])
+  }, [currentIndex, clips, user])
 
   const isVideo = (item: Video | Clip): item is Video => {
     return 'source' in item && 'url' in item;

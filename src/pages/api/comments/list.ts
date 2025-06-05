@@ -1,33 +1,30 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
+import { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import { withAuth } from '@/components/auth';
-import { TeamRole } from '@/lib/types/auth';
+import { withApiAuth } from '@/lib/auth';
 import { Comment } from '@/lib/types/comments';
 
-interface ListCommentsResponse {
+interface CommentListResponse {
   comments?: Comment[];
   count?: number;
   message?: string;
 }
 
-const supabase = await getSupabaseClient(); // Or user-context client if RLS is per user
-
-async function handler(req: NextApiRequest, res: NextApiResponse<ListCommentsResponse>) {
+async function handler(req: NextApiRequest, res: NextApiResponse<CommentListResponse>) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', ['GET']);
-    return res.status(405).json({ message: 'Method not allowed' });
+    return res.status(405).json({ comments: [], message: 'Method not allowed' });
   }
 
-  const { clipId, userId, videoId, isReplyToNull, returnCountOnly } = req.query;
+  const clipId = req.query.clipId as string | undefined;
+  const shouldReturnCountOnly = req.query.count === 'true';
 
-  // Relaxed filter requirement: allow fetching all comments or based on isReplyToNull
-  // if (!clipId && !userId && !videoId && typeof isReplyToNull === 'undefined') {
-  //   return res.status(400).json({ message: 'A filter (clipId, userId, videoId, or isReplyToNull) is required.' });
-  // }
+  if (!clipId) {
+    return res.status(400).json({ comments: [], message: 'Clip ID is required' });
+  }
 
   try {
+    const supabase = await getSupabaseClient(req.headers.authorization);
     let query;
-    const shouldReturnCountOnly = returnCountOnly === 'true';
 
     if (shouldReturnCountOnly) {
       query = supabase.from('comments').select('id', { count: 'exact', head: true });
@@ -37,42 +34,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse<ListCommentsRes
       query = query.order('created_at', { ascending: true });
     }
 
-    if (clipId && typeof clipId === 'string') {
-      query = query.eq('clip_id', clipId);
-    }
-    if (userId && typeof userId === 'string') {
-      query = query.eq('user_id', userId);
-    }
-    if (videoId && typeof videoId === 'string') {
-      query = query.eq('video_id', videoId);
-    }
-    if (typeof isReplyToNull !== 'undefined') { // Checks for presence of the query param
-        // parent_comment_id is the typical name for replies
-        query = query.is('parent_comment_id', null);
-    }
+    query = query.eq('clip_id', clipId);
 
     const { data, error, count } = await query;
 
     if (error) {
       console.error('Error fetching comments:', error);
-      return res.status(500).json({ message: error.message || 'Failed to fetch comments' });
+      return res.status(500).json({ comments: [], message: error.message });
     }
 
     if (shouldReturnCountOnly) {
-      return res.status(200).json({ count: count !== null ? count : 0 });
+      return res.status(200).json({ count: count || 0 });
     }
 
-    return res.status(200).json({ comments: data as Comment[] || [], count: count !== null ? count : (data?.length || 0) });
-
+    return res.status(200).json({ comments: (data || []) as Comment[] });
   } catch (err: any) {
     console.error('Exception fetching comments:', err);
-    return res.status(500).json({ message: err.message || 'An unexpected error occurred' });
+    return res.status(500).json({ comments: [], message: err.message || 'An unexpected error occurred' });
   }
 }
 
 // Adjust auth as needed. Comments might be public for a public clip, or restricted.
-export default withAuth(handler, {
-  teamId: 'any',
-  roles: [] as TeamRole[], // Example: any authenticated user can view comments
-  requireRole: false,
+export default withApiAuth(handler, {
+  allowUnauthenticated: false
 }); 

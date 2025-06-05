@@ -18,9 +18,6 @@ interface ListVideosResponse {
   message?: string;
 }
 
-// Initialize the service role client once
-const supabase = await getSupabaseClient();
-
 async function handler(req: NextApiRequest, res: NextApiResponse<ListVideosApiResponse>) {
   // Inside the handler, after withApiAuth has processed, req can be treated as AuthenticatedApiRequest
   const apiReq = req as AuthenticatedApiRequest;

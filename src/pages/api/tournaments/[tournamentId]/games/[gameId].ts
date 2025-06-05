@@ -1,13 +1,11 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getSupabaseClient } from '@/lib/supabaseClient';
-import { withAuth } from '@/components/auth';
+import { withApiAuth } from '@/lib/auth';
 import { TeamRole } from '@/lib/types/auth';
+import { getSupabaseClient } from '@/lib/supabaseClient';
 
 interface RemoveGameFromTournamentResponse {
   message: string;
 }
-
-const supabase = await getSupabaseClient();
 
 async function handler(req: NextApiRequest, res: NextApiResponse<RemoveGameFromTournamentResponse | { message: string }>) {
   if (req.method !== 'DELETE') {
@@ -22,6 +20,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse<RemoveGameFromT
   }
 
   try {
+    const supabase = await getSupabaseClient(req.headers.authorization);
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
       return res.status(401).json({ message: 'Unauthorized' });
@@ -62,8 +61,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse<RemoveGameFromT
 }
 
 // Admin-only endpoint for managing tournament game relationships
-export default withAuth(handler, {
-  teamId: 'any',
-  roles: [],
-  requireRole: true,
+export default withApiAuth(handler, {
+  allowUnauthenticated: false
 }); 

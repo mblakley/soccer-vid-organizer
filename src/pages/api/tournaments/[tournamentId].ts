@@ -1,13 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getSupabaseClient } from '@/lib/supabaseClient';
-import { withAuth } from '@/components/auth';
+import { withApiAuth } from '@/lib/auth';
 import { TeamRole } from '@/lib/types/auth';
+import { getSupabaseClient } from '@/lib/supabaseClient';
 
 interface DeleteTournamentResponse {
   message: string;
 }
-
-const supabase = await getSupabaseClient();
 
 async function handler(req: NextApiRequest, res: NextApiResponse<DeleteTournamentResponse | { message: string }>) {
   if (req.method !== 'DELETE') {
@@ -22,6 +20,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse<DeleteTournamen
   }
 
   try {
+    const supabase = await getSupabaseClient(req.headers.authorization);
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
       return res.status(401).json({ message: 'Unauthorized' });

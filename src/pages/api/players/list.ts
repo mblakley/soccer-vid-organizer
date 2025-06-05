@@ -1,46 +1,37 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { getSupabaseClient } from '@/lib/supabaseClient';
-import { withAuth } from '@/components/auth';
-import { TeamRole } from '@/lib/types/auth';
-import { Player } from '@/lib/types/players';
+import { NextApiRequest, NextApiResponse } from 'next'
+import { withApiAuth } from '@/lib/auth'
+import { getSupabaseClient } from '@/lib/supabaseClient'
 
-interface ListPlayersResponse {
-  players?: Player[];
+interface PlayersListResponse {
+  players?: any[];
   message?: string;
 }
 
-const supabase = await getSupabaseClient();
+async function handler(req: NextApiRequest, res: NextApiResponse<PlayersListResponse>) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', ['GET'])
+    return res.status(405).json({ message: 'Method not allowed' })
+  }
 
-async function handler(req: NextApiRequest, res: NextApiResponse<ListPlayersResponse>) {
-  if (req.method === 'GET') {
-    try {
-      // TODO: Determine if players should be filtered by team or if all players are listed.
-      // If team-specific, teamId would need to be passed and used in the query.
-      // For now, fetching all players as per the original Supabase call in the component.
-      const { data, error } = await supabase
-        .from('players') // Assuming 'players' is the correct table name
-        .select('*')     // Select all fields, adjust as necessary
-        .order('name'); // Order by name as in the original component
+  try {
+    const supabase = await getSupabaseClient(req.headers.authorization)
+    const { data, error } = await supabase
+      .from('players')
+      .select('*')
+      .order('last_name', { ascending: true })
 
-      if (error) {
-        console.error('Error fetching players:', error);
-        return res.status(500).json({ message: error.message || 'Failed to fetch players' });
-      }
-
-      return res.status(200).json({ players: data as Player[] || [] });
-    } catch (err: any) {
-      console.error('Exception fetching players:', err);
-      return res.status(500).json({ message: err.message || 'An unexpected error occurred' });
+    if (error) {
+      console.error('Error fetching players:', error)
+      return res.status(500).json({ message: error.message })
     }
-  } else {
-    res.setHeader('Allow', ['GET']);
-    res.status(405).end(`Method ${req.method} Not Allowed`);
+
+    return res.status(200).json({ players: data || [] })
+  } catch (err: any) {
+    console.error('Exception fetching players:', err)
+    return res.status(500).json({ message: err.message || 'An unexpected error occurred' })
   }
 }
 
-// Adjust auth requirements. Listing players might be restricted.
-export default withAuth(handler, {
-  teamId: 'any', // Or specific team context if players are team-specific
-  roles: ['coach', 'manager'] as TeamRole[], // Example: only coaches/managers can list all players
-  requireRole: true, // Or false if accessible to any authenticated user
-}); 
+export default withApiAuth(handler, {
+  allowUnauthenticated: false
+}) 

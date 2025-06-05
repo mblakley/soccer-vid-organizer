@@ -39,7 +39,7 @@ export default function AppLayout({ children, title, fullWidth }: AppLayoutProps
               {!fullWidth && (
                 <HamburgerButton isOpen={isSidebarOpen} onClick={toggleSidebar} />
               )}
-              {title && <h1 className="text-xl font-bold">{title}</h1>}
+              {title && <h1 className="text-2xl font-bold">{title}</h1>}
             </div>
             <UserBanner email={currentUser.email || ''} roles={currentUser.isAdmin ? ['admin'] : []} />
           </div>

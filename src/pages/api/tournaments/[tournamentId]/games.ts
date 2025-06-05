@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import { withAuth } from '@/components/auth';
+import { withApiAuth } from '@/lib/auth';
 import { TeamRole } from '@/lib/types/auth';
 import { Game } from '@/lib/types/games';
 import { TournamentGameEntry } from '@/lib/types/tournaments';
@@ -141,8 +141,6 @@ async function handler(req: AuthenticatedRequest, res: NextApiResponse<ListTourn
 }
 
 // Adjust auth requirements. Adding games might be admin/coach restricted.
-export default withAuth(handler, {
-  teamId: 'any', 
-  roles: ['admin', 'coach'] as TeamRole[], 
-  requireRole: true, 
+export default withApiAuth(handler, {
+  allowUnauthenticated: false
 }); 

@@ -48,10 +48,13 @@ export function withAuth(
     const router = useRouter()
     const [user, setUser] = useState<User | null>(null)
     const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
 
     useEffect(() => {
       const checkAuth = async () => {
         try {
+          setLoading(true)
+          setError(null)
           const userData = await getCurrentUser()
           
           if (!userData) {
@@ -93,17 +96,40 @@ export function withAuth(
           
           // User is authenticated and has required permissions
           setUser(userData)
-          setLoading(false)
         } catch (error) {
           console.error('Auth error:', error)
+          setError(error instanceof Error ? error.message : 'Authentication failed')
           router.push('/login')
+        } finally {
+          setLoading(false)
         }
       }
       
       checkAuth()
     }, [router])
     
-    if (loading) return <div className="p-8">Loading...</div>
+    if (loading) {
+      return (
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-blue-500"></div>
+          <p className="ml-4 text-lg">Loading...</p>
+        </div>
+      )
+    }
+
+    if (error) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center p-4">
+          <div className="text-red-500 mb-4">Authentication Error</div>
+          <p className="text-center">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-6 px-4 py-2 rounded-md font-medium bg-blue-500 hover:bg-blue-600 text-white transition-colors">
+            Try Again
+          </button>
+        </div>
+      )
+    }
     
     // Use fullWidth for analyze-video page
     const isAnalyzeVideo = pageTitle === 'Analyze Video' || router.pathname.includes('analyze-video')

@@ -1,69 +1,44 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { getSupabaseClient } from '@/lib/supabaseClient';
-import { withAuth } from '@/components/auth';
-import { TeamRole } from '@/lib/types/auth';
+import { NextApiRequest, NextApiResponse } from 'next'
+import { withApiAuth } from '@/lib/auth'
+import { getSupabaseClient } from '@/lib/supabaseClient'
 
 interface TournamentFlightsResponse {
-  flights?: string[];
+  flights?: any[];
   message?: string;
 }
 
-const supabase = await getSupabaseClient();
-
 async function handler(req: NextApiRequest, res: NextApiResponse<TournamentFlightsResponse>) {
   if (req.method !== 'GET') {
-    res.setHeader('Allow', ['GET']);
-    return res.status(405).json({ message: 'Method not allowed' });
+    res.setHeader('Allow', ['GET'])
+    return res.status(405).json({ message: 'Method not allowed' })
   }
 
-  const { tournamentId } = req.query;
+  const { tournamentId } = req.query
 
-  if (typeof tournamentId !== 'string') {
-    return res.status(400).json({ message: 'tournamentId path parameter is required and must be a string.' });
+  if (!tournamentId || typeof tournamentId !== 'string') {
+    return res.status(400).json({ message: 'Tournament ID is required' })
   }
 
   try {
-    // Get flights from tournament_teams
-    const { data: teamFlightsData, error: teamFlightsError } = await supabase
-      .from('tournament_teams')
-      .select('flight')
+    const supabase = await getSupabaseClient(req.headers.authorization)
+    const { data, error } = await supabase
+      .from('tournament_flights')
+      .select('*')
       .eq('tournament_id', tournamentId)
-      .not('flight', 'is', null);
+      .order('name', { ascending: true })
 
-    if (teamFlightsError) {
-      console.error(`Error fetching team flights for tournament ${tournamentId}:`, teamFlightsError);
-      return res.status(500).json({ message: teamFlightsError.message || 'Failed to fetch team flights.' });
+    if (error) {
+      console.error('Error fetching tournament flights:', error)
+      return res.status(500).json({ message: error.message })
     }
 
-    // Get flights from tournament_games
-    const { data: gameFlightsData, error: gameFlightsError } = await supabase
-      .from('tournament_games')
-      .select('flight')
-      .eq('tournament_id', tournamentId)
-      .not('flight', 'is', null);
-
-    if (gameFlightsError) {
-      console.error(`Error fetching game flights for tournament ${tournamentId}:`, gameFlightsError);
-      return res.status(500).json({ message: gameFlightsError.message || 'Failed to fetch game flights.' });
-    }
-    
-    const teamFlights = teamFlightsData?.map(item => item.flight).filter(f => f) as string[] || [];
-    const gameFlights = gameFlightsData?.map(item => item.flight).filter(f => f) as string[] || [];
-    
-    const allFlights = [...teamFlights, ...gameFlights];
-    const uniqueFlights = [...new Set(allFlights)].sort(); // Sort for consistent order
-
-    return res.status(200).json({ flights: uniqueFlights });
-
+    return res.status(200).json({ flights: data || [] })
   } catch (err: any) {
-    console.error(`Exception fetching flights for tournament ${tournamentId}:`, err);
-    return res.status(500).json({ message: err.message || 'An unexpected error occurred' });
+    console.error('Exception fetching tournament flights:', err)
+    return res.status(500).json({ message: err.message || 'An unexpected error occurred' })
   }
 }
 
-// Adjust auth as needed for viewing tournament flight information
-export default withAuth(handler, {
-  teamId: 'any',
-  roles: ['admin', 'coach'] as TeamRole[], // Example: admins and coaches can see this
-  requireRole: true,
-}); 
+export default withApiAuth(handler, {
+  allowUnauthenticated: false
+}) 

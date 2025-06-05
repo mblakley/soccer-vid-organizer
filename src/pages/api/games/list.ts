@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import { withAuth } from '@/components/auth';
+import { withApiAuth } from '@/lib/auth';
 import { Game } from '@/lib/types/games';
 import { TeamRole } from '@/lib/types/auth';
 
@@ -11,7 +11,6 @@ interface ListGamesResponse {
 
 // No user context needed for just listing games if RLS is set for public or role-based read access.
 // If created_by or team-specific filtering based on user is needed, use getSupabaseClient(req.headers.authorization).
-const supabase = await getSupabaseClient(); 
 
 async function handler(req: NextApiRequest, res: NextApiResponse<ListGamesResponse>) {
   if (req.method !== 'GET') {
@@ -22,6 +21,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse<ListGamesRespon
   const { type, leagueId, tournamentId, teamId, limit, offset, sortBy, sortOrder } = req.query;
 
   try {
+    const supabase = await getSupabaseClient(req.headers.authorization);
     let query = supabase.from('games').select('*');
 
     if (type && typeof type === 'string' && type !== 'all') {
@@ -66,8 +66,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse<ListGamesRespon
   }
 }
 
-export default withAuth(handler, {
-  teamId: 'any', // Adjust if access needs to be team-specific or role-specific
-  roles: [] as TeamRole[], // All authenticated users can list games, or define specific roles
-  requireRole: false, // Or true if specific roles are required
+export default withApiAuth(handler, {
+  allowUnauthenticated: false
 }); 

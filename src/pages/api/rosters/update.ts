@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import { withAuth } from '@/components/auth';
+import { withApiAuth } from '@/lib/auth';
 import { TeamRole } from '@/lib/types/auth';
 import { RosterEntry } from '@/lib/types/players';
 
@@ -10,70 +10,65 @@ interface UpdateRosterEntryRequest extends RosterEntry {
 }
 
 interface UpdateRosterResponse {
-  rosterEntry?: RosterEntry;
+  success?: boolean;
   message?: string;
 }
 
-const supabase = await getSupabaseClient();
-
 async function handler(req: NextApiRequest, res: NextApiResponse<UpdateRosterResponse>) {
-  if (req.method === 'POST' || req.method === 'PUT') { // Allow PUT for update, POST for create
-    const { id, player_id, game_id, ...updates } = req.body as UpdateRosterEntryRequest;
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', ['POST']);
+    return res.status(405).json({ message: 'Method not allowed' });
+  }
 
-    if (!player_id || !game_id) {
-      return res.status(400).json({ message: 'player_id and game_id are required' });
+  const { gameId, playerIds } = req.body;
+
+  if (!gameId || typeof gameId !== 'string') {
+    return res.status(400).json({ message: 'Game ID is required' });
+  }
+
+  if (!Array.isArray(playerIds)) {
+    return res.status(400).json({ message: 'Player IDs must be an array' });
+  }
+
+  try {
+    const supabase = await getSupabaseClient(req.headers.authorization);
+
+    // First, delete existing roster entries for this game
+    const { error: deleteError } = await supabase
+      .from('game_rosters')
+      .delete()
+      .eq('game_id', gameId);
+
+    if (deleteError) {
+      console.error('Error deleting existing roster:', deleteError);
+      return res.status(500).json({ message: deleteError.message });
     }
 
-    try {
-      let data: RosterEntry | null = null;
-      let error: any = null;
+    // Then, insert new roster entries
+    if (playerIds.length > 0) {
+      const rosterEntries = playerIds.map(playerId => ({
+        game_id: gameId,
+        player_id: playerId
+      }));
 
-      if (id) { // If ID is provided, it's an update
-        const { data: updateData, error: updateError } = await supabase
-          .from('roster_entries')
-          .update(updates)
-          .eq('id', id)
-          .select()
-          .single(); // Return the updated record
-        data = updateData;
-        error = updateError;
-      } else { // Otherwise, it's an insert
-        // Check if an entry for this player and game already exists to prevent duplicates if needed
-        // This logic depends on your application's rules (e.g., can a player be in a roster twice?)
-        // For simplicity, assuming direct insert or that player_id+game_id is unique in DB
-        const { data: insertData, error: insertError } = await supabase
-          .from('roster_entries')
-          .insert([{ player_id, game_id, ...updates }])
-          .select()
-          .single(); // Return the inserted record
-        data = insertData;
-        error = insertError;
+      const { error: insertError } = await supabase
+        .from('game_rosters')
+        .insert(rosterEntries);
+
+      if (insertError) {
+        console.error('Error inserting new roster:', insertError);
+        return res.status(500).json({ message: insertError.message });
       }
-
-      if (error) {
-        console.error('Error saving roster entry:', error);
-        return res.status(500).json({ message: error.message || 'Failed to save roster entry' });
-      }
-
-      if (!data) {
-        // This case might happen if .single() doesn't find a record after update/insert (should not happen with .select())
-        return res.status(404).json({ message: 'Roster entry not found after operation.' });
-      }
-
-      return res.status(id ? 200 : 201).json({ rosterEntry: data });
-    } catch (err: any) {
-      console.error('Exception saving roster entry:', err);
-      return res.status(500).json({ message: err.message || 'An unexpected error occurred' });
     }
-  } else {
-    res.setHeader('Allow', ['POST', 'PUT']);
-    res.status(405).end(`Method ${req.method} Not Allowed`);
+
+    return res.status(200).json({ success: true });
+  } catch (err: any) {
+    console.error('Exception updating roster:', err);
+    return res.status(500).json({ message: err.message || 'An unexpected error occurred' });
   }
 }
 
 // Adjust auth requirements. Modifying rosters is typically restricted.
-export default withAuth(handler, {
-  teamId: 'any', // Or use teamId from request body/query to check specific team role
-  roles: ['coach', 'manager'] as TeamRole[], // Example: Only coaches/managers can modify rosters
-  requireRole: true,
+export default withApiAuth(handler, {
+  allowUnauthenticated: false
 }); 

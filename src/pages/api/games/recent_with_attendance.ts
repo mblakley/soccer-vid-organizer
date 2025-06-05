@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import { withAuth } from '@/components/auth';
+import { withApiAuth } from '@/lib/auth';
 import { Game } from '@/lib/types/games';
 import { RosterEntry } from '@/lib/types/players';
 import { TeamRole } from '@/lib/types/auth';
@@ -21,8 +21,6 @@ interface RecentGamesAttendanceResponse {
   message?: string;
 }
 
-const supabase = await getSupabaseClient();
-
 async function handler(req: NextApiRequest, res: NextApiResponse<RecentGamesAttendanceResponse>) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', ['GET']);
@@ -32,59 +30,43 @@ async function handler(req: NextApiRequest, res: NextApiResponse<RecentGamesAtte
   const limit = parseInt(req.query.limit as string) || 5; // Default to 5 games
 
   try {
-    // Fetch recent games and their roster entries
-    // Adjust the select if your Game type has home_team_name and away_team_name directly
-    // If not, you might need to join with teams table here or have them as part of the 'games' table
-    const { data: gamesData, error } = await supabase
+    const supabase = await getSupabaseClient(req.headers.authorization);
+    const { data, error } = await supabase
       .from('games')
       .select(`
-        id,
-        game_date,
-        home_team_name, 
-        away_team_name, 
-        type,
-        status,
-        league_id,
-        tournament_id,
-        roster_entries (
-          is_attending
-        )
+        *,
+        attendance:game_attendance(count)
       `)
-      .order('game_date', { ascending: false })
+      .order('date', { ascending: false })
       .limit(limit);
 
     if (error) {
-      console.error('Error fetching recent games with attendance:', error);
-      return res.status(500).json({ message: error.message || 'Failed to fetch recent games' });
+      console.error('Error fetching recent games:', error);
+      return res.status(500).json({ message: error.message });
     }
 
-    if (!gamesData) {
+    if (!data) {
       return res.status(200).json({ games: [] });
     }
 
-    const gamesWithAttendance: GameAttendance[] = gamesData.map((game: any) => ({
+    const gamesWithAttendance: GameAttendance[] = data.map((game: any) => ({
       id: game.id,
-      game_date: game.game_date,
-      // Assuming home_team_name and away_team_name are directly on the game object from the query
-      // If they were IDs (home_team_id, away_team_id), you'd need to adjust or join further
+      game_date: game.date,
       home_team_name: game.home_team_name || 'TBD',
       away_team_name: game.away_team_name || 'TBD',
       type: game.type,
-      attendance_count: game.roster_entries.filter((entry: Partial<RosterEntry>) => entry.is_attending === true).length,
+      attendance_count: game.attendance.count,
       total_players: game.roster_entries.length,
     }));
 
     return res.status(200).json({ games: gamesWithAttendance });
-
   } catch (err: any) {
-    console.error('Exception fetching recent games with attendance:', err);
+    console.error('Exception fetching recent games:', err);
     return res.status(500).json({ message: err.message || 'An unexpected error occurred' });
   }
 }
 
 // Adjust auth as needed. This data might be restricted.
-export default withAuth(handler, {
-  teamId: 'any',
-  roles: ['coach', 'manager'] as TeamRole[], // Example: coaches/managers view
-  requireRole: true,
+export default withApiAuth(handler, {
+  allowUnauthenticated: false
 }); 
